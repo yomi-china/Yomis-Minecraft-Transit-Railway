@@ -76,9 +76,6 @@ public class RenderTrains extends EntityRendererMapper<EntitySeat> implements IG
 	private static int prevPlatformCount;
 	private static int prevSidingCount;
 	private static UUID renderedUuid;
-	private static Vec3 renderCameraPos = Vec3.ZERO;
-
-	public static final ThreadLocal<Boolean> MSD_CAMERA_RELATIVE = ThreadLocal.withInitial(() -> false);
 
 	public static final int PLAYER_RENDER_OFFSET = 1000;
 
@@ -179,7 +176,8 @@ public class RenderTrains extends EntityRendererMapper<EntitySeat> implements IG
 		if (!backupRendering) {
 			matrices.popPose();
 			matrices.pushPose();
-			renderCameraPos = client.gameRenderer.getMainCamera().getPosition();
+			final Vec3 cameraPosition = client.gameRenderer.getMainCamera().getPosition();
+			matrices.translate(-cameraPosition.x, -cameraPosition.y, -cameraPosition.z);
 		}
 		matrices.pushPose();
 
@@ -285,7 +283,7 @@ public class RenderTrains extends EntityRendererMapper<EntitySeat> implements IG
 				return;
 			}
 
-			matrices.translate(x - renderCameraPos.x, y - renderCameraPos.y, z - renderCameraPos.z);
+			matrices.translate(x, y, z);
 			UtilitiesClient.rotateXDegrees(matrices, 180);
 			UtilitiesClient.rotateYDegrees(matrices, 180 + lift.facing.toYRot());
 			final int light = LightTexture.pack(world.getBrightness(LightLayer.BLOCK, posAverage), world.getBrightness(LightLayer.SKY, posAverage));
@@ -353,7 +351,7 @@ public class RenderTrains extends EntityRendererMapper<EntitySeat> implements IG
 							final int r = renderColors ? (rail.railType.color >> 16) & 0xFF : 0;
 							final int g = renderColors ? (rail.railType.color >> 8) & 0xFF : 0;
 							final int b = renderColors ? rail.railType.color & 0xFF : 0;
-							IDrawing.drawLine(matrices, vertexConsumers, (float)(x1 - renderCameraPos.x), (float)(y1 + 0.5F - renderCameraPos.y), (float)(z1 - renderCameraPos.z), (float)(x3 - renderCameraPos.x), (float)(y2 + 0.5F - renderCameraPos.y), (float)(z3 - renderCameraPos.z), r, g, b);
+							IDrawing.drawLine(matrices, vertexConsumers, (float) x1, (float) y1 + 0.5F, (float) z1, (float) x3, (float) y2 + 0.5F, (float) z3, r, g, b);
 						}, 0, 0);
 					}
 
@@ -417,16 +415,7 @@ public class RenderTrains extends EntityRendererMapper<EntitySeat> implements IG
 
 	public static boolean shouldNotRender(BlockPos pos, int maxDistance, Direction facing) {
 		final Entity camera = Minecraft.getInstance().cameraEntity;
-		final Vec3 camPos = camera == null ? null : camera.position();
-
-		if (Boolean.TRUE.equals(MSD_CAMERA_RELATIVE.get())) {
-			pos = RailwayData.newBlockPos(
-					pos.getX() + (int) renderCameraPos.x,
-					pos.getY() + (int) renderCameraPos.y,
-					pos.getZ() + (int) renderCameraPos.z);
-		}
-
-		return shouldNotRender(camPos, pos, maxDistance, facing);
+		return shouldNotRender(camera == null ? null : camera.position(), pos, maxDistance, facing);
 	}
 
 	public static void clearTextureAvailability() {
@@ -435,8 +424,8 @@ public class RenderTrains extends EntityRendererMapper<EntitySeat> implements IG
 	}
 
 	public static void renderLiftDisplay(PoseStack matrices, MultiBufferSource vertexConsumers, BlockPos pos,
-	                                     String floorNumber, Lift.LiftDirection liftDirection,
-	                                     Lift.DisplayColor displayColor, float maxWidth, float height) {
+										 String floorNumber, Lift.LiftDirection liftDirection,
+										 Lift.DisplayColor displayColor, float maxWidth, float height) {
 		if (shouldNotRender(pos, Math.min(RenderPIDS.MAX_VIEW_DISTANCE, RenderTrains.maxTrainRenderDistance), null)) {
 			return;
 		}
@@ -458,8 +447,8 @@ public class RenderTrains extends EntityRendererMapper<EntitySeat> implements IG
 	}
 
 	public static void renderLiftDisplay(PoseStack matrices, MultiBufferSource vertexConsumers, BlockPos pos,
-	                                     String floorNumber, Lift.LiftDirection liftDirection,
-	                                     float maxWidth, float height) {
+										 String floorNumber, Lift.LiftDirection liftDirection,
+										 float maxWidth, float height) {
 		renderLiftDisplay(matrices, vertexConsumers, pos, floorNumber, liftDirection, Lift.DisplayColor.RED, maxWidth, height);
 	}
 
@@ -557,16 +546,16 @@ public class RenderTrains extends EntityRendererMapper<EntitySeat> implements IG
 			if (rail.railType == RailType.NONE) {
 				if (rail.transportMode != TransportMode.CABLE_CAR && renderColors) {
 					scheduleRender(new ResourceLocation("mtr:textures/block/one_way_rail_arrow.png"), false, QueuedRenderLayer.EXTERIOR, (matrices, vertexConsumer) -> {
-						IDrawing.drawTexture(matrices, vertexConsumer, (float)(x1 - renderCameraPos.x), (float)(y1 + yOffset - renderCameraPos.y), (float)(z1 - renderCameraPos.z), (float)(x2 - renderCameraPos.x), (float)(y1 + yOffset + SMALL_OFFSET - renderCameraPos.y), (float)(z2 - renderCameraPos.z), (float)(x3 - renderCameraPos.x), (float)(y2 + yOffset - renderCameraPos.y), (float)(z3 - renderCameraPos.z), (float)(x4 - renderCameraPos.x), (float)(y2 + yOffset + SMALL_OFFSET - renderCameraPos.y), (float)(z4 - renderCameraPos.z), 0, 0.25F, 1, 0.75F, Direction.UP, -1, light2);
-						IDrawing.drawTexture(matrices, vertexConsumer, (float)(x2 - renderCameraPos.x), (float)(y1 + yOffset + SMALL_OFFSET - renderCameraPos.y), (float)(z2 - renderCameraPos.z), (float)(x1 - renderCameraPos.x), (float)(y1 + yOffset - renderCameraPos.y), (float)(z1 - renderCameraPos.z), (float)(x4 - renderCameraPos.x), (float)(y2 + yOffset + SMALL_OFFSET - renderCameraPos.y), (float)(z4 - renderCameraPos.z), (float)(x3 - renderCameraPos.x), (float)(y2 + yOffset - renderCameraPos.y), (float)(z3 - renderCameraPos.z), 0, 0.25F, 1, 0.75F, Direction.UP, -1, light2);
+						IDrawing.drawTexture(matrices, vertexConsumer, (float) x1, (float) y1 + yOffset, (float) z1, (float) x2, (float) y1 + yOffset + SMALL_OFFSET, (float) z2, (float) x3, (float) y2 + yOffset, (float) z3, (float) x4, (float) y2 + yOffset + SMALL_OFFSET, (float) z4, 0, 0.25F, 1, 0.75F, Direction.UP, -1, light2);
+						IDrawing.drawTexture(matrices, vertexConsumer, (float) x2, (float) y1 + yOffset + SMALL_OFFSET, (float) z2, (float) x1, (float) y1 + yOffset, (float) z1, (float) x4, (float) y2 + yOffset + SMALL_OFFSET, (float) z4, (float) x3, (float) y2 + yOffset, (float) z3, 0, 0.25F, 1, 0.75F, Direction.UP, -1, light2);
 					});
 				}
 			} else {
 				final float textureOffset = (((int) (x1 + z1)) % 4) * 0.25F + (float) Config.trackTextureOffset() / Config.TRACK_OFFSET_COUNT;
 				final int color = renderColors || !Config.hideSpecialRailColors() && rail.railType.hasSavedRail ? rail.railType.color : -1;
 				scheduleRender(new ResourceLocation(texture), false, QueuedRenderLayer.EXTERIOR, (matrices, vertexConsumer) -> {
-					IDrawing.drawTexture(matrices, vertexConsumer, (float)(x1 - renderCameraPos.x), (float)(y1 + yOffset - renderCameraPos.y), (float)(z1 - renderCameraPos.z), (float)(x2 - renderCameraPos.x), (float)(y1 + yOffset + SMALL_OFFSET - renderCameraPos.y), (float)(z2 - renderCameraPos.z), (float)(x3 - renderCameraPos.x), (float)(y2 + yOffset - renderCameraPos.y), (float)(z3 - renderCameraPos.z), (float)(x4 - renderCameraPos.x), (float)(y2 + yOffset + SMALL_OFFSET - renderCameraPos.y), (float)(z4 - renderCameraPos.z), u1 < 0 ? 0 : u1, v1 < 0 ? 0.1875F + textureOffset : v1, u2 < 0 ? 1 : u2, v2 < 0 ? 0.3125F + textureOffset : v2, Direction.UP, color, light2);
-					IDrawing.drawTexture(matrices, vertexConsumer, (float)(x2 - renderCameraPos.x), (float)(y1 + yOffset + SMALL_OFFSET - renderCameraPos.y), (float)(z2 - renderCameraPos.z), (float)(x1 - renderCameraPos.x), (float)(y1 + yOffset - renderCameraPos.y), (float)(z1 - renderCameraPos.z), (float)(x4 - renderCameraPos.x), (float)(y2 + yOffset + SMALL_OFFSET - renderCameraPos.y), (float)(z4 - renderCameraPos.z), (float)(x3 - renderCameraPos.x), (float)(y2 + yOffset - renderCameraPos.y), (float)(z3 - renderCameraPos.z), u1 < 0 ? 0 : u1, v1 < 0 ? 0.1875F + textureOffset : v1, u2 < 0 ? 1 : u2, v2 < 0 ? 0.3125F + textureOffset : v2, Direction.UP, color, light2);
+					IDrawing.drawTexture(matrices, vertexConsumer, (float) x1, (float) y1 + yOffset, (float) z1, (float) x2, (float) y1 + yOffset + SMALL_OFFSET, (float) z2, (float) x3, (float) y2 + yOffset, (float) z3, (float) x4, (float) y2 + yOffset + SMALL_OFFSET, (float) z4, u1 < 0 ? 0 : u1, v1 < 0 ? 0.1875F + textureOffset : v1, u2 < 0 ? 1 : u2, v2 < 0 ? 0.3125F + textureOffset : v2, Direction.UP, color, light2);
+					IDrawing.drawTexture(matrices, vertexConsumer, (float) x2, (float) y1 + yOffset + SMALL_OFFSET, (float) z2, (float) x1, (float) y1 + yOffset, (float) z1, (float) x4, (float) y2 + yOffset + SMALL_OFFSET, (float) z4, (float) x3, (float) y2 + yOffset, (float) z3, u1 < 0 ? 0 : u1, v1 < 0 ? 0.1875F + textureOffset : v1, u2 < 0 ? 1 : u2, v2 < 0 ? 0.3125F + textureOffset : v2, Direction.UP, color, light2);
 				});
 			}
 		}, -railWidth, railWidth);
@@ -661,8 +650,8 @@ public class RenderTrains extends EntityRendererMapper<EntitySeat> implements IG
 				}
 				final int light2 = shouldGlow ? MAX_LIGHT_GLOWING : LightTexture.pack(world.getBrightness(LightLayer.BLOCK, pos2), world.getBrightness(LightLayer.SKY, pos2));
 
-				IDrawing.drawTexture(matrices, vertexConsumer, (float)(x1 - renderCameraPos.x), (float)(y1 - renderCameraPos.y), (float)(z1 - renderCameraPos.z), (float)(x2 - renderCameraPos.x), (float)(y1 + SMALL_OFFSET - renderCameraPos.y), (float)(z2 - renderCameraPos.z), (float)(x3 - renderCameraPos.x), (float)(y2 - renderCameraPos.y), (float)(z3 - renderCameraPos.z), (float)(x4 - renderCameraPos.x), (float)(y2 + SMALL_OFFSET - renderCameraPos.y), (float)(z4 - renderCameraPos.z), u1, 0, u2, 1, Direction.UP, color, light2);
-				IDrawing.drawTexture(matrices, vertexConsumer, (float)(x4 - renderCameraPos.x), (float)(y2 + SMALL_OFFSET - renderCameraPos.y), (float)(z4 - renderCameraPos.z), (float)(x3 - renderCameraPos.x), (float)(y2 - renderCameraPos.y), (float)(z3 - renderCameraPos.z), (float)(x2 - renderCameraPos.x), (float)(y1 + SMALL_OFFSET - renderCameraPos.y), (float)(z2 - renderCameraPos.z), (float)(x1 - renderCameraPos.x), (float)(y1 - renderCameraPos.y), (float)(z1 - renderCameraPos.z), u1, 0, u2, 1, Direction.UP, color, light2);
+				IDrawing.drawTexture(matrices, vertexConsumer, (float) x1, (float) y1, (float) z1, (float) x2, (float) y1 + SMALL_OFFSET, (float) z2, (float) x3, (float) y2, (float) z3, (float) x4, (float) y2 + SMALL_OFFSET, (float) z4, u1, 0, u2, 1, Direction.UP, color, light2);
+				IDrawing.drawTexture(matrices, vertexConsumer, (float) x4, (float) y2 + SMALL_OFFSET, (float) z4, (float) x3, (float) y2, (float) z3, (float) x2, (float) y1 + SMALL_OFFSET, (float) z2, (float) x1, (float) y1, (float) z1, u1, 0, u2, 1, Direction.UP, color, light2);
 			}, u1 - 1, u2 - 1);
 		}
 	}

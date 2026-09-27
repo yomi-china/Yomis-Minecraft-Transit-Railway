@@ -10,9 +10,6 @@
 		"EntitySetOldPosAndRotMixin",
 		"EntitySpawnMixin",
 		"GameRendererMixin",
-		"MSDCatenaryMixin",
-		"MSDRigidCatenaryMixin",
-		"MSDTransCatenaryMixin",
 		"PlayerRendererOffsetMixin",
 		"UnknownPacketMixin"
 	],

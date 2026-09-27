@@ -85,12 +85,7 @@ public class JonModelTrainRenderer extends TrainRendererBase implements IGui {
 		}
 
 		matrices.pushPose();
-		if (train.getViewOffset() != null) {
-			matrices.translate(x, y, z);
-		} else {
-			final Vec3 camPos = camera.getPosition();
-			matrices.translate(x - camPos.x, y - camPos.y, z - camPos.z);
-		}
+		matrices.translate(x, y, z);
 		UtilitiesClient.rotateY(matrices, (float) Math.PI + yaw);
 		UtilitiesClient.rotateX(matrices, (float) Math.PI + (hasPitch ? pitch : 0));
 
@@ -177,12 +172,7 @@ public class JonModelTrainRenderer extends TrainRendererBase implements IGui {
 
 		if (trainProperties.isJacobsBogie) {
 			matrices.pushPose();
-			if (train.getViewOffset() != null) {
-				matrices.translate(x, y, z);
-			} else {
-				final Vec3 camPos = camera.getPosition();
-				matrices.translate(x - camPos.x, y - camPos.y, z - camPos.z);
-			}
+			matrices.translate(x, y, z);
 			UtilitiesClient.rotateY(matrices, (float) Math.PI + yaw);
 			UtilitiesClient.rotateX(matrices, (float) Math.PI + ((pitch < 0 ? train.transportMode.hasPitchAscending : train.transportMode.hasPitchDescending) ? pitch : 0));
 			MODEL_BOGIE.render(matrices, vertexConsumers, light, 0);
@@ -242,8 +232,7 @@ public class JonModelTrainRenderer extends TrainRendererBase implements IGui {
 	}
 
 	private static void drawTexture(PoseStack matrices, VertexConsumer vertexConsumer, Vec3 pos1, Vec3 pos2, Vec3 pos3, Vec3 pos4, int light) {
-		final Vec3 camPos = camera.getPosition();
-		mtr.client.IDrawing.drawTexture(matrices, vertexConsumer, (float)(pos1.x - camPos.x), (float)(pos1.y - camPos.y), (float)(pos1.z - camPos.z), (float)(pos2.x - camPos.x), (float)(pos2.y - camPos.y), (float)(pos2.z - camPos.z), (float)(pos3.x - camPos.x), (float)(pos3.y - camPos.y), (float)(pos3.z - camPos.z), (float)(pos4.x - camPos.x), (float)(pos4.y - camPos.y), (float)(pos4.z - camPos.z), 0, 0, 1, 1, Direction.UP, -1, light);
+		mtr.client.IDrawing.drawTexture(matrices, vertexConsumer, (float) pos1.x, (float) pos1.y, (float) pos1.z, (float) pos2.x, (float) pos2.y, (float) pos2.z, (float) pos3.x, (float) pos3.y, (float) pos3.z, (float) pos4.x, (float) pos4.y, (float) pos4.z, 0, 0, 1, 1, Direction.UP, -1, light);
 	}
 
 	private static String resolvePath(String path) {
