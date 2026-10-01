@@ -205,8 +205,11 @@ public class WidgetMap implements WidgetMapper, SelectableMapper, GuiEventListen
 		}
 		immediate.endBatch();
 
+		// Right aligned, but stopped one button width short of the map edge: the zoom buttons are
+		// stacked in that right hand column starting just below this line, and the readout would
+		// otherwise run underneath them.
 		final String mousePosText = String.format("(%s, %s)", RailwayData.round(mouseWorldPos.getA(), 1), RailwayData.round(mouseWorldPos.getB(), 1));
-		guiGraphics.drawString(textRenderer, mousePosText, x + width - TEXT_PADDING - textRenderer.width(mousePosText), y + TEXT_PADDING, ARGB_WHITE);
+		guiGraphics.drawString(textRenderer, mousePosText, x + width - TEXT_PADDING - SQUARE_SIZE - TEXT_PADDING - textRenderer.width(mousePosText), y + TEXT_PADDING, ARGB_WHITE);
 	}
 
 	@Override
@@ -259,6 +262,14 @@ public class WidgetMap implements WidgetMapper, SelectableMapper, GuiEventListen
 
 	@Override
 	public boolean mouseScrolled(double mouseX, double mouseY, double amount) {
+		// Without this guard the map zoomed on every wheel event anywhere on the screen, including
+		// over the side panel and over the reserved button strips, while clicks in those places were
+		// correctly ignored - an inconsistency that made the wheel feel like it belonged to the map
+		// rather than to whatever was under the pointer.
+		if (!isMouseOver(mouseX, mouseY)) {
+			return false;
+		}
+
 		final double newTargetScale = Mth.clamp(scale * Math.pow(2, amount), SCALE_LOWER_LIMIT, SCALE_UPPER_LIMIT);
 		if (Math.abs(newTargetScale - scale) > 1e-6) {
 			anchorScreenX = mouseX - x;
@@ -276,7 +287,16 @@ public class WidgetMap implements WidgetMapper, SelectableMapper, GuiEventListen
 
 	@Override
 	public boolean isMouseOver(double mouseX, double mouseY) {
-		return mouseX >= x && mouseY >= y && mouseX < x + width && mouseY < y + height && !(mouseX >= x + width - SQUARE_SIZE * 10 && mouseY >= y + height - SQUARE_SIZE) && !isRestrictedMouseArea.apply(mouseX, mouseY);
+		// Two reserved areas hold widgets the screen draws on top of the map: the bottom-right strip with
+		// the operations, options and web dashboard buttons, and the top-right corner with the two zoom
+		// buttons. Without this the map would claim their clicks and the widgets would look dead.
+		//
+		// Only the actual button columns are reserved, not the full width, so panning and area selection
+		// still work across the rest of the top edge. Clicking into a reserved area is deliberately not
+		// routed anywhere; WidgetMap.stopEditing and friends make that a no-op.
+		final boolean overBottomButtons = mouseX >= x + width - DashboardScreen.BOTTOM_BUTTON_REGION && mouseY >= y + height - SQUARE_SIZE;
+		final boolean overZoomButtons = mouseX >= x + width - SQUARE_SIZE && mouseY >= y && mouseY < y + DashboardScreen.TOP_BUTTON_REGION;
+		return mouseX >= x && mouseY >= y && mouseX < x + width && mouseY < y + height && !overBottomButtons && !overZoomButtons && !isRestrictedMouseArea.apply(mouseX, mouseY);
 	}
 
 	public void setFocused(boolean focused) {

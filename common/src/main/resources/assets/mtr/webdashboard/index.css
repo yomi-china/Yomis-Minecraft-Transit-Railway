@@ -1,0 +1,293 @@
+/*
+ * Material Design 3 token layer for the MTR web dashboard.
+ *
+ * Only tokens and a couple of primitives live here - no component library. Stage 4 decides how
+ * @material/web is bundled; keeping the token names identical to the official MD3 spec means the
+ * components can be dropped in later without rewriting any of this.
+ *
+ * Everything is self-contained: no web fonts, no CDN, so the page works on a machine with no
+ * internet access, which matters for a service that only listens on loopback.
+ *
+ * Reference palette: the MTR brand blue #4285F4 used by the in-game map's player marker.
+ */
+
+:root {
+	color-scheme: light dark;
+
+	/* Typeface: system stack, deliberately not a downloaded webfont. */
+	--md-ref-typeface-plain: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", "Noto Sans", "PingFang SC", "Microsoft YaHei", sans-serif;
+
+	/* Typescale */
+	--md-sys-typescale-headline-small-size: 24px;
+	--md-sys-typescale-headline-small-line-height: 32px;
+	--md-sys-typescale-title-medium-size: 16px;
+	--md-sys-typescale-title-medium-line-height: 24px;
+	--md-sys-typescale-body-medium-size: 14px;
+	--md-sys-typescale-body-medium-line-height: 20px;
+	--md-sys-typescale-label-medium-size: 12px;
+	--md-sys-typescale-label-medium-line-height: 16px;
+	--md-sys-typescale-weight-regular: 400;
+	--md-sys-typescale-weight-medium: 500;
+	--md-sys-typescale-weight-semibold: 600;
+
+	/* Shape */
+	--md-sys-shape-corner-extra-large: 28px;
+	--md-sys-shape-corner-large: 16px;
+	--md-sys-shape-corner-full: 999px;
+
+	/* Motion */
+	--md-sys-motion-duration-short: 150ms;
+	--md-sys-motion-duration-medium: 300ms;
+	--md-sys-motion-easing-standard: cubic-bezier(0.2, 0, 0, 1);
+	--md-sys-motion-easing-emphasized: cubic-bezier(0.05, 0.7, 0.1, 1);
+
+	/* Elevation */
+	--md-sys-elevation-1: 0 1px 2px rgba(0, 0, 0, 0.3), 0 1px 3px 1px rgba(0, 0, 0, 0.15);
+	--md-sys-elevation-2: 0 1px 2px rgba(0, 0, 0, 0.3), 0 2px 6px 2px rgba(0, 0, 0, 0.15);
+}
+
+/* ---- Light scheme (default) ---- */
+:root {
+	--md-sys-color-primary: #0b57d0;
+	--md-sys-color-on-primary: #ffffff;
+	--md-sys-color-primary-container: #d3e3fd;
+	--md-sys-color-on-primary-container: #041e49;
+	--md-sys-color-secondary: #5f6368;
+	--md-sys-color-on-secondary: #ffffff;
+	--md-sys-color-secondary-container: #e8eaed;
+	--md-sys-color-on-secondary-container: #1f1f1f;
+	--md-sys-color-surface: #ffffff;
+	--md-sys-color-surface-container-low: #f8fafd;
+	--md-sys-color-surface-container: #f0f4f9;
+	--md-sys-color-surface-container-high: #e9eef6;
+	--md-sys-color-on-surface: #1f1f1f;
+	--md-sys-color-on-surface-variant: #444746;
+	--md-sys-color-outline: #747775;
+	--md-sys-color-outline-variant: #c4c7c5;
+	--md-sys-color-scrim: rgba(0, 0, 0, 0.32);
+	--md-sys-color-error: #b3261e;
+	--md-sys-color-error-container: #f9dedc;
+	--md-sys-color-on-error-container: #410e0b;
+	--md-sys-color-success: #146c2e;
+	--md-sys-color-success-container: #c4eed0;
+	--md-sys-color-on-success-container: #072711;
+}
+
+/* ---- Dark scheme ---- */
+@media (prefers-color-scheme: dark) {
+	:root {
+		--md-sys-color-primary: #a8c7fa;
+		--md-sys-color-on-primary: #062e6f;
+		--md-sys-color-primary-container: #0842a0;
+		--md-sys-color-on-primary-container: #d3e3fd;
+		--md-sys-color-secondary: #c4c7c5;
+		--md-sys-color-on-secondary: #303030;
+		--md-sys-color-secondary-container: #444746;
+		--md-sys-color-on-secondary-container: #e3e3e3;
+		--md-sys-color-surface: #1b1b1b;
+		--md-sys-color-surface-container-low: #1f1f1f;
+		--md-sys-color-surface-container: #282a2c;
+		--md-sys-color-surface-container-high: #333537;
+		--md-sys-color-on-surface: #e3e3e3;
+		--md-sys-color-on-surface-variant: #c4c7c5;
+		--md-sys-color-outline: #8e918f;
+		--md-sys-color-outline-variant: #444746;
+		--md-sys-color-scrim: rgba(0, 0, 0, 0.5);
+		--md-sys-color-error: #f2b8b5;
+		--md-sys-color-error-container: #8c1d18;
+		--md-sys-color-on-error-container: #f9dedc;
+		--md-sys-color-success: #6dd58c;
+		--md-sys-color-success-container: #0a3818;
+		--md-sys-color-on-success-container: #c4eed0;
+	}
+}
+
+* {
+	box-sizing: border-box;
+}
+
+html,
+body {
+	margin: 0;
+	padding: 0;
+	min-height: 100%;
+}
+
+body {
+	background-color: var(--md-sys-color-surface-container-low);
+	color: var(--md-sys-color-on-surface);
+	font-family: var(--md-ref-typeface-plain);
+	font-size: var(--md-sys-typescale-body-medium-size);
+	line-height: var(--md-sys-typescale-body-medium-line-height);
+	/* A faint grid, echoing the in-game map's block grid without drawing any terrain yet. */
+	background-image:
+		linear-gradient(var(--md-sys-color-outline-variant) 1px, transparent 1px),
+		linear-gradient(90deg, var(--md-sys-color-outline-variant) 1px, transparent 1px);
+	background-size: 32px 32px;
+	background-position: -1px -1px;
+	-webkit-font-smoothing: antialiased;
+}
+
+.noscript-notice {
+	margin: 24px;
+	padding: 16px;
+	border-radius: var(--md-sys-shape-corner-large);
+	background-color: var(--md-sys-color-error-container);
+	color: var(--md-sys-color-on-error-container);
+}
+
+.stage {
+	min-height: 100vh;
+	display: grid;
+	place-items: center;
+	padding: 24px;
+}
+
+.card {
+	width: min(520px, 100%);
+	padding: 32px;
+	display: flex;
+	flex-direction: column;
+	gap: 16px;
+	border-radius: var(--md-sys-shape-corner-extra-large);
+	background-color: var(--md-sys-color-surface);
+	color: var(--md-sys-color-on-surface);
+	box-shadow: var(--md-sys-elevation-2);
+	animation: card-enter var(--md-sys-motion-duration-medium) var(--md-sys-motion-easing-emphasized) both;
+}
+
+@keyframes card-enter {
+	from {
+		opacity: 0;
+		transform: translateY(12px) scale(0.98);
+	}
+	to {
+		opacity: 1;
+		transform: none;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.card {
+		animation: none;
+	}
+	.badge__dot {
+		animation: none;
+	}
+}
+
+.card__icon {
+	width: 56px;
+	height: 56px;
+	display: grid;
+	place-items: center;
+	border-radius: var(--md-sys-shape-corner-large);
+	background-color: var(--md-sys-color-primary-container);
+	color: var(--md-sys-color-on-primary-container);
+}
+
+.card__icon svg {
+	fill: currentColor;
+}
+
+.card__title {
+	margin: 0;
+	font-size: var(--md-sys-typescale-headline-small-size);
+	line-height: var(--md-sys-typescale-headline-small-line-height);
+	font-weight: var(--md-sys-typescale-weight-regular);
+}
+
+.card__subtitle {
+	margin: 0;
+	margin-top: -12px;
+	font-size: var(--md-sys-typescale-title-medium-size);
+	line-height: var(--md-sys-typescale-title-medium-line-height);
+	font-weight: var(--md-sys-typescale-weight-medium);
+	color: var(--md-sys-color-on-surface-variant);
+}
+
+.card__status {
+	display: flex;
+}
+
+.badge {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	padding: 6px 14px;
+	border-radius: var(--md-sys-shape-corner-full);
+	background-color: var(--md-sys-color-secondary-container);
+	color: var(--md-sys-color-on-secondary-container);
+	font-size: var(--md-sys-typescale-label-medium-size);
+	line-height: var(--md-sys-typescale-label-medium-line-height);
+	font-weight: var(--md-sys-typescale-weight-medium);
+	transition: background-color var(--md-sys-motion-duration-short) var(--md-sys-motion-easing-standard);
+}
+
+.badge__dot {
+	width: 8px;
+	height: 8px;
+	flex: 0 0 8px;
+	border-radius: var(--md-sys-shape-corner-full);
+	background-color: currentColor;
+	animation: badge-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes badge-pulse {
+	0%, 100% { opacity: 1; }
+	50% { opacity: 0.25; }
+}
+
+.badge[data-state="ready"] {
+	background-color: var(--md-sys-color-primary-container);
+	color: var(--md-sys-color-on-primary-container);
+}
+
+.badge[data-state="ready"] .badge__dot {
+	animation: none;
+}
+
+.badge[data-state="offline"] {
+	background-color: var(--md-sys-color-error-container);
+	color: var(--md-sys-color-on-error-container);
+}
+
+.badge[data-state="offline"] .badge__dot {
+	animation: none;
+}
+
+.card__message {
+	margin: 0;
+}
+
+.card__meta {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px 24px;
+	padding: 12px 16px;
+	border-radius: var(--md-sys-shape-corner-large);
+	background-color: var(--md-sys-color-surface-container);
+	color: var(--md-sys-color-on-surface-variant);
+	font-size: var(--md-sys-typescale-label-medium-size);
+	line-height: var(--md-sys-typescale-label-medium-line-height);
+}
+
+.card__meta b {
+	color: var(--md-sys-color-on-surface);
+	font-weight: var(--md-sys-typescale-weight-semibold);
+}
+
+.card__note,
+.card__footnote {
+	margin: 0;
+	padding-top: 16px;
+	border-top: 1px solid var(--md-sys-color-outline-variant);
+	color: var(--md-sys-color-on-surface-variant);
+}
+
+.card__footnote {
+	font-size: var(--md-sys-typescale-label-medium-size);
+	line-height: var(--md-sys-typescale-label-medium-line-height);
+	padding-top: 0;
+	border-top: none;
+}

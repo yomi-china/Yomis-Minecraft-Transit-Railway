@@ -136,6 +136,10 @@ tasks.register("setupFiles") {
 	delete fileTree("common/src/main/resources/assets/mtr/sounds")
 	delete fileTree("common/src/main/resources/assets/mtr/textures")
 	delete fileTree("common/src/main/resources/assets/mtr/website")
+	// The web dashboard page is copied back by the "resources/common/normal" block below, but only
+	// for the normal and server variations. Deleting it here keeps a lifts build from reusing a
+	// stale copy from an earlier normal build, the same reason website is deleted above.
+	delete fileTree("common/src/main/resources/assets/mtr/webdashboard")
 	delete fileTree("common/src/main/resources/assets/mtr/sounds.json")
 	delete fileTree("common/src/main/resources/data/mtr/loot_tables")
 	delete fileTree("common/src/main/resources/data/mtr/recipes")

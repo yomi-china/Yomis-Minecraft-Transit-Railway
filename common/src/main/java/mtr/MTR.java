@@ -11,6 +11,7 @@ import mtr.packet.IPacket;
 import mtr.packet.PacketTrainDataGuiServer;
 import mtr.packet.PacketUpdateRailData;
 import mtr.servlet.Webserver;
+import mtr.webdashboard.WebDashboardServer;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
@@ -496,8 +497,16 @@ public class MTR implements IPacket {
 				Webserver.getRoutes = railwayData -> railwayData == null ? new HashSet<>() : railwayData.routes;
 				Webserver.getDataCache = railwayData -> railwayData == null ? null : railwayData.dataCache;
 				Webserver.start(minecraftServer.getServerDirectory().toPath().resolve("config").resolve("mtr_webserver_port.txt"));
+				// A separate service on its own port; see WebDashboardServer for why it does not reuse
+				// Webserver. Starting it here covers dedicated servers and single player alike, since
+				// the integrated server fires the same event. The client also tries, so that a world
+				// loaded in a way this event does not cover still gets a dashboard.
+				WebDashboardServer.loadSettingsAndStart(minecraftServer.getServerDirectory().toPath().resolve("config"));
 			});
-			Registry.registerServerStoppingEvent(minecraftServer -> Webserver.stop());
+			Registry.registerServerStoppingEvent(minecraftServer -> {
+				Webserver.stop();
+				WebDashboardServer.stop();
+			});
 		}
 	}
 

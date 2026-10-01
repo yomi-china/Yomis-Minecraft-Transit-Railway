@@ -8,6 +8,7 @@ import mtr.mappings.Text;
 import mtr.mappings.UtilitiesClient;
 import mtr.packet.IPacket;
 import mtr.packet.PacketTrainDataGuiClient;
+import mtr.webdashboard.WebDashboardServer;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
@@ -41,6 +42,7 @@ public class DashboardScreen extends ScreenMapper implements IGui, IPacket {
 	private final Button buttonZoomOut;
 	private final Button buttonRailActions;
 	private final Button buttonOptions;
+	private final Button buttonWebDashboard;
 
 	private final WidgetBetterTextField textFieldName;
 	private final WidgetColorSelector colorSelector;
@@ -49,6 +51,39 @@ public class DashboardScreen extends ScreenMapper implements IGui, IPacket {
 
 	public static final int MAX_COLOR_ZONE_LENGTH = 6;
 	private static final int COLOR_WIDTH = 48;
+
+	/**
+	 * Width of the bottom-right strip of map controls: the three text buttons (operations, options
+	 * and web dashboard). Each button is {@code SQUARE_SIZE * 3 = 60} wide, which keeps
+	 * "Operations..." and "Options..." from spilling into their neighbours in both English and
+	 * Chinese. {@code WidgetMap} reads this to leave the strip alone, so that pressing a button never
+	 * also drags or area-selects the map underneath it.
+	 * <p>
+	 * The zoom buttons that used to share this row have moved to the top right, so nothing else
+	 * occupies the strip.
+	 */
+	public static final int BOTTOM_BUTTON_REGION = SQUARE_SIZE * 8;
+
+	/**
+	 * Height of the strip reserved at the top right of the map, which holds the coordinate readout
+	 * and, directly below it, the two zoom buttons stacked vertically and right aligned.
+	 * <p>
+	 * This must cover the buttons completely. {@code WidgetMap} is added as the first
+	 * {@code GuiEventListener}, so it sees clicks before the buttons do and returns true for anything
+	 * inside its own bounds; a reserved strip that stops part way down a button leaves the rest of
+	 * that button swallowed by the map and looking dead.
+	 * <p>
+	 * The readout is drawn at {@code y + TEXT_PADDING} and is {@code TEXT_HEIGHT} tall, the first
+	 * button starts one {@code TEXT_FIELD_PADDING} below that, and the two buttons are
+	 * {@code SQUARE_SIZE} each.
+	 */
+	public static final int TOP_BUTTON_REGION = TEXT_PADDING + TEXT_HEIGHT + TEXT_FIELD_PADDING + SQUARE_SIZE * 2;
+
+	/**
+	 * Y of the first zoom button's top edge, measured from the top of the screen.
+	 * {@code WidgetMap} also uses this to keep its coordinate readout clear of the buttons.
+	 */
+	public static final int ZOOM_BUTTON_TOP = TEXT_PADDING + TEXT_HEIGHT + TEXT_FIELD_PADDING;
 
 	public DashboardScreen(TransportMode transportMode, boolean useTimeAndWindSync) {
 		super(Text.literal(""));
@@ -79,6 +114,9 @@ public class DashboardScreen extends ScreenMapper implements IGui, IPacket {
 				UtilitiesClient.setScreen(minecraft, new ConfigScreen(useTimeAndWindSync));
 			}
 		});
+		// Not gated on ClientData.hasPermission(): the page itself decides what the visitor may do,
+		// and a player without edit rights still benefits from the read-only view.
+		buttonWebDashboard = UtilitiesClient.newButton(Text.translatable("gui.mtr.web_dashboard"), button -> WebDashboardServer.openInBrowser());
 
 		dashboardList = new DashboardList(this::onFind, this::onDrawArea, this::onEdit, this::onSort, null, this::onDelete, this::getList, () -> ClientData.DASHBOARD_SEARCH, text -> ClientData.DASHBOARD_SEARCH = text);
 
@@ -102,10 +140,13 @@ public class DashboardScreen extends ScreenMapper implements IGui, IPacket {
 		IDrawing.setPositionAndWidth(buttonAddDepot, 0, bottomRowY, PANEL_WIDTH);
 		IDrawing.setPositionAndWidth(buttonDoneEditingStation, 0, bottomRowY, PANEL_WIDTH);
 		IDrawing.setPositionAndWidth(buttonDoneEditingRoute, 0, bottomRowY, PANEL_WIDTH);
-		IDrawing.setPositionAndWidth(buttonZoomIn, width - SQUARE_SIZE * 2, bottomRowY, SQUARE_SIZE);
-		IDrawing.setPositionAndWidth(buttonZoomOut, width - SQUARE_SIZE, bottomRowY, SQUARE_SIZE);
-		IDrawing.setPositionAndWidth(buttonRailActions, width - SQUARE_SIZE * 10, bottomRowY, SQUARE_SIZE * 5);
-		IDrawing.setPositionAndWidth(buttonOptions, width - SQUARE_SIZE * 5, bottomRowY, SQUARE_SIZE * 3);
+		// The zoom buttons are stacked vertically at the top right, directly below the coordinate
+		// readout that WidgetMap draws, and right aligned with it.
+		IDrawing.setPositionAndWidth(buttonZoomIn, width - SQUARE_SIZE, ZOOM_BUTTON_TOP, SQUARE_SIZE);
+		IDrawing.setPositionAndWidth(buttonZoomOut, width - SQUARE_SIZE, ZOOM_BUTTON_TOP + SQUARE_SIZE, SQUARE_SIZE);
+		IDrawing.setPositionAndWidth(buttonRailActions, width - SQUARE_SIZE * 9, bottomRowY, SQUARE_SIZE * 3);
+		IDrawing.setPositionAndWidth(buttonOptions, width - SQUARE_SIZE * 6, bottomRowY, SQUARE_SIZE * 3);
+		IDrawing.setPositionAndWidth(buttonWebDashboard, width - SQUARE_SIZE * 3, bottomRowY, SQUARE_SIZE * 3);
 
 		IDrawing.setPositionAndWidth(textFieldName, TEXT_FIELD_PADDING / 2, bottomRowY - SQUARE_SIZE - TEXT_FIELD_PADDING / 2, PANEL_WIDTH - COLOR_WIDTH - TEXT_FIELD_PADDING);
 		IDrawing.setPositionAndWidth(colorSelector, PANEL_WIDTH - COLOR_WIDTH + TEXT_FIELD_PADDING / 2, bottomRowY - SQUARE_SIZE - TEXT_FIELD_PADDING / 2, COLOR_WIDTH - TEXT_FIELD_PADDING);
@@ -130,6 +171,7 @@ public class DashboardScreen extends ScreenMapper implements IGui, IPacket {
 		addDrawableChild(buttonZoomOut);
 		addDrawableChild(buttonRailActions);
 		addDrawableChild(buttonOptions);
+		addDrawableChild(buttonWebDashboard);
 
 		addDrawableChild(textFieldName);
 		addDrawableChild(colorSelector);
