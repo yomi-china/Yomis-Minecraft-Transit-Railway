@@ -7,11 +7,16 @@ import mtr.data.RailwayData;
 import mtr.data.Route;
 import mtr.data.Station;
 import mtr.mappings.BlockEntityMapper;
+import mtr.mappings.RegistryUtilities;
 import mtr.packet.IPacket;
 import mtr.packet.PacketTrainDataGuiServer;
 import mtr.packet.PacketUpdateRailData;
+import mtr.packet.PacketWebDashboardServer;
 import mtr.servlet.Webserver;
+import mtr.webdashboard.WebDashboardCommands;
+import mtr.webdashboard.WebDashboardPermissions;
 import mtr.webdashboard.WebDashboardServer;
+import mtr.webdashboard.WebDashboardTokenStore;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
@@ -455,6 +460,8 @@ public class MTR implements IPacket {
 		Registry.registerNetworkReceiver(PACKET_DRIVE_TRAIN, PacketTrainDataGuiServer::receiveDriveTrainC2S);
 		Registry.registerNetworkReceiver(PACKET_PRESS_LIFT_BUTTON, PacketTrainDataGuiServer::receivePressLiftButtonC2S);
 		Registry.registerNetworkReceiver(PACKET_SERVER_AUDIO_REQUEST, PacketTrainDataGuiServer::receiveServerAudioRequestC2S);
+		// Web dashboard sign-in: the client asks, the server decides and replies with a one-time token.
+		Registry.registerNetworkReceiver(PACKET_WEB_DASHBOARD_LOGIN_REQUEST, (minecraftServer, player, packet) -> PacketWebDashboardServer.receiveLoginRequest(player));
 
 		Registry.registerTickEvent(minecraftServer -> {
 			minecraftServer.getAllLevels().forEach(serverWorld -> {
@@ -473,6 +480,9 @@ public class MTR implements IPacket {
 		});
 		Registry.registerPlayerJoinEvent(player -> {
 			PacketTrainDataGuiServer.versionCheckS2C(player);
+			// Keeps the recorded name on an existing web permission entry current, so `list` stays
+			// readable for players who were granted access before they ever connected.
+			WebDashboardPermissions.refreshName(player);
 			final RailwayData railwayData = RailwayData.getInstance(player.level());
 			if (railwayData != null) {
 				railwayData.onPlayerJoin(player);
@@ -483,6 +493,9 @@ public class MTR implements IPacket {
 			if (railwayData != null) {
 				railwayData.disconnectPlayer(player);
 			}
+			// Drops any unused sign-in token, but keeps browser sessions: a session belongs to a browser
+			// and is not tied to the game being open. Access revocation is what ends sessions.
+			WebDashboardTokenStore.revokeLoginToken(player.getUUID());
 		});
 
 		if (!Keys.LIFTS_ONLY) {
@@ -502,12 +515,23 @@ public class MTR implements IPacket {
 				// the integrated server fires the same event. The client also tries, so that a world
 				// loaded in a way this event does not cover still gets a dashboard.
 				WebDashboardServer.loadSettingsAndStart(minecraftServer.getServerDirectory().toPath().resolve("config"));
+				// The web layer only ever holds a UUID from a cookie, and the op-level permission fallback
+				// needs the server to resolve it to a player. Wired here so it exists for exactly as long as
+				// the server does.
+				WebDashboardPermissions.setServerSupplier(() -> minecraftServer);
 			});
 			Registry.registerServerStoppingEvent(minecraftServer -> {
+				// Cleared first, so anything still running cannot resolve a stale player list.
+				WebDashboardPermissions.setServerSupplier(null);
 				Webserver.stop();
 				WebDashboardServer.stop();
 			});
 		}
+
+		// Registered through Architectury rather than the loaders' own command events, so the same line
+		// covers Fabric and Forge. Separate from registerDebugCommand because that one is wired at each
+		// loader's entry point.
+		RegistryUtilities.registerCommand(WebDashboardCommands::register);
 	}
 
 	public static boolean isGameTickInterval(int interval) {

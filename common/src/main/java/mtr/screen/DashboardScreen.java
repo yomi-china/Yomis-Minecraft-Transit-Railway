@@ -8,7 +8,7 @@ import mtr.mappings.Text;
 import mtr.mappings.UtilitiesClient;
 import mtr.packet.IPacket;
 import mtr.packet.PacketTrainDataGuiClient;
-import mtr.webdashboard.WebDashboardServer;
+import mtr.packet.PacketWebDashboardClient;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
@@ -116,7 +116,10 @@ public class DashboardScreen extends ScreenMapper implements IGui, IPacket {
 		});
 		// Not gated on ClientData.hasPermission(): the page itself decides what the visitor may do,
 		// and a player without edit rights still benefits from the read-only view.
-		buttonWebDashboard = UtilitiesClient.newButton(Text.translatable("gui.mtr.web_dashboard"), button -> WebDashboardServer.openInBrowser());
+		// Asks the server for a one-time sign-in token and opens the browser with it. When the player has
+		// no edit access the reply carries no token and the page opens read-only, which is the intended
+		// outcome rather than a refusal.
+		buttonWebDashboard = UtilitiesClient.newButton(Text.translatable("gui.mtr.web_dashboard"), button -> PacketWebDashboardClient.requestLoginToken());
 
 		dashboardList = new DashboardList(this::onFind, this::onDrawArea, this::onEdit, this::onSort, null, this::onDelete, this::getList, () -> ClientData.DASHBOARD_SEARCH, text -> ClientData.DASHBOARD_SEARCH = text);
 

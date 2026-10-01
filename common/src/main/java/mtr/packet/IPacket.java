@@ -17,6 +17,11 @@ public interface IPacket {
 	ResourceLocation PACKET_OPEN_LIFT_CUSTOMIZATION_SCREEN = new ResourceLocation(MTR.MOD_ID, "packet_open_lift_customization_screen");
 	ResourceLocation PACKET_OPEN_RESOURCE_PACK_CREATOR_SCREEN = new ResourceLocation(MTR.MOD_ID, "packet_open_resource_pack_creator_screen");
 
+	// Web dashboard sign-in. The request carries no payload - the server already knows who sent it -
+	// and the reply carries either a one-time login token or an empty string.
+	ResourceLocation PACKET_WEB_DASHBOARD_LOGIN_REQUEST = new ResourceLocation(MTR.MOD_ID, "web_dashboard_login_request");
+	ResourceLocation PACKET_WEB_DASHBOARD_LOGIN_TOKEN = new ResourceLocation(MTR.MOD_ID, "web_dashboard_login_token");
+
 	ResourceLocation PACKET_ANNOUNCE = new ResourceLocation(MTR.MOD_ID, "packet_announce");
 	ResourceLocation PACKET_USE_TIME_AND_WIND_SYNC = new ResourceLocation(MTR.MOD_ID, "packet_use_time_and_wind_sync");
 

@@ -3,7 +3,10 @@ package mtr.webdashboard;
 import mtr.MTR;
 import mtr.mappings.Text;
 import mtr.webdashboard.servlet.HealthServletHandler;
+import mtr.webdashboard.servlet.LoginServletHandler;
+import mtr.webdashboard.servlet.LogoutServletHandler;
 import mtr.webdashboard.servlet.RootIndexFilter;
+import mtr.webdashboard.servlet.SessionServletHandler;
 import mtr.webdashboard.servlet.StatusServletHandler;
 import net.minecraft.Util;
 import net.minecraft.client.Minecraft;
@@ -120,6 +123,9 @@ public final class WebDashboardServer {
 		// The exact API paths are registered before the catch-all, so they win over the static handler.
 		context.addServlet(new ServletHolder(new StatusServletHandler()), StatusServletHandler.PATH);
 		context.addServlet(new ServletHolder(new HealthServletHandler()), HealthServletHandler.PATH);
+		context.addServlet(new ServletHolder(new SessionServletHandler()), SessionServletHandler.PATH);
+		context.addServlet(new ServletHolder(new LoginServletHandler()), LoginServletHandler.PATH);
+		context.addServlet(new ServletHolder(new LogoutServletHandler()), LogoutServletHandler.PATH);
 		// "/" must NOT be claimed by a servlet: in Jetty that is the default servlet mapping, and a second
 		// servlet there fails the entire context with "Multiple servlets map to path /" - which took the
 		// service down instead of merely 404ing. A filter handles the root instead, rewriting it to
@@ -180,22 +186,50 @@ public final class WebDashboardServer {
 	}
 
 	/**
-	 * Opens the dashboard in the system browser. Called from the in-game button, so it must never
-	 * throw into the screen's click handler - a machine with no browser, or a sandbox that blocks
-	 * shelling out, would otherwise crash the dashboard screen.
+	 * Opens the dashboard and signs the browser in, by putting a one-time login token in the URL
+	 * <em>fragment</em>.
 	 * <p>
-	 * Same call the mod already uses for its Patreon link in {@code ConfigScreen}.
+	 * A fragment rather than a query parameter because fragments are never sent to the server: the
+	 * token stays out of access logs, out of {@code Referer} headers, and out of the reach of any
+	 * other page. The page exchanges it for a session cookie the moment it loads and then wipes the
+	 * fragment from the address bar.
+	 * <p>
+	 * The token is single-use and expires within a couple of minutes, so a URL that leaks through
+	 * history or a screen recording is worthless shortly afterwards.
+	 *
+	 * @param token a token from {@link WebDashboardTokenStore#issueLoginToken}.
 	 */
-	public static synchronized void openInBrowser() {
-		final String url = getUrl();
+	public static synchronized void openWithToken(String token) {
+		openUrl(getUrl() + "#token=" + token, "gui.mtr.web_dashboard_signed_in");
+	}
+
+	/**
+	 * Opens the dashboard without signing in, for a player who has no edit access.
+	 * <p>
+	 * Deliberately still opens the page rather than refusing in-game. A visitor without permission is
+	 * meant to be able to look and be told plainly that they cannot edit, which is what they would
+	 * see after typing the address by hand.
+	 */
+	public static synchronized void openReadOnly() {
+		openUrl(getUrl(), "gui.mtr.web_dashboard_read_only");
+	}
+
+	/**
+	 * @param url             the address to open; may carry a login token fragment.
+	 * @param translationKey  the message shown on success. The token-bearing URL is never shown: the
+	 *                        player only needs the address to visit by hand, and putting the token on
+	 *                        screen would defeat the point of keeping it out of logs.
+	 */
+	private static void openUrl(String url, String translationKey) {
+		final String message = Text.translatable(translationKey, getUrl()).getString();
 		try {
 			Util.getPlatform().openUri(url);
 			// Told even on success: from a full-screen game the player may not notice the tab, and the
 			// same line doubles as the manual fallback when the browser fails to appear.
-			narrate(Text.translatable("gui.mtr.web_dashboard_opened", url).getString());
+			narrate(message);
 		} catch (Exception e) {
 			System.out.println("[MTR-WebDashboard] Could not open a browser, please visit " + url + " manually: " + e);
-			narrate(Text.translatable("gui.mtr.web_dashboard_open_failed", url).getString());
+			narrate(Text.translatable("gui.mtr.web_dashboard_open_failed", getUrl()).getString());
 		}
 	}
 

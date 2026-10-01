@@ -20,12 +20,32 @@ public interface WebDashboardServletHandler {
 	 * fall back to chunked encoding for a small fixed-size payload.
 	 */
 	static void sendJson(HttpServletResponse response, String json) {
+		writeBody(response, HttpServletResponse.SC_OK, json);
+	}
+
+	/**
+	 * Writes a JSON error body with the given status.
+	 * <p>
+	 * Errors are JSON rather than HTML so the page can tell "you are not signed in" apart from "the
+	 * server is broken" without parsing a Jetty error page, and so a wrong password never renders a
+	 * stack trace to the visitor.
+	 *
+	 * @param error a short machine-readable code, e.g. {@code "bad_token"}.
+	 */
+	static void sendError(HttpServletResponse response, int status, String error) {
+		writeBody(response, status, "{\"error\":\"" + error + "\"}");
+	}
+
+	static void writeBody(HttpServletResponse response, int status, String json) {
 		try {
 			final byte[] body = json.getBytes(StandardCharsets.UTF_8);
-			response.setStatus(HttpServletResponse.SC_OK);
+			response.setStatus(status);
 			response.setContentType(CONTENT_TYPE_JSON);
 			response.setCharacterEncoding(StandardCharsets.UTF_8.name());
 			response.setContentLength(body.length);
+			// Authenticated responses must never be cached by the browser or an intermediary, or a
+			// signed-out visitor could be shown a stale "signed in" answer.
+			response.setHeader("Cache-Control", "no-store");
 			response.getOutputStream().write(body);
 			response.getOutputStream().flush();
 		} catch (Exception e) {
