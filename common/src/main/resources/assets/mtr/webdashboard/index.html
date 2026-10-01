@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<meta name="color-scheme" content="light dark">
+	<meta name="robots" content="noindex">
+	<title>MTR Web Dashboard</title>
+	<link rel="stylesheet" href="index.css">
+	<script type="module" src="app.js"></script>
+</head>
+<body>
+<noscript>
+	<p class="noscript-notice">This dashboard requires JavaScript.</p>
+</noscript>
+
+<main class="stage">
+	<section class="card" aria-labelledby="dashboard-title">
+		<div class="card__icon" aria-hidden="true">
+			<svg viewBox="0 0 24 24" width="28" height="28" focusable="false">
+				<path d="M12 2 4 6v6c0 5 3.4 8.6 8 10 4.6-1.4 8-5 8-10V6l-8-4zm0 2.2 6 3v4.8c0 4-2.6 7-6 8.2-3.4-1.2-6-4.2-6-8.2V7.2l6-3z"/>
+				<path d="M11 7h2v3.6l2.7 2.7-1.4 1.4L11 11.4V7z"/>
+			</svg>
+		</div>
+
+		<h1 class="card__title" id="dashboard-title" data-i18n="title">Web Dashboard</h1>
+		<p class="card__subtitle" data-i18n="subtitle">Minecraft Transit Railway</p>
+
+		<div class="card__status">
+			<span class="badge" id="status-badge" data-state="loading">
+				<span class="badge__dot" aria-hidden="true"></span>
+				<span data-i18n="statusLoading">Checking service…</span>
+			</span>
+		</div>
+
+		<p class="card__message" id="page-message" data-i18n="messageLoading">Loading…</p>
+
+		<div class="card__meta" id="meta" hidden>
+			<span><span data-i18n="versionLabel">Mod version</span> <b id="meta-version">—</b></span>
+			<span><span data-i18n="portLabel">Port</span> <b id="meta-port">—</b></span>
+		</div>
+
+		<p class="card__note" data-i18n="readOnlyNote">This page is not signed in, so it is read-only. Open the dashboard from inside the game to sign in.</p>
+
+		<p class="card__footnote" data-i18n="stageNote">Stage 1: entry point and service only. Data editing arrives in a later stage.</p>
+	</section>
+</main>
+</body>
+</html>

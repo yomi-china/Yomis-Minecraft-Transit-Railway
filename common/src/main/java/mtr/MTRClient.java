@@ -1,5 +1,7 @@
 package mtr;
 
+import dev.architectury.event.events.client.ClientLifecycleEvent;
+import dev.architectury.event.events.client.ClientTickEvent;
 import mtr.block.BlockPIDS1;
 import mtr.block.BlockPIDS2;
 import mtr.block.BlockPIDS3;
@@ -41,6 +43,7 @@ import mtr.render.RenderTrains;
 import mtr.screen.RailDataEditorClient;
 import mtr.servlet.Webserver;
 import mtr.sound.LoopingSoundInstance;
+import mtr.webdashboard.WebDashboardServer;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.RenderType;
 import net.minecraft.core.BlockPos;
@@ -68,6 +71,14 @@ public class MTRClient implements IPacket {
 	public static final int TICKS_PER_SPEED_SOUND = 4;
 	public static final LoopingSoundInstance TACTILE_MAP_SOUND_INSTANCE = new LoopingSoundInstance("tactile_map_music");
 	private static final int SAMPLE_MILLIS = 1000;
+
+	/**
+	 * Ticks to wait before the client tries to start the web dashboard service itself. The server
+	 * normally starts it well before this, and {@link WebDashboardServer#start()} is idempotent, so
+	 * this only matters if that path did not run.
+	 */
+	private static final int WEB_DASHBOARD_FALLBACK_TICKS = 60;
+	private static int webDashboardFallbackTicks = 0;
 
 	public static void init() {
 		if (!Keys.LIFTS_ONLY) {
@@ -378,6 +389,25 @@ public class MTRClient implements IPacket {
 		if (!Keys.LIFTS_ONLY) {
 			Webserver.init();
 			Registry.registerPlayerQuitEvent(player -> Webserver.stop());
+
+			// The web dashboard is normally started by the server side, which in single player is the
+			// integrated server in this same JVM. This client-side attempt is a safety net so the
+			// button keeps working in setups where that event does not fire. start() is idempotent, so
+			// the two paths cannot produce a second listener; if they race, the loser's bind failure is
+			// reported and ignored inside WebDashboardServer.
+			// Registered straight through Architectury rather than the project's RegistryUtilitiesClient
+			// wrapper: that wrapper has no tick or stopping entry point on Fabric, and both loaders back
+			// these events.
+			ClientTickEvent.CLIENT_PRE.register(minecraft -> {
+				if (webDashboardFallbackTicks >= 0 && ++webDashboardFallbackTicks > WEB_DASHBOARD_FALLBACK_TICKS) {
+					webDashboardFallbackTicks = -1;
+					if (!WebDashboardServer.isRunning()) {
+						System.out.println("[MTR-WebDashboard] The server side did not start the service, starting it from the client.");
+						WebDashboardServer.loadSettingsAndStart(Minecraft.getInstance().gameDirectory.toPath().resolve("config"));
+					}
+				}
+			});
+			ClientLifecycleEvent.CLIENT_STOPPING.register(minecraft -> WebDashboardServer.stop());
 
 			BlockTactileMap.TileEntityTactileMap.updateSoundSource = TACTILE_MAP_SOUND_INSTANCE::setPos;
 			BlockTactileMap.TileEntityTactileMap.onUse = pos -> {
