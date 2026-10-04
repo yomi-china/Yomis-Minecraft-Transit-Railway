@@ -271,6 +271,22 @@ public class Siding extends SavedRailBase implements IPacket, IReducedSaveData {
 		return trainId;
 	}
 
+	/**
+	 * @return the vehicle model's type string, e.g. {@code train_24_2}. Used by the web dashboard; the
+	 *         in-game screens reach the same value through the path generation code instead.
+	 */
+	public String getBaseTrainType() {
+		return baseTrainType;
+	}
+
+	/**
+	 * @return how many cars fit on this siding, derived from the rail length and the model's spacing.
+	 *         0 until a train type has been resolved, which happens on path generation.
+	 */
+	public int getTrainCars() {
+		return trainCars;
+	}
+
 	public float getAccelerationConstant() {
 		return accelerationConstant;
 	}

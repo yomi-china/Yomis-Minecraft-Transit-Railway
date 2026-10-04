@@ -33,7 +33,27 @@
 	/* Shape */
 	--md-sys-shape-corner-extra-large: 28px;
 	--md-sys-shape-corner-large: 16px;
+	--md-sys-shape-corner-medium: 12px;
+	--md-sys-shape-corner-small: 8px;
+	--md-sys-shape-corner-extra-small: 4px;
 	--md-sys-shape-corner-full: 999px;
+
+	/* Typescale, the sizes the sidebar needs beyond the card's */
+	--md-sys-typescale-title-small-size: 14px;
+	--md-sys-typescale-title-small-line-height: 20px;
+	--md-sys-typescale-body-small-size: 12px;
+	--md-sys-typescale-body-small-line-height: 16px;
+	--md-sys-typescale-label-large-size: 14px;
+	--md-sys-typescale-label-large-line-height: 20px;
+	/* The sidebar row label is the MD3 list item's primary text, which is body-large, not body-medium. */
+	--md-sys-typescale-body-large-size: 16px;
+	--md-sys-typescale-body-large-line-height: 24px;
+
+	/* State layer opacities, straight from the MD3 spec. Used instead of ad-hoc alphas so hover and
+	   pressed states read consistently across every component. */
+	--md-sys-state-hover-opacity: 0.08;
+	--md-sys-state-focus-opacity: 0.10;
+	--md-sys-state-pressed-opacity: 0.10;
 
 	/* Motion */
 	--md-sys-motion-duration-short: 150ms;
@@ -42,8 +62,13 @@
 	--md-sys-motion-easing-emphasized: cubic-bezier(0.05, 0.7, 0.1, 1);
 
 	/* Elevation */
+	--md-sys-elevation-0: none;
 	--md-sys-elevation-1: 0 1px 2px rgba(0, 0, 0, 0.3), 0 1px 3px 1px rgba(0, 0, 0, 0.15);
 	--md-sys-elevation-2: 0 1px 2px rgba(0, 0, 0, 0.3), 0 2px 6px 2px rgba(0, 0, 0, 0.15);
+
+	/* Layout constants for the shell, kept here so the sidebar width has one definition. */
+	--mtr-sidebar-width: 340px;
+	--mtr-topbar-height: 64px;
 }
 
 /* ---- Light scheme (default) ---- */
@@ -108,6 +133,17 @@
 
 * {
 	box-sizing: border-box;
+}
+
+/*
+ * The hidden attribute is the one thing the whole page relies on to show or hide panels, badges and
+ * secondary text. It is worth knowing that the browser stylesheet rule for it has zero specificity,
+ * so ANY author rule that sets `display` on the same element silently defeats it - `.badge` and
+ * `.chip__count` both do exactly that. This makes hidden mean hidden everywhere, whatever else the
+ * element is styled with.
+ */
+[hidden] {
+	display: none !important;
 }
 
 html,
@@ -229,9 +265,10 @@ body {
 /*
  * View switching.
  *
- * The card carries data-view and CSS reveals exactly the matching panel, so there is no way to end
- * up with two views visible at once - which a class-toggling approach would allow if a code path
- * forgot to hide the previous one.
+ * The attribute lives on <body> rather than on the card, because the dashboard shell and the centred
+ * card are siblings that trade places - so one attribute has to drive both. CSS reveals exactly the
+ * matching panel, which means there is no way to end up with two views visible at once, something a
+ * class-toggling approach would allow if a code path forgot to hide the previous one.
  */
 .view {
 	display: none;
@@ -240,10 +277,10 @@ body {
 	gap: 12px;
 }
 
-.card[data-view="readonly"] .view[data-view="readonly"],
-.card[data-view="signedin"] .view[data-view="signedin"],
-.card[data-view="offline"] .view[data-view="offline"],
-.card[data-view="expired"] .view[data-view="expired"] {
+body[data-view="readonly"] .view[data-view="readonly"],
+body[data-view="signedin"] .view[data-view="signedin"],
+body[data-view="offline"] .view[data-view="offline"],
+body[data-view="expired"] .view[data-view="expired"] {
 	display: flex;
 }
 
@@ -365,6 +402,13 @@ body {
 	animation: none;
 }
 
+/* Editable is the counterpart of the read-only badge: same shape, different wording and colour, so
+   the visitor can tell at a glance which one applies to them. */
+.badge[data-state="editable"] {
+	background-color: var(--md-sys-color-primary-container);
+	color: var(--md-sys-color-on-primary-container);
+}
+
 /* The signed-in account badge: no dot, just the name on a primary container. */
 .badge--account {
 	background-color: var(--md-sys-color-secondary-container);
@@ -417,3 +461,971 @@ body {
 	font-size: var(--md-sys-typescale-label-medium-size);
 	line-height: var(--md-sys-typescale-label-medium-line-height);
 }
+
+/* =====================================================================================
+   Application shell - the dashboard layout
+   =====================================================================================
+   Which of the two layouts is visible is driven entirely by data-view on <body>, so there is no
+   way for the shell and the card to be on screen together. */
+
+.shell,
+.stage {
+	display: none;
+}
+
+/*
+ * The dashboard is a fixed-height application frame, not a document.
+ *
+ * Without this the shell grows to fit the sidebar's contents, the page itself becomes scrollable,
+ * and scrolling the list drags the top bar and map off screen. Pinning the height to the viewport and
+ * clipping the overflow means the only thing that ever scrolls is .sidebar__list.
+ */
+body[data-view="dashboard"] {
+	height: 100vh;
+	overflow: hidden;
+	/* The decorative grid belongs to the notice layouts, not to an application frame. */
+	background-image: none;
+	background-color: var(--md-sys-color-surface-container-low);
+}
+
+body[data-view="dashboard"] .shell {
+	display: flex;
+	flex-direction: column;
+	height: 100vh;
+	overflow: hidden;
+}
+
+/* Every state other than the dashboard is a centred notice, and those do scroll when they are tall. */
+body:not([data-view="dashboard"]) .stage {
+	display: grid;
+}
+
+/* ---- top bar ---- */
+
+.topbar {
+	height: var(--mtr-topbar-height);
+	flex: 0 0 auto;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 16px;
+	padding: 0 16px;
+	background-color: var(--md-sys-color-surface-container);
+	border-bottom: 1px solid var(--md-sys-color-outline-variant);
+}
+
+.topbar__brand {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	min-width: 0;
+}
+
+.topbar__icon {
+	width: 36px;
+	height: 36px;
+	flex: 0 0 36px;
+	display: grid;
+	place-items: center;
+	border-radius: var(--md-sys-shape-corner-small);
+	background-color: var(--md-sys-color-primary-container);
+	color: var(--md-sys-color-on-primary-container);
+}
+
+.topbar__icon svg {
+	fill: currentColor;
+}
+
+.topbar__title {
+	margin: 0;
+	font-size: var(--md-sys-typescale-title-medium-size);
+	line-height: var(--md-sys-typescale-title-medium-line-height);
+	font-weight: var(--md-sys-typescale-weight-medium);
+	white-space: nowrap;
+}
+
+.topbar__world {
+	color: var(--md-sys-color-on-surface-variant);
+	font-size: var(--md-sys-typescale-label-medium-size);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+
+/* While an area is being drawn the editing bar owns the top of the map and shows the selection size, so
+   the coordinate readout would collide with it and is hidden instead. */
+.map-area.is-editing .map-readout {
+	display: none;
+}
+
+.topbar__actions {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+/* ---- content split ---- */
+
+.content {
+	flex: 1 1 auto;
+	display: flex;
+	min-height: 0;
+}
+
+.sidebar {
+	width: var(--mtr-sidebar-width);
+	flex: 0 0 var(--mtr-sidebar-width);
+	display: flex;
+	flex-direction: column;
+	min-height: 0;
+	background-color: var(--md-sys-color-surface);
+	border-right: 1px solid var(--md-sys-color-outline-variant);
+}
+
+/*
+ * The map.
+ *
+ * `position: relative` with an absolutely positioned canvas, rather than a canvas sized by `height:
+ * 100%`. A percentage height needs a parent with a definite height, and a flex item's height is not
+ * definite - the canvas would collapse to its intrinsic 300x150. Filling an absolutely positioned box
+ * sidesteps that entirely, and the parent's own height comes from the flex row above it.
+ */
+.map-area {
+	position: relative;
+	flex: 1 1 auto;
+	min-width: 0;
+	min-height: 0;
+	overflow: hidden;
+	/* Matches the canvas background so there is no flash of a different colour before the first paint. */
+	background-color: #121212;
+}
+
+#map {
+	position: absolute;
+	inset: 0;
+	width: 100%;
+	height: 100%;
+	display: block;
+	/* The map handles its own gestures; letting the browser also scroll or zoom fights with it. */
+	touch-action: none;
+}
+
+/* While an area is being redrawn, a left drag draws instead of panning. A crosshair is the only thing
+   that says so; without it the change in behaviour is invisible until the user tries to pan. */
+.map-area.is-editing #map {
+	cursor: crosshair;
+}
+
+/* Overlay controls, so they take no space away from the map. */
+.map-controls {
+	position: absolute;
+	top: 12px;
+	left: 12px;
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	z-index: 2;
+}
+
+/* The map's own overlay chrome shares one surface treatment: a translucent dark panel over the light
+   map background, which is what makes the white labels readable in both colour schemes. */
+.map-controls .icon-button,
+.map-editing-bar .button,
+.map-readout {
+	background-color: rgba(32, 33, 36, 0.85);
+	color: #e3e3e3;
+	backdrop-filter: blur(4px);
+}
+
+.map-controls .icon-button:hover:not(:disabled) {
+	background-color: rgba(60, 64, 67, 0.95);
+}
+
+.map-editing-bar {
+	position: absolute;
+	top: 12px;
+	left: 50%;
+	transform: translateX(-50%);
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	max-width: calc(100% - 24px);
+	padding: 4px 4px 4px 16px;
+	border-radius: var(--md-sys-shape-corner-full);
+	background-color: rgba(32, 33, 36, 0.9);
+	color: #e3e3e3;
+	backdrop-filter: blur(4px);
+	z-index: 3;
+}
+
+.map-editing-bar__hint {
+	font-size: var(--md-sys-typescale-label-large-size);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+/* The live size of the rectangle being dragged. Tabular figures so the number does not jitter the bar
+   wider as the digits change. */
+.map-editing-bar__size {
+	flex: 0 0 auto;
+	padding: 2px 10px;
+	border-radius: var(--md-sys-shape-corner-small);
+	background-color: rgba(255, 255, 255, 0.12);
+	font-size: var(--md-sys-typescale-label-medium-size);
+	line-height: var(--md-sys-typescale-label-medium-line-height);
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+	color: #a8c7fa;
+}
+
+.map-editing-bar__size:empty {
+	display: none;
+}
+
+.map-editing-bar .button {
+	background-color: transparent;
+	color: #a8c7fa;
+}
+
+.map-editing-bar .button:hover:not(:disabled) {
+	background-color: rgba(168, 199, 250, 0.12);
+}
+
+/*
+ * Coordinate readout, pinned to the map's top-right corner: directly under the top bar and hard against
+ * the right edge. Coordinates only - the player's name is shown once, elsewhere.
+ */
+.map-readout {
+	position: absolute;
+	top: 8px;
+	right: 8px;
+	padding: 4px 10px;
+	border-radius: var(--md-sys-shape-corner-small);
+	background-color: rgba(32, 33, 36, 0.85);
+	color: #e3e3e3;
+	backdrop-filter: blur(4px);
+	font-size: var(--md-sys-typescale-label-medium-size);
+	line-height: var(--md-sys-typescale-label-medium-line-height);
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+	z-index: 2;
+}
+
+/* Narrow viewports stack instead of squeezing both panes; the map needs a usable width, and the
+   sidebar is the part that can be scrolled. */
+@media (max-width: 900px) {
+	.content {
+		flex-direction: column;
+	}
+
+	.sidebar {
+		width: auto;
+		flex: 0 0 auto;
+		max-height: 60vh;
+		border-right: none;
+		border-bottom: 1px solid var(--md-sys-color-outline-variant);
+	}
+
+	.map-area {
+		flex: 1 1 auto;
+		min-height: 40vh;
+	}
+}
+
+/* ---- sidebar sections ---- */
+
+.sidebar__filters {
+	padding: 12px 12px 4px;
+}
+
+.sidebar__tabs {
+	padding: 4px 12px 0;
+}
+
+.sidebar__search {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	margin: 8px 12px 4px;
+	padding: 0 4px 0 12px;
+	height: 48px;
+	border: 1px solid var(--md-sys-color-outline);
+	border-radius: var(--md-sys-shape-corner-full);
+	background-color: var(--md-sys-color-surface);
+	transition: border-color var(--md-sys-motion-duration-short) var(--md-sys-motion-easing-standard);
+}
+
+/* MD3 outlined field: the border thickens and turns primary on focus rather than the whole field
+   changing colour. */
+.sidebar__search:focus-within {
+	border-color: var(--md-sys-color-primary);
+	box-shadow: inset 0 0 0 1px var(--md-sys-color-primary);
+}
+
+.search__icon {
+	display: grid;
+	place-items: center;
+	color: var(--md-sys-color-on-surface-variant);
+}
+
+.search__icon svg {
+	fill: currentColor;
+}
+
+.search__input {
+	flex: 1 1 auto;
+	min-width: 0;
+	height: 100%;
+	border: none;
+	outline: none;
+	background: transparent;
+	color: var(--md-sys-color-on-surface);
+	font: inherit;
+	font-size: var(--md-sys-typescale-body-medium-size);
+}
+
+/* The browser's own clear affordance duplicates the icon button next to it. */
+.search__input::-webkit-search-cancel-button {
+	display: none;
+}
+
+/*
+ * The one scrolling region in the whole application.
+ *
+ * `overflow-y: auto` alone is not enough here: a flex item's default `min-height` is `auto`, so the
+ * box grows to fit its contents instead of scrolling and the overflow never triggers. `min-height: 0`
+ * is what actually turns this into the scroll container. With it, a list of any length scrolls
+ * smoothly inside the sidebar while the top bar and map stay put - which is the whole point of
+ * replacing the game's page arrows.
+ *
+ * `overscroll-behavior: contain` stops a flick at the end of the list from scrolling the page behind
+ * it (or triggering the browser's back gesture on a trackpad).
+ */
+.sidebar__list {
+	flex: 1 1 auto;
+	min-height: 0;
+	overflow-y: auto;
+	overscroll-behavior: contain;
+	padding: 4px 8px 8px;
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	/* A slimmer, themed scrollbar; the default one is visually heavy against the MD3 surfaces. */
+	scrollbar-width: thin;
+	scrollbar-color: var(--md-sys-color-outline-variant) transparent;
+}
+
+.sidebar__list::-webkit-scrollbar {
+	width: 8px;
+}
+
+.sidebar__list::-webkit-scrollbar-track {
+	background: transparent;
+}
+
+.sidebar__list::-webkit-scrollbar-thumb {
+	border-radius: var(--md-sys-shape-corner-full);
+	background-color: var(--md-sys-color-outline-variant);
+}
+
+.sidebar__list::-webkit-scrollbar-thumb:hover {
+	background-color: var(--md-sys-color-outline);
+}
+
+/* ---- filter chips (MD3) ----
+   MD3 filter chip: 32dp tall, 8dp corner, 16dp horizontal padding, a 1dp outline when unselected
+   and a filled secondary container plus a leading check when selected. The leading check is the
+   spec's requirement that selection not be signalled by colour alone.
+   Sizes here are exactly the spec's: 8dp corner radius, 18x18 icon box, 8dp gap. */
+
+.chips {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+}
+
+.chip {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	height: 32px;
+	/* 12px + the 1px border + the 3px focus ring space keeps the visual padding at the spec's 16dp. */
+	padding: 0 15px;
+	border: 1px solid var(--md-sys-color-outline);
+	border-radius: var(--md-sys-shape-corner-small);
+	background-color: transparent;
+	color: var(--md-sys-color-on-surface-variant);
+	font: inherit;
+	font-size: var(--md-sys-typescale-label-large-size);
+	line-height: var(--md-sys-typescale-label-large-line-height);
+	font-weight: var(--md-sys-typescale-weight-medium);
+	cursor: pointer;
+	transition: background-color var(--md-sys-motion-duration-short) var(--md-sys-motion-easing-standard),
+		border-color var(--md-sys-motion-duration-short) var(--md-sys-motion-easing-standard);
+}
+
+.chip:hover {
+	background-color: color-mix(in srgb, var(--md-sys-color-on-surface) calc(var(--md-sys-state-hover-opacity) * 100%), transparent);
+}
+
+.chip:active {
+	background-color: color-mix(in srgb, var(--md-sys-color-on-surface) calc(var(--md-sys-state-pressed-opacity) * 100%), transparent);
+}
+
+.chip[aria-pressed="true"] {
+	background-color: var(--md-sys-color-secondary-container);
+	/* Transparent rather than removed, so selecting a chip does not shift the text by a pixel. */
+	border-color: transparent;
+	color: var(--md-sys-color-on-secondary-container);
+}
+
+.chip[aria-pressed="true"]:hover {
+	background-color: color-mix(in srgb, var(--md-sys-color-on-secondary-container) calc(var(--md-sys-state-hover-opacity) * 100%), var(--md-sys-color-secondary-container));
+}
+
+/* The leading check, drawn from two borders so no icon font or sprite is needed. Only present when
+   selected, which is why selecting a chip widens it - the same thing the real component does. */
+.chip[aria-pressed="true"]::before {
+	content: "";
+	width: 8px;
+	height: 4px;
+	flex: 0 0 auto;
+	border-left: 2px solid currentColor;
+	border-bottom: 2px solid currentColor;
+	transform: rotate(-45deg) translateY(-1px);
+}
+
+.chip__count {
+	font-variant-numeric: tabular-nums;
+	color: var(--md-sys-color-on-surface-variant);
+}
+
+.chip[aria-pressed="true"] .chip__count {
+	color: inherit;
+	opacity: 0.8;
+}
+
+.chip:focus-visible,
+.tab:focus-visible,
+.row:focus-visible,
+.icon-button:focus-visible,
+.button:focus-visible {
+	outline: 3px solid var(--md-sys-color-primary);
+	outline-offset: 2px;
+}
+
+.hint {
+	margin: 8px 0 0;
+	color: var(--md-sys-color-on-surface-variant);
+	font-size: var(--md-sys-typescale-body-small-size);
+	line-height: var(--md-sys-typescale-body-small-line-height);
+}
+
+/* The redraw action for the selected object. Sits between the search box and the list so it is next to
+   the thing it acts on without crowding the rows. */
+.sidebar__edit-bar {
+	padding: 4px 12px 8px;
+}
+
+/*
+ * MD3 filled tonal button.
+ *
+ * The container is the primary container, not the secondary one. In this dark palette
+ * `--md-sys-color-secondary-container` is #444746 - a neutral grey within a few percent of the panel
+ * behind it - so the button rendered as a dead grey block with no hierarchy at all: light grey text on a
+ * dark grey fill, floating in a dark panel. The primary container (#0842a0) is the tonal surface the
+ * component is meant to use: it carries the accent hue at low emphasis, which is what makes a filled
+ * tonal button recognisable as one.
+ *
+ * The state layer follows the same `color-mix` over the container that the chips already use, so hover and
+ * press behave identically across the panel.
+ */
+.button--tonal {
+	min-height: 40px;
+	padding: 0 24px;
+	border-radius: var(--md-sys-shape-corner-full);
+	background-color: var(--md-sys-color-primary-container);
+	color: var(--md-sys-color-on-primary-container);
+	font-size: var(--md-sys-typescale-label-large-size);
+	line-height: var(--md-sys-typescale-label-large-line-height);
+	font-weight: var(--md-sys-typescale-weight-medium);
+	letter-spacing: 0.1px;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 8px;
+	/* Icon and label stay on one line at the label-large size; without this the icon can ride above the
+	   text baseline and the whole button reads as misaligned. */
+	white-space: nowrap;
+	transition: background-color var(--md-sys-motion-duration-short) var(--md-sys-motion-easing-standard);
+}
+
+.button--tonal svg {
+	fill: currentColor;
+	flex: 0 0 auto;
+}
+
+/* MD3 state layer: the foreground colour at the state's opacity, mixed into the container. */
+.button--tonal:hover:not(:disabled) {
+	background-color: color-mix(in srgb, var(--md-sys-color-on-primary-container) calc(var(--md-sys-state-hover-opacity) * 100%), var(--md-sys-color-primary-container));
+}
+
+.button--tonal:active:not(:disabled) {
+	background-color: color-mix(in srgb, var(--md-sys-color-on-primary-container) calc(var(--md-sys-state-pressed-opacity) * 100%), var(--md-sys-color-primary-container));
+}
+
+.button--tonal:focus-visible {
+	outline: 3px solid var(--md-sys-color-primary);
+	outline-offset: 2px;
+}
+
+.button--tonal:disabled {
+	background-color: color-mix(in srgb, var(--md-sys-color-on-surface) 12%, transparent);
+	color: color-mix(in srgb, var(--md-sys-color-on-surface) 38%, transparent);
+	cursor: default;
+}
+
+.button--full {
+	width: 100%;
+}
+
+/* Height and padding of the compact text button used inside the map's editing bar. */
+.button--small {
+	min-height: 32px;
+	padding: 0 12px;
+	font-size: var(--md-sys-typescale-label-medium-size);
+	line-height: var(--md-sys-typescale-label-medium-line-height);
+}
+
+/* ---- primary tabs (MD3) ----
+   MD3 primary tabs: 48dp tall, active indicator is a 3dp bar with the top corners rounded to 3dp,
+   active label in primary, inactive in on-surface-variant. */
+
+.tabs {
+	display: flex;
+	border-bottom: 1px solid var(--md-sys-color-outline-variant);
+}
+
+.tab {
+	flex: 1 1 0;
+	position: relative;
+	height: 48px;
+	padding: 0 12px;
+	border: none;
+	background: transparent;
+	color: var(--md-sys-color-on-surface-variant);
+	font: inherit;
+	font-size: var(--md-sys-typescale-title-small-size);
+	line-height: var(--md-sys-typescale-title-small-line-height);
+	font-weight: var(--md-sys-typescale-weight-medium);
+	cursor: pointer;
+	transition: color var(--md-sys-motion-duration-short) var(--md-sys-motion-easing-standard);
+}
+
+.tab:hover {
+	background-color: color-mix(in srgb, var(--md-sys-color-on-surface) calc(var(--md-sys-state-hover-opacity) * 100%), transparent);
+}
+
+.tab[aria-selected="true"] {
+	color: var(--md-sys-color-primary);
+}
+
+.tab[aria-selected="true"]::after {
+	content: "";
+	position: absolute;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	height: 3px;
+	border-radius: 3px 3px 0 0;
+	background-color: var(--md-sys-color-primary);
+}
+
+/* ---- list rows (MD3 list items) ----
+   MD3 list item: 56dp minimum height, 16dp leading, primary text in body-large, supporting text in
+   body-medium/on-surface-variant, 8dp state layer at 8% (hover) and 12% (selected). */
+
+.row {
+	display: flex;
+	align-items: center;
+	gap: 16px;
+	width: 100%;
+	min-height: 56px;
+	padding: 8px 16px;
+	border: none;
+	border-radius: var(--md-sys-shape-corner-small);
+	background-color: transparent;
+	color: var(--md-sys-color-on-surface);
+	font: inherit;
+	text-align: left;
+	cursor: pointer;
+	/* Staggered entrance, capped in JS at 8 rows so a full page does not crawl in. */
+	animation: row-enter var(--md-sys-motion-duration-medium) var(--md-sys-motion-easing-emphasized) both;
+	animation-delay: calc(var(--row-index, 0) * 12ms);
+	transition: background-color var(--md-sys-motion-duration-short) var(--md-sys-motion-easing-standard);
+}
+
+@keyframes row-enter {
+	from {
+		opacity: 0;
+		transform: translateY(4px);
+	}
+	to {
+		opacity: 1;
+		transform: none;
+	}
+}
+
+.row:hover {
+	background-color: color-mix(in srgb, var(--md-sys-color-on-surface) calc(var(--md-sys-state-hover-opacity) * 100%), transparent);
+}
+
+.row:active {
+	background-color: color-mix(in srgb, var(--md-sys-color-on-surface) calc(var(--md-sys-state-pressed-opacity) * 100%), transparent);
+}
+
+.row[aria-selected="true"] {
+	background-color: color-mix(in srgb, var(--md-sys-color-primary) 12%, transparent);
+}
+
+.row__swatch {
+	width: 16px;
+	height: 16px;
+	flex: 0 0 16px;
+	border-radius: var(--md-sys-shape-corner-extra-small);
+}
+
+/* Colour 0 is a real value and would draw an invisible black square, so it is shown as an empty
+   outlined slot instead, which reads as "no colour set" rather than as a rendering fault. */
+.row__swatch--empty {
+	border: 1px solid var(--md-sys-color-outline);
+	background-color: transparent;
+}
+
+.row__text {
+	flex: 1 1 auto;
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+}
+
+.row__name {
+	font-size: var(--md-sys-typescale-body-large-size);
+	line-height: var(--md-sys-typescale-body-large-line-height);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.row__summary {
+	color: var(--md-sys-color-on-surface-variant);
+	font-size: var(--md-sys-typescale-body-medium-size);
+	line-height: var(--md-sys-typescale-body-medium-line-height);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.row__mode {
+	flex: 0 0 auto;
+	/* Pushes the badge, and with it the edit button, to the right end of the row. */
+	margin-left: auto;
+	padding: 2px 8px;
+	border-radius: var(--md-sys-shape-corner-small);
+	background-color: var(--md-sys-color-surface-container-high);
+	color: var(--md-sys-color-on-surface-variant);
+	font-size: var(--md-sys-typescale-label-medium-size);
+	line-height: var(--md-sys-typescale-label-medium-line-height);
+}
+
+/* The row's single action. The whole row is clickable too, but an icon makes the affordance discoverable
+   rather than something to be guessed at. */
+.row__edit {
+	flex: 0 0 auto;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 32px;
+	height: 32px;
+	/* Also auto, so the button still sits at the right end on a row with no mode badge. */
+	margin-left: auto;
+	padding: 0;
+	border: none;
+	border-radius: var(--md-sys-shape-corner-full);
+	background-color: transparent;
+	color: var(--md-sys-color-on-surface-variant);
+	cursor: pointer;
+	transition: background-color var(--md-sys-motion-duration-short) var(--md-sys-motion-easing-standard),
+		color var(--md-sys-motion-duration-short) var(--md-sys-motion-easing-standard);
+}
+
+.row__edit:hover {
+	background-color: color-mix(in srgb, var(--md-sys-color-on-surface) 8%, transparent);
+	color: var(--md-sys-color-on-surface);
+}
+
+.row__edit:focus-visible {
+	outline: 2px solid var(--md-sys-color-primary);
+	outline-offset: 2px;
+}
+
+.row__edit svg {
+	fill: currentColor;
+}
+
+/* ---- the editing card ---------------------------------------------------- */
+
+/*
+ * A non-modal popover anchored to the object on the map.
+ *
+ * `position: absolute` inside the map area, whose coordinates `left` and `top` are in - that is what the
+ * placement maths in focus.js produces, and why the card is a child of the map area rather than the body.
+ */
+.edit-card {
+	position: absolute;
+	z-index: 5;
+	display: flex;
+	flex-direction: column;
+	/* Overridden inline when the card has to be docked across the bottom of a narrow map. */
+	width: 320px;
+	max-height: calc(100% - 16px);
+	border-radius: 16px;
+	background-color: var(--md-sys-color-surface-container-high);
+	color: var(--md-sys-color-on-surface);
+	box-shadow: 0 4px 8px 3px rgba(0, 0, 0, 0.15), 0 1px 3px rgba(0, 0, 0, 0.3);
+	animation: edit-card-enter var(--md-sys-motion-duration-medium) var(--md-sys-motion-easing-emphasized) both;
+}
+
+@keyframes edit-card-enter {
+	from {
+		opacity: 0;
+		transform: scale(0.96);
+	}
+	to {
+		opacity: 1;
+		transform: none;
+	}
+}
+
+/* The pointer at the object: a rotated square in the card's own colour, so the two read as one shape.
+   Hidden by JS when it could not reach the anchor, which is better than pointing at nothing. */
+.edit-card__arrow {
+	position: absolute;
+	width: 20px;
+	height: 20px;
+	background-color: var(--md-sys-color-surface-container-high);
+	border-radius: 2px;
+	transform: rotate(45deg);
+}
+
+.edit-card__header {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 16px 8px 8px 20px;
+}
+
+.edit-card__title {
+	flex: 1 1 auto;
+	margin: 0;
+	font-size: var(--md-sys-typescale-title-medium-size);
+	line-height: var(--md-sys-typescale-title-medium-line-height);
+	font-weight: 500;
+}
+
+.edit-card__body {
+	display: flex;
+	flex-direction: column;
+	gap: 16px;
+	padding: 0 20px;
+	overflow-y: auto;
+}
+
+.edit-field {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+
+.edit-field__label {
+	font-size: var(--md-sys-typescale-label-large-size);
+	line-height: var(--md-sys-typescale-label-large-line-height);
+	color: var(--md-sys-color-on-surface-variant);
+}
+
+/* MD3 outlined text field: a 1px outline that thickens and takes the primary colour on focus. */
+.edit-field__input {
+	box-sizing: border-box;
+	width: 100%;
+	padding: 12px 14px;
+	border: 1px solid var(--md-sys-color-outline);
+	border-radius: var(--md-sys-shape-corner-extra-small);
+	background-color: transparent;
+	color: var(--md-sys-color-on-surface);
+	font: inherit;
+}
+
+.edit-field__input:focus {
+	outline: none;
+	border-color: var(--md-sys-color-primary);
+	box-shadow: inset 0 0 0 1px var(--md-sys-color-primary);
+}
+
+.edit-field__error {
+	margin: 0;
+	color: var(--md-sys-color-error, #f2b8b5);
+	font-size: var(--md-sys-typescale-body-small-size);
+}
+
+.edit-color {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+}
+
+.edit-color__swatches {
+	display: grid;
+	grid-template-columns: repeat(8, 1fr);
+	gap: 6px;
+}
+
+.edit-color__swatch {
+	width: 100%;
+	aspect-ratio: 1;
+	padding: 0;
+	border: 1px solid var(--md-sys-color-outline-variant);
+	border-radius: var(--md-sys-shape-corner-extra-small);
+	cursor: pointer;
+}
+
+/* A ring rather than a border, so selecting a swatch does not change its size and shuffle the grid. */
+.edit-color__swatch[data-selected='true'] {
+	outline: 2px solid var(--md-sys-color-primary);
+	outline-offset: 1px;
+}
+
+.edit-color__row {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+}
+
+.edit-color__preview {
+	flex: 0 0 auto;
+	width: 24px;
+	height: 24px;
+	border: 1px solid var(--md-sys-color-outline-variant);
+	border-radius: var(--md-sys-shape-corner-extra-small);
+}
+
+.edit-color__hex {
+	font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+	text-transform: lowercase;
+}
+
+.edit-card__status {
+	margin: 12px 20px 0;
+	font-size: var(--md-sys-typescale-body-small-size);
+	color: var(--md-sys-color-on-surface-variant);
+}
+
+.edit-card__status[data-level='error'] {
+	color: var(--md-sys-color-error, #f2b8b5);
+}
+
+.edit-card__status[data-level='success'] {
+	color: var(--md-sys-color-primary);
+}
+
+.edit-card__status[data-level='warning'] {
+	color: var(--md-sys-color-tertiary, #efb8c8);
+}
+
+.edit-card__actions {
+	display: flex;
+	justify-content: flex-end;
+	gap: 8px;
+	padding: 12px 16px 16px;
+}
+
+/* ---- empty states ---- */
+
+.empty {
+	padding: 32px 24px;
+	text-align: center;
+}
+
+.empty__title {
+	margin: 0;
+	color: var(--md-sys-color-on-surface);
+	font-size: var(--md-sys-typescale-title-medium-size);
+	line-height: var(--md-sys-typescale-title-medium-line-height);
+}
+
+.empty__body {
+	margin: 6px 0 0;
+	color: var(--md-sys-color-on-surface-variant);
+	font-size: var(--md-sys-typescale-body-small-size);
+	line-height: var(--md-sys-typescale-body-small-line-height);
+}
+
+/* ---- icon buttons (MD3) ---- */
+
+.icon-button {
+	width: 40px;
+	height: 40px;
+	flex: 0 0 40px;
+	display: grid;
+	place-items: center;
+	border: none;
+	border-radius: var(--md-sys-shape-corner-full);
+	background-color: transparent;
+	color: var(--md-sys-color-on-surface-variant);
+	cursor: pointer;
+	transition: background-color var(--md-sys-motion-duration-short) var(--md-sys-motion-easing-standard);
+}
+
+.icon-button:hover:not(:disabled) {
+	background-color: color-mix(in srgb, var(--md-sys-color-on-surface) 8%, transparent);
+}
+
+.icon-button:disabled {
+	opacity: 0.38;
+	cursor: default;
+}
+
+.icon-button svg {
+	fill: currentColor;
+}
+
+.icon-button--small {
+	width: 32px;
+	height: 32px;
+	flex: 0 0 32px;
+}
+
+/* Spins while a reload is in flight, so a slow game tick does not look like a frozen page. */
+.icon-button.is-busy svg {
+	animation: spin 900ms linear infinite;
+}
+
+@keyframes spin {
+	to {
+		transform: rotate(360deg);
+	}
+}
+
+.badge--muted {
+	background-color: var(--md-sys-color-surface-container-high);
+	color: var(--md-sys-color-on-surface-variant);
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.row,
+	.icon-button.is-busy svg {
+		animation: none;
+	}
+}
+

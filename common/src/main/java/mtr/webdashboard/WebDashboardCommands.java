@@ -22,10 +22,9 @@ import static net.minecraft.commands.Commands.literal;
 /**
  * The {@code /mtr-webdashboard} command tree: who may edit through the web dashboard.
  * <p>
- * Access to the command is granted to operators and console at the root, and the subcommands then
- * check {@link WebDashboardPermissions}, so an ordinary player who was granted web access can pass
- * it on without being an operator. That mirrors how the dashboard itself works - web access is its
- * own grant, not a side effect of being opped.
+ * The root gate is <b>op level</b>, not the dashboard's own permission, for a specific reason: the
+ * command exists to change that permission, so requiring it would deadlock anyone who revoked their
+ * own access. See {@link #mayAdministrate} for the full reasoning.
  * <p>
  * Separate from the in-game dashboards' permission model, which is a gamemode check in
  * {@code RailwayData} and is left untouched.
@@ -39,14 +38,28 @@ import static net.minecraft.commands.Commands.literal;
 public final class WebDashboardCommands {
 
 	private static final String ROOT = "mtr-webdashboard";
+
+	/**
+	 * The op level needed to run the permission commands. Matches the level vanilla uses for its own
+	 * player-management commands ({@code /op} needs 3), so anyone who can already manage operators can
+	 * manage dashboard access - and so the singleplayer host, who holds level 4, always can.
+	 */
+	private static final int REQUIRED_OP_LEVEL = 2;
 	private static final String ARGUMENT_PLAYER = "player";
 
 	private WebDashboardCommands() {
 	}
 
 	public static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
+		// Note what is deliberately absent: `.requires(...)`.
+		//
+		// Brigadier evaluates `requires` while building the command tree and hides anything that fails,
+		// so a requirement anywhere on this tree makes the command vanish from tab completion for
+		// anyone who fails it - `/mtr-webdashboard` answers "unknown command" rather than "you may not
+		// do that". That is exactly what turned a recoverable lockout in this project into an
+		// unexplainable one. The gate is applied at execution instead, which keeps the command
+		// discoverable and lets it say why it refused.
 		dispatcher.register(literal(ROOT)
-				.requires(WebDashboardCommands::mayAdministrate)
 				.then(literal("grant")
 						.then(argument(ARGUMENT_PLAYER, StringArgumentType.word())
 								.suggests(WebDashboardCommands::suggestOnlinePlayers)
@@ -66,17 +79,57 @@ public final class WebDashboardCommands {
 	}
 
 	/**
-	 * The command-level gate.
+	 * @return true when the gate passed. When it did not, the refusal has already been sent, and the
+	 *         caller must return without doing anything.
+	 */
+	private static boolean checkGate(CommandSourceStack source) {
+		if (mayAdministrate(source)) {
+			return true;
+		}
+		source.sendFailure(Text.translatable("gui.mtr.web_dashboard_command_not_permitted", REQUIRED_OP_LEVEL));
+		return false;
+	}
+
+	/**
+	 * The command-level gate: who may run the permission commands at all, and on whom.
 	 * <p>
-	 * Console passes: an operator at the server terminal must always be able to restore access, which
-	 * is the documented recovery path for locking yourself out.
+	 * Deliberately <b>not</b> the same test as "may edit the dashboard through the web". An earlier
+	 * version used that, and it deadlocked in the most likely way possible: revoking your own access
+	 * removed the permission that the command needs to restore it. Worse, Brigadier evaluates
+	 * {@code requires} when building the command tree, so the command disappeared from tab completion
+	 * entirely - it did not even report "you lack permission".
 	 * <p>
-	 * A player passes when they may edit the dashboard. This uses the same function as the HTTP layer,
-	 * so "can edit on the web" and "can administer web access" cannot drift apart.
+	 * The rule is therefore "can this person already administer the server", never "can they edit the
+	 * dashboard":
+	 *
+	 * <ul>
+	 *     <li><b>Console</b> passes. A source with no player attached is the server terminal or the
+	 *     singleplayer world's own source, and must always be able to restore access.</li>
+	 *     <li><b>The singleplayer owner</b> passes by uuid. This one matters: with cheats turned off in a
+	 *     singleplayer world, {@code CommandSourceStack.hasPermission} reports 0 for everyone -
+	 *     including the host - so an op-level test would leave the host with no in-game way back. The
+	 *     host owns the world; there is nothing to protect from them.</li>
+	 *     <li><b>Anyone at op level 2</b> passes, matching the level vanilla's own player-management
+	 *     commands use.</li>
+	 * </ul>
+	 *
+	 * A player who was granted web access but is neither the host nor opped cannot hand it on. That is
+	 * a deliberate trade, and it is the only thing keeping the recovery property above true. If
+	 * delegated administration is wanted instead, this method is the one place to change.
 	 */
 	private static boolean mayAdministrate(CommandSourceStack source) {
+		// No player means the console (or a command block): always allowed.
 		final ServerPlayer player = source.getPlayer();
-		return player == null || WebDashboardPermissions.canEdit(player);
+		if (player == null) {
+			return true;
+		}
+
+		final MinecraftServer server = source.getServer();
+		if (server != null && server.isSingleplayerOwner(player.getGameProfile())) {
+			return true;
+		}
+
+		return source.hasPermission(REQUIRED_OP_LEVEL);
 	}
 
 	// ---- grant / revoke / reset -------------------------------------------
@@ -92,6 +145,11 @@ public final class WebDashboardCommands {
 		final CommandSourceStack source = context.getSource();
 		final String name = StringArgumentType.getString(context, ARGUMENT_PLAYER);
 		final Target target = resolveTarget(source.getServer(), name);
+		// The gate is here rather than in `requires`, so that an unauthorised caller gets a reason
+		// instead of the command silently not existing. See register().
+		if (!checkGate(source)) {
+			return 0;
+		}
 
 		if (isReset) {
 			if (!WebDashboardPermissions.reset(target.uuid)) {
@@ -164,6 +222,9 @@ public final class WebDashboardCommands {
 
 	private static int list(CommandContext<CommandSourceStack> context) {
 		final CommandSourceStack source = context.getSource();
+		if (!checkGate(source)) {
+			return 0;
+		}
 		final List<PermissionEntryView> entries = WebDashboardSettings.get().listPermissionEntries();
 
 		source.sendSuccess(() -> Text.translatable("gui.mtr.web_dashboard_list_header", WebDashboardPermissions.describeTable()), false);
@@ -173,7 +234,12 @@ public final class WebDashboardCommands {
 		} else {
 			for (final PermissionEntryView entry : entries) {
 				final boolean online = WebDashboardPermissions.getOnlinePlayer(entry.uuid) != null;
-				source.sendSuccess(() -> Text.translatable("gui.mtr.web_dashboard_list_entry", entry.getDisplayName())
+				// The uuid is shown alongside the name because one name can map to more than one uuid:
+				// a Mojang account and the offline uuid derived from the same name are different keys, and
+				// an entry written for one does nothing for the other. Without this, a list can contain two
+				// lines that look identical and behave completely differently - which is exactly how a
+				// lockout was misdiagnosed once already.
+				source.sendSuccess(() -> Text.translatable("gui.mtr.web_dashboard_list_entry", entry.getDisplayName(), shortUuid(entry.uuid))
 						.append(Text.translatable(entry.granted ? "gui.mtr.web_dashboard_state_granted" : "gui.mtr.web_dashboard_state_denied"))
 						.append(Text.translatable(online ? "gui.mtr.web_dashboard_state_online" : "gui.mtr.web_dashboard_state_offline")), false);
 			}
@@ -187,6 +253,15 @@ public final class WebDashboardCommands {
 	}
 
 	// ---- helpers ----------------------------------------------------------
+
+	/**
+	 * @return the first eight characters of a uuid, which is plenty to tell two entries apart on screen
+	 *         while staying short enough to sit in a command line.
+	 */
+	private static String shortUuid(UUID uuid) {
+		final String text = uuid == null ? "" : uuid.toString();
+		return text.length() <= 8 ? text : text.substring(0, 8);
+	}
 
 	/**
 	 * Warns when the change leaves no explicit grant at all.

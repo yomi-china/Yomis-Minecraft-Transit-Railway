@@ -35,6 +35,11 @@ public class PacketWebDashboardServer implements IPacket {
 			token = "";
 		}
 
+		// Logged on every press so that "the page still says read-only" can be traced from this end: it
+		// shows whether a token was issued at all. The token value itself is never written to the log.
+		System.out.println("[MTR-WebDashboard] Sign-in requested by " + player.getName().getString() + ": "
+				+ (token.isEmpty() ? "no edit access, opening read-only" : "token issued, length " + token.length()));
+
 		final FriendlyByteBuf packet = new FriendlyByteBuf(Unpooled.buffer());
 		packet.writeUtf(token);
 		Registry.sendToPlayer(player, PACKET_WEB_DASHBOARD_LOGIN_TOKEN, packet);

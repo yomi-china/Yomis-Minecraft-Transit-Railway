@@ -99,11 +99,16 @@ public final class WebDashboardTokenStore {
 		}
 
 		final LoginToken loginToken = LOGIN_TOKENS.remove(token);
-		LOGIN_TOKEN_BY_PLAYER.remove(loginToken == null ? null : loginToken.uuid, token);
-
 		if (loginToken == null) {
+			// Unknown or already redeemed. The reverse lookup is skipped entirely rather than called with
+			// a null key: ConcurrentHashMap.remove(null, ...) throws NullPointerException, which used to
+			// propagate out of the servlet and abort the request before the 401 could be written - so a
+			// bad token produced an empty 200 instead of a clean refusal.
+			System.out.println("[MTR-WebDashboard] Rejected an unknown or already used sign-in token");
 			return null;
 		}
+		LOGIN_TOKEN_BY_PLAYER.remove(loginToken.uuid, token);
+
 		if (System.currentTimeMillis() > loginToken.expiresAtMillis) {
 			System.out.println("[MTR-WebDashboard] Rejected an expired sign-in token");
 			return null;

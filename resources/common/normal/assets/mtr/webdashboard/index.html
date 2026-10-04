@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
 	<meta charset="UTF-8">
@@ -6,16 +6,154 @@
 	<meta name="color-scheme" content="light dark">
 	<meta name="robots" content="noindex">
 	<title>MTR Web Dashboard</title>
-	<link rel="stylesheet" href="index.css">
-	<script type="module" src="app.js"></script>
+	<!-- The ?v= suffix busts any copy a browser cached before caching was disabled server-side.
+	     Sub-imports inside app.js and views.js carry the same number, because a module is cached under
+	     its own URL and bumping only this line would leave a stale lists.js or views.js in play.
+	     Bump all of them together. -->
+	<link rel="stylesheet" href="index.css?v=16">
+	<script type="module" src="app.js?v=16"></script>
 </head>
-<body>
+<body data-view="checking">
 <noscript>
 	<p class="noscript-notice">This dashboard requires JavaScript.</p>
 </noscript>
 
+<!--
+	Two layouts sharing one page.
+
+	The shell is the working dashboard: a top bar, then the sidebar beside the map. The game also keeps
+	its list on the left and its map on the right, so the two read the same way round.
+
+	The card is the centred notice used for every non-dashboard state - not signed in, sign-in expired,
+	service unreachable. Which one is visible is decided by data-view on <body>, so exactly one can
+	ever show.
+-->
+<div class="shell">
+	<header class="topbar">
+		<div class="topbar__brand">
+			<span class="topbar__icon" aria-hidden="true">
+				<svg viewBox="0 0 24 24" width="20" height="20" focusable="false">
+					<path d="M12 2 4 6v6c0 5 3.4 8.6 8 10 4.6-1.4 8-5 8-10V6l-8-4zm0 2.2 6 3v4.8c0 4-2.6 7-6 8.2-3.4-1.2-6-4.2-6-8.2V7.2l6-3z"/>
+					<path d="M11 7h2v3.6l2.7 2.7-1.4 1.4L11 11.4V7z"/>
+				</svg>
+			</span>
+			<h1 class="topbar__title" data-i18n="title">Web Dashboard</h1>
+			<!-- Shown only when the visitor cannot edit; views.setCanEdit owns its hidden flag. Hidden
+			     from the start so an account with edit rights never sees it flash. -->
+			<span class="badge badge--muted" id="readonly-badge" hidden data-i18n="readOnlyBadge">Read-only</span>
+			<span class="topbar__world" id="world-label" hidden></span>
+		</div>
+
+		<div class="topbar__actions">
+			<button class="icon-button" id="refresh" type="button" data-i18n-title="refresh" data-i18n-aria-label="refreshAriaLabel" aria-label="Refresh">
+				<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false">
+					<path d="M12 5V2L7 6l5 4V7a5 5 0 1 1-5 5H5a7 7 0 1 0 7-7z"/>
+				</svg>
+			</button>
+			<span class="badge" id="status-badge" data-state="loading">
+				<span class="badge__dot" aria-hidden="true"></span>
+				<span data-i18n="statusLoading">Checking service…</span>
+			</span>
+			<span class="badge badge--account" id="account-badge" hidden>
+				<span id="account-name"></span>
+			</span>
+			<button class="button button--text" id="sign-out" type="button" data-i18n="signOut">Sign out</button>
+		</div>
+	</header>
+
+	<div class="content">
+		<!-- Sidebar: the same three categories as the in-game dashboard, above which sits the
+		     transport-mode filter the game has no equivalent for, because one page manages all four. -->
+		<aside class="sidebar" data-i18n-aria-label="sidebarLabel" aria-label="Railway data">
+			<!-- Hidden by views.renderModes on the stations tab, where filtering has no effect. -->
+			<div class="sidebar__filters" id="sidebar-filters">
+				<div class="chips" id="modes" role="group"></div>
+			</div>
+
+			<div class="sidebar__tabs">
+				<div class="tabs" id="tabs" role="tablist"></div>
+			</div>
+
+			<div class="sidebar__search">
+				<span class="search__icon" aria-hidden="true">
+					<svg viewBox="0 0 24 24" width="18" height="18" focusable="false">
+						<path d="M15.5 14h-.79l-.28-.27a6.5 6.5 0 1 0-.7.7l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0A4.5 4.5 0 1 1 14 9.5 4.5 4.5 0 0 1 9.5 14z"/>
+					</svg>
+				</span>
+				<input class="search__input" id="search" type="search" autocomplete="off"
+				       data-i18n-placeholder="searchPlaceholder" placeholder="Search…"
+				       data-i18n-aria-label="searchAriaLabel" aria-label="Search">
+				<button class="icon-button icon-button--small" id="search-clear" type="button" hidden
+				        data-i18n-title="clearSearch" data-i18n-aria-label="clearSearch" aria-label="Clear search">
+					<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
+						<path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+					</svg>
+				</button>
+			</div>
+
+			<!-- Offered only when the selected object has a selection to redraw. Hidden otherwise, so it
+			     cannot be pressed for a route, platform or siding, none of which have one. -->
+			<div class="sidebar__edit-bar" id="sidebar-edit-bar" hidden>
+				<button class="button button--tonal button--full" id="sidebar-edit-area" type="button" data-i18n="editAreaButton">
+					<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
+						<path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>
+					</svg>
+					<span data-i18n="editAreaButton">Redraw area on the map</span>
+				</button>
+			</div>
+
+			<div class="sidebar__list" id="list" role="listbox" data-i18n-aria-label="listLabel" aria-label="Railway data list"></div>
+
+			<div class="empty" id="list-empty" hidden>
+				<p class="empty__title" data-empty-title></p>
+				<p class="empty__body" data-empty-body hidden></p>
+			</div>
+			<!-- The list above scrolls. There is deliberately no pagination here: page arrows are one of
+			     the things the in-game dashboard is being replaced for, and a browser scrolls for free. -->
+		</aside>
+
+		<!-- The canvas map. Its controls are overlays so they take no space away from the map itself. -->
+		<section class="map-area" id="map-area" data-i18n-aria-label="mapLabel" aria-label="Map">
+			<canvas id="map"></canvas>
+
+			<div class="map-controls">
+				<button class="icon-button" id="map-zoom-in" type="button" data-i18n-title="mapZoomIn" data-i18n-aria-label="mapZoomIn" aria-label="Zoom in">
+					<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false">
+						<path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6z"/>
+					</svg>
+				</button>
+				<button class="icon-button" id="map-zoom-out" type="button" data-i18n-title="mapZoomOut" data-i18n-aria-label="mapZoomOut" aria-label="Zoom out">
+					<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false">
+						<path d="M19 13H5v-2h14z"/>
+					</svg>
+				</button>
+				<!-- Centres the map on the player whose position the payload carried. Short tooltip on
+				     purpose: this is an icon button, and a sentence-length title is worse than no help. -->
+				<button class="icon-button" id="map-focus-player" type="button" data-i18n-title="mapFocusPlayer" data-i18n-aria-label="mapFocusPlayer" aria-label="Focus on player">
+					<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false">
+						<path d="M12 8a4 4 0 1 0 4 4 4 4 0 0 0-4-4zm8.94 3A8.99 8.99 0 0 0 13 3.06V1h-2v2.06A8.99 8.99 0 0 0 3.06 11H1v2h2.06A8.99 8.99 0 0 0 11 20.94V23h2v-2.06A8.99 8.99 0 0 0 20.94 13H23v-2zM12 19a7 7 0 1 1 7-7 7 7 0 0 1-7 7z"/>
+					</svg>
+				</button>
+			</div>
+
+			<!-- Only visible while an area is being redrawn. The size readout is the feedback that makes the
+			     drag comprehensible: without it there is no way to tell how large a selection was just drawn,
+			     or whether the drag registered at all. -->
+			<div class="map-editing-bar" id="map-editing-bar" hidden>
+				<span class="map-editing-bar__hint" data-i18n="mapEditingHint">Drag on the map to draw the new area</span>
+				<span class="map-editing-bar__size" id="map-editing-size"></span>
+				<button class="button button--text button--small" id="map-cancel-edit" type="button" data-i18n="mapCancelEdit">Cancel</button>
+			</div>
+
+			<!-- Pinned to the map's top-right corner, so it sits directly under the top bar and against the
+			     right edge. Coordinates only - the player's name is not repeated here. -->
+			<div class="map-readout" id="map-readout"></div>
+		</section>
+	</div>
+</div>
+
 <main class="stage">
-	<section class="card" id="dashboard-card" data-view="checking" aria-labelledby="dashboard-title">
+	<section class="card" id="dashboard-card" aria-labelledby="dashboard-title">
 		<header class="card__header">
 			<div class="card__icon" aria-hidden="true">
 				<svg viewBox="0 0 24 24" width="28" height="28" focusable="false">
@@ -29,38 +167,21 @@
 			</div>
 		</header>
 
-		<div class="card__badges">
-			<span class="badge" id="status-badge" data-state="loading">
-				<span class="badge__dot" aria-hidden="true"></span>
-				<span data-i18n="statusLoading">Checking service…</span>
-			</span>
-			<span class="badge badge--account" id="account-badge" hidden>
-				<span id="account-name"></span>
-			</span>
-		</div>
-
-		<!-- Shown to a visitor who is not signed in, which includes anyone who typed the address by
-		     hand. That is the deliberate default: no URL grants editing on its own. -->
+		<!-- A visitor who is not signed in, which includes anyone who typed the address by hand. That is
+		     the deliberate default: no URL grants editing on its own. -->
 		<section class="view" data-view="readonly">
 			<h2 class="view__headline" data-i18n="readOnlyHeadline">You cannot edit</h2>
 			<p class="view__text" data-i18n="readOnlyBody">Open this dashboard from the in-game Web Dashboard button to sign in, or ask an operator to grant you access.</p>
 		</section>
 
-		<!-- Shown to a signed-in visitor. Stage 3 replaces this with the actual management UI. -->
-		<section class="view" data-view="signedin">
-			<p class="view__text" data-i18n="signedInBody">You are signed in and may edit the railway data.</p>
-			<p class="view__note" data-i18n="stageNote">Data management arrives in the next stage.</p>
-			<button class="button button--text" id="sign-out" type="button" data-i18n="signOut">Sign out</button>
-		</section>
-
-		<!-- Shown when the service cannot be reached at all. -->
+		<!-- The service could not be reached at all. -->
 		<section class="view" data-view="offline">
 			<h2 class="view__headline" data-i18n="offlineHeadline">Service unreachable</h2>
 			<p class="view__text" data-i18n="offlineBody">Could not reach the web dashboard service. Make sure the game is running and the port is right.</p>
 		</section>
 
-		<!-- Shown when a sign-in attempt failed, most often because the token expired before the
-		     browser finished opening. -->
+		<!-- A sign-in attempt failed, most often because the token expired before the browser finished
+		     opening. -->
 		<section class="view" data-view="expired">
 			<h2 class="view__headline" data-i18n="expiredHeadline">Sign-in expired</h2>
 			<p class="view__text" data-i18n="expiredBody">Press the Web Dashboard button in the game again to get a fresh link.</p>
@@ -79,7 +200,7 @@
 
 		<p class="card__warning" id="lan-warning" hidden data-i18n="lanWarning">This service is open to the local network over plain HTTP, so sign-in tokens can be read by anyone on the same network. Restart with allowLanAccess turned off to avoid that.</p>
 
-		<p class="card__footnote" data-i18n="stageFootnote">Stage 2: sign-in and permissions only.</p>
+		<p class="card__footnote" data-i18n="stageFootnote">Stage 3.3: map and area drawing.</p>
 	</section>
 </main>
 </body>

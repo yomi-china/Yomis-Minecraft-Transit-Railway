@@ -1,16 +1,19 @@
 package mtr.webdashboard;
 
+import java.net.URL;
+import java.nio.file.Path;
 import mtr.MTR;
-import mtr.mappings.Text;
+import mtr.webdashboard.servlet.DataServletHandler;
+import mtr.webdashboard.servlet.DepotPatchServlet;
 import mtr.webdashboard.servlet.HealthServletHandler;
 import mtr.webdashboard.servlet.LoginServletHandler;
 import mtr.webdashboard.servlet.LogoutServletHandler;
+import mtr.webdashboard.servlet.MetaServletHandler;
 import mtr.webdashboard.servlet.RootIndexFilter;
+import mtr.webdashboard.servlet.RoutePatchServlet;
 import mtr.webdashboard.servlet.SessionServletHandler;
+import mtr.webdashboard.servlet.StationPatchServlet;
 import mtr.webdashboard.servlet.StatusServletHandler;
-import net.minecraft.Util;
-import net.minecraft.client.Minecraft;
-import net.minecraft.client.player.LocalPlayer;
 import org.eclipse.jetty.server.Connector;
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.server.ServerConnector;
@@ -20,9 +23,6 @@ import org.eclipse.jetty.servlet.ServletContextHandler;
 import org.eclipse.jetty.servlet.ServletHolder;
 import org.eclipse.jetty.util.resource.Resource;
 import org.eclipse.jetty.util.thread.QueuedThreadPool;
-
-import java.net.URL;
-import java.nio.file.Path;
 
 /**
  * The HTTP service behind the in-game "Web Dashboard" button.
@@ -62,6 +62,23 @@ public final class WebDashboardServer {
 	}
 
 	private WebDashboardServer() {
+	}
+
+	/**
+	 * Turns a collection path into the prefix mapping Jetty needs for a sub-path endpoint.
+	 *
+	 * The trailing wildcard is not decoration: Jetty only populates {@code getPathInfo()} for a prefix
+	 * mapping, and it is the id in that suffix that the write servlet reads. Registering the bare
+	 * {@code /api/station} instead would leave {@code getPathInfo()} null, and the id would have to be
+	 * parsed out of the raw URI - which is the fragile thing this avoids.
+	 *
+	 * Lives here, next to the registration that depends on it, rather than on the servlet. It is a fact
+	 * about how this server is wired, not about what an endpoint does, and putting it on the servlet made
+	 * it look like part of the servlet's API - which is how it first ended up {@code protected} and
+	 * unreachable from this class.
+	 */
+	private static String prefixMapping(String collectionPath) {
+		return collectionPath + "/*";
 	}
 
 	/**
@@ -115,7 +132,11 @@ public final class WebDashboardServer {
 		// Unlike the railway map's DefaultServlet, listing directories would expose the jar layout and
 		// any file dropped into the folder, so it stays off.
 		staticHolder.setInitParameter("dirAllowed", "false");
-		staticHolder.setInitParameter("cacheControl", "max-age=0,public");
+		// Caching deliberately disabled. The railway map uses "max-age=0,public", which still permits a
+		// browser to reuse its copy after a revalidation that lands on an unchanged timestamp. After a
+		// rebuild that leaves a stale page script in place, which presents as "the site was never
+		// updated" and is far more confusing than the few kilobytes of local disk I/O saved here.
+		staticHolder.setInitParameter("cacheControl", "no-store, no-cache, must-revalidate");
 		// Inert while the root filter intercepts "/", but kept so the static handler would still pick the
 		// right page if the filter were ever removed.
 		staticHolder.setInitParameter("welcomeFiles", INDEX_PAGE);
@@ -126,12 +147,36 @@ public final class WebDashboardServer {
 		context.addServlet(new ServletHolder(new SessionServletHandler()), SessionServletHandler.PATH);
 		context.addServlet(new ServletHolder(new LoginServletHandler()), LoginServletHandler.PATH);
 		context.addServlet(new ServletHolder(new LogoutServletHandler()), LogoutServletHandler.PATH);
+		// Read-only railway data. These hop to the game thread to build their payloads, which is what
+		// WebDashboardAsyncServlet is for.
+		context.addServlet(new ServletHolder(new MetaServletHandler()), MetaServletHandler.PATH);
+		context.addServlet(new ServletHolder(new DataServletHandler()), DataServletHandler.PATH);
+
+		// Write endpoints. Prefix mappings, so the object id arrives as the path suffix.
+		//
+		// PATCH only. The servlet container dispatches the method itself, and a request that arrives as GET
+		// or POST therefore gets the 405 that HttpServlet produces - which is the honest answer, rather than
+		// silently treating a GET as an edit.
+		context.addServlet(new ServletHolder(new StationPatchServlet()), prefixMapping(StationPatchServlet.PATH));
+		context.addServlet(new ServletHolder(new RoutePatchServlet()), prefixMapping(RoutePatchServlet.PATH));
+		context.addServlet(new ServletHolder(new DepotPatchServlet()), prefixMapping(DepotPatchServlet.PATH));
+
 		// "/" must NOT be claimed by a servlet: in Jetty that is the default servlet mapping, and a second
 		// servlet there fails the entire context with "Multiple servlets map to path /" - which took the
 		// service down instead of merely 404ing. A filter handles the root instead, rewriting it to
 		// index.html before the static handler resolves it.
 		context.addServlet(staticHolder, "/");
 		context.addFilter(new FilterHolder(new RootIndexFilter()), "/*", RootIndexFilter.dispatcherTypes());
+
+		// Listed at startup on purpose. A path that was never registered falls through to the static
+		// handler and answers 404, which from the browser looks identical to a route that was registered
+		// and then failed. Printing what is live turns that ambiguity into one line of log.
+		System.out.println("[MTR-WebDashboard] Registered API paths: "
+				+ StatusServletHandler.PATH + ", " + HealthServletHandler.PATH + ", " + SessionServletHandler.PATH
+				+ ", " + LoginServletHandler.PATH + ", " + LogoutServletHandler.PATH
+				+ ", " + MetaServletHandler.PATH + ", " + DataServletHandler.PATH
+				+ "; writing: PATCH " + StationPatchServlet.PATH + "/<id>, " + RoutePatchServlet.PATH + "/<id>, " + DepotPatchServlet.PATH + "/<id>"
+				+ "; everything else is served as a static file.");
 
 		try {
 			newServer.start();
@@ -186,66 +231,26 @@ public final class WebDashboardServer {
 	}
 
 	/**
-	 * Opens the dashboard and signs the browser in, by putting a one-time login token in the URL
-	 * <em>fragment</em>.
+	 * The address a browser should open in order to sign in: the dashboard URL with the one-time token
+	 * in its fragment.
 	 * <p>
-	 * A fragment rather than a query parameter because fragments are never sent to the server: the
-	 * token stays out of access logs, out of {@code Referer} headers, and out of the reach of any
-	 * other page. The page exchanges it for a session cookie the moment it loads and then wipes the
-	 * fragment from the address bar.
+	 * A fragment rather than a query parameter because fragments are never sent to the server, so the
+	 * token stays out of access logs, out of {@code Referer} headers, and out of the reach of any other
+	 * page. The page exchanges it for a session cookie the moment it loads and then wipes the fragment
+	 * from the address bar.
 	 * <p>
 	 * The token is single-use and expires within a couple of minutes, so a URL that leaks through
 	 * history or a screen recording is worthless shortly afterwards.
-	 *
-	 * @param token a token from {@link WebDashboardTokenStore#issueLoginToken}.
-	 */
-	public static synchronized void openWithToken(String token) {
-		openUrl(getUrl() + "#token=" + token, "gui.mtr.web_dashboard_signed_in");
-	}
-
-	/**
-	 * Opens the dashboard without signing in, for a player who has no edit access.
 	 * <p>
-	 * Deliberately still opens the page rather than refusing in-game. A visitor without permission is
-	 * meant to be able to look and be told plainly that they cannot edit, which is what they would
-	 * see after typing the address by hand.
+	 * Nothing here launches anything: the caller decides. That is deliberate, because a browser window
+	 * appearing because a button was pressed in a game is unwelcome, and there was previously no way to
+	 * obtain the address without letting it open.
+	 *
+	 * @param token a token from {@link WebDashboardTokenStore#issueLoginToken}, or null or empty for
+	 *              the plain read-only address.
 	 */
-	public static synchronized void openReadOnly() {
-		openUrl(getUrl(), "gui.mtr.web_dashboard_read_only");
-	}
-
-	/**
-	 * @param url             the address to open; may carry a login token fragment.
-	 * @param translationKey  the message shown on success. The token-bearing URL is never shown: the
-	 *                        player only needs the address to visit by hand, and putting the token on
-	 *                        screen would defeat the point of keeping it out of logs.
-	 */
-	private static void openUrl(String url, String translationKey) {
-		final String message = Text.translatable(translationKey, getUrl()).getString();
-		try {
-			Util.getPlatform().openUri(url);
-			// Told even on success: from a full-screen game the player may not notice the tab, and the
-			// same line doubles as the manual fallback when the browser fails to appear.
-			narrate(message);
-		} catch (Exception e) {
-			System.out.println("[MTR-WebDashboard] Could not open a browser, please visit " + url + " manually: " + e);
-			narrate(Text.translatable("gui.mtr.web_dashboard_open_failed", getUrl()).getString());
-		}
-	}
-
-	/**
-	 * Shows a message to the player when there is one. The client-side fallback may reach here before
-	 * a world is joined, in which case the console line is the only output.
-	 */
-	private static void narrate(String message) {
-		try {
-			final LocalPlayer player = Minecraft.getInstance().player;
-			if (player != null) {
-				player.displayClientMessage(Text.literal(message), false);
-			}
-		} catch (Exception ignored) {
-			// Minecraft.getInstance() is unavailable on a dedicated server; nothing to report to.
-		}
+	public static synchronized String getLoginUrl(String token) {
+		return token == null || token.isEmpty() ? getUrl() : getUrl() + "#token=" + token;
 	}
 
 	/**

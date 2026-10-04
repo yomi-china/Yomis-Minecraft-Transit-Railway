@@ -1,9 +1,9 @@
-/*
+﻿/*
  * Minimal string table for the web dashboard.
  *
- * Deliberately not a framework: the page ships a handful of strings, and the game's own localisation
- * cannot be reused because those files are not exposed over HTTP. Keys are named after the in-game
- * keys where the wording matches, to make cross-checking easy.
+ * Deliberately not a framework: the page ships a manageable number of strings, and the game's own
+ * localisation cannot be reused because those files are not exposed over HTTP. Keys are named after
+ * the in-game keys where the wording matches, to make cross-checking easy.
  *
  * A key missing from the chosen language falls back to English, then to the key itself, so a
  * half-translated table is never a blank page.
@@ -22,13 +22,97 @@ const ENGLISH = {
 	readOnlyBody: 'Open this dashboard from the in-game Web Dashboard button to sign in, or ask an operator to grant you access.',
 	signedInBody: 'You are signed in and may edit the railway data.',
 	signOut: 'Sign out',
+	signOutFailed: 'Sign-out failed, try again',
 	offlineHeadline: 'Service unreachable',
 	offlineBody: 'Could not reach the web dashboard service. Make sure the game is running and the port is right.',
 	expiredHeadline: 'Sign-in expired',
 	expiredBody: 'Press the Web Dashboard button in the game again to get a fresh link.',
 	lanWarning: 'This service is open to the local network over plain HTTP, so sign-in tokens can be read by anyone on the same network. Restart with allowLanAccess turned off to avoid that.',
 	stageNote: 'Data management arrives in the next stage.',
-	stageFootnote: 'Stage 2: sign-in and permissions only.'
+	stageFootnote: 'Stage 3.3: map and area drawing.',
+
+	// Filter chips. "All" has no equivalent in the game, which shows one mode per dashboard.
+	modeAll: 'All',
+	modeTRAIN: 'Rail',
+	modeBOAT: 'Ferry',
+	modeCABLE_CAR: 'Cable car',
+	modeAIRPLANE: 'Airplane',
+
+	// Sidebar navigation, matching the game's three tabs.
+	tabStations: 'Stations',
+	tabRoutes: 'Routes',
+	tabDepots: 'Depots',
+
+	searchPlaceholder: 'Search…',
+	clearSearch: 'Clear search',
+	refresh: 'Refresh',
+	// Accessible names for regions that have no visible text of their own. Kept next to the other
+	// navigation strings so a translator meets them together. Where the visible label and the spoken
+	// label would be the same string, the key is still declared separately: sharing one key between the
+	// title and the aria-label couples two things that a translator may legitimately want to word
+	// differently for a screen reader.
+	refreshAriaLabel: 'Refresh',
+	searchAriaLabel: 'Search railway data',
+	sidebarLabel: 'Railway data',
+	listLabel: 'Railway data list',
+	mapLabel: 'Map',
+	readOnlyBadge: 'Read-only',
+	editableBadge: 'Can edit',
+
+	// Row summaries.
+	summaryPlatforms: '%s platforms',
+	summarySidings: '%s sidings',
+	summaryStops: '%s stops',
+	summaryRoutes: '%s routes',
+	summaryZone: 'Zone %s',
+	untitled: 'Untitled',
+
+	// Empty states, one per cause so a blank list is never ambiguous.
+	emptyStations: 'No stations yet',
+	emptyRoutes: 'No routes yet',
+	emptyDepots: 'No depots yet',
+	noResults: 'Nothing matches “%s”',
+	loadingData: 'Reading railway data…',
+	dataUnavailable: 'No world is loaded',
+	dataUnavailableBody: 'The game has no world open, so there is nothing to show yet.',
+	dataFailed: 'Could not read the railway data.',
+	mapZoomIn: 'Zoom in',
+	mapZoomOut: 'Zoom out',
+	mapFocusPlayer: 'Focus on player',
+	mapEditingHint: 'Drag on the map to draw the new area',
+	mapDraftSize: '%s × %s blocks',
+	mapCancelEdit: 'Cancel',
+	editAreaButton: 'Redraw area on the map',
+	editButton: 'Edit',
+	editRowLabel: 'Edit %s',
+	editStationTitle: 'Edit station',
+	editRouteTitle: 'Edit route',
+	editDepotTitle: 'Edit depot',
+	editClose: 'Close',
+	editCancel: 'Cancel',
+	editSave: 'Save',
+	editSaving: 'Saving…',
+	editSaved: 'Saved',
+	editSavedWithWarnings: 'Saved, with a note: %s',
+	editSavedNothing: 'Nothing was changed',
+	editDiscardChanges: 'This has unsaved changes. Discard them?',
+	editFixFields: 'Please correct the highlighted fields',
+	editInvalidField: 'The server rejected this value',
+	editSaveFailed: 'Could not save. Please try again',
+	editEditorOffline: 'You have left the game, so this change cannot be recorded. Rejoin and sign in again to save.',
+	editObjectGone: 'This was deleted in the game. Refresh to update the list.',
+	editNotPermitted: 'Your account is not allowed to edit',
+	editSessionExpired: 'Your sign-in has expired. Sign in again from the game.',
+	editNoServer: 'No world is open, so there is nothing to save to',
+	fieldName: 'Name',
+	fieldColor: 'Colour',
+	fieldZone: 'Zone',
+	errorNameTooLong: 'This name is too long',
+	errorWholeNumber: 'Enter a whole number',
+	errorTooSmall: 'This number is too small',
+	errorTooLarge: 'This number is too large',
+	errorColorRange: 'Pick a colour from the swatches or type a hex value',
+	errorUnsupportedField: 'This build cannot edit that field'
 };
 
 const SIMPLIFIED_CHINESE = {
@@ -44,13 +128,88 @@ const SIMPLIFIED_CHINESE = {
 	readOnlyBody: '请从游戏内的「网页仪表板」按钮进入以登录，或联系管理员授予你权限。',
 	signedInBody: '你已登录，可以编辑铁路数据。',
 	signOut: '登出',
+	signOutFailed: '登出失败，请重试',
 	offlineHeadline: '无法连接服务',
 	offlineBody: '无法连接到网页仪表板服务。请确认游戏正在运行，且端口正确。',
 	expiredHeadline: '登录已过期',
 	expiredBody: '请在游戏中重新点击「网页仪表板」按钮以获取新的链接。',
 	lanWarning: '本服务以明文 HTTP 开放到局域网，同网段的人可以读取登录令牌。若不需要，请把 allowLanAccess 关闭后重启。',
 	stageNote: '数据管理将在下一阶段提供。',
-	stageFootnote: '阶段 2：仅登录与权限。'
+	stageFootnote: '阶段 3.3：地图与选区绘制。',
+
+	modeAll: '全部',
+	modeTRAIN: '轨交',
+	modeBOAT: '轮渡',
+	modeCABLE_CAR: '缆车',
+	modeAIRPLANE: '飞机',
+
+	tabStations: '车站',
+	tabRoutes: '路线',
+	tabDepots: '车厂',
+
+	searchPlaceholder: '搜索…',
+	clearSearch: '清空搜索',
+	refresh: '刷新',
+	refreshAriaLabel: '刷新',
+	searchAriaLabel: '搜索铁路数据',
+	sidebarLabel: '铁路数据',
+	listLabel: '铁路数据列表',
+	mapLabel: '地图',
+	readOnlyBadge: '只读',
+	editableBadge: '可编辑',
+
+	summaryPlatforms: '%s 个站台',
+	summarySidings: '%s 条侧线',
+	summaryStops: '%s 站',
+	summaryRoutes: '%s 条路线',
+	summaryZone: '区域 %s',
+	untitled: '未命名',
+
+	emptyStations: '还没有车站',
+	emptyRoutes: '还没有路线',
+	emptyDepots: '还没有车厂',
+	noResults: '没有匹配「%s」的条目',
+	loadingData: '正在读取铁路数据…',
+	dataUnavailable: '未加载世界',
+	dataUnavailableBody: '游戏当前没有打开任何世界，暂时没有可显示的数据。',
+	dataFailed: '读取铁路数据失败。',
+	mapZoomIn: '放大',
+	mapZoomOut: '缩小',
+	mapFocusPlayer: '聚焦到玩家',
+	mapEditingHint: '在地图上拖动以绘制新的区域',
+	mapDraftSize: '%s × %s 格',
+	mapCancelEdit: '取消',
+	editAreaButton: '在地图上重划区域',
+	editButton: '编辑',
+	editRowLabel: '编辑 %s',
+	editStationTitle: '编辑车站',
+	editRouteTitle: '编辑路线',
+	editDepotTitle: '编辑车厂',
+	editClose: '关闭',
+	editCancel: '取消',
+	editSave: '保存',
+	editSaving: '保存中…',
+	editSaved: '已保存',
+	editSavedWithWarnings: '已保存，但有提示：%s',
+	editSavedNothing: '没有任何改动',
+	editDiscardChanges: '有未保存的改动，确定放弃吗？',
+	editFixFields: '请修正标出的字段',
+	editInvalidField: '服务器拒绝了该值',
+	editSaveFailed: '保存失败，请重试',
+	editEditorOffline: '你已离开游戏，这次改动无法记录。请重新进入游戏并登录后再保存。',
+	editObjectGone: '该对象已在游戏内被删除。刷新以更新列表。',
+	editNotPermitted: '你的账号没有编辑权限',
+	editSessionExpired: '登录已过期，请从游戏内重新登录。',
+	editNoServer: '当前没有打开的世界，无处可保存',
+	fieldName: '名称',
+	fieldColor: '颜色',
+	fieldZone: '区域',
+	errorNameTooLong: '名称过长',
+	errorWholeNumber: '请输入整数',
+	errorTooSmall: '数值过小',
+	errorTooLarge: '数值过大',
+	errorColorRange: '请从色板中选色，或输入十六进制值',
+	errorUnsupportedField: '当前版本无法编辑该字段'
 };
 
 const TRADITIONAL_CHINESE = {
@@ -66,13 +225,88 @@ const TRADITIONAL_CHINESE = {
 	readOnlyBody: '請從遊戲內的「網頁儀表板」按鈕進入以登入，或聯絡管理員授予你權限。',
 	signedInBody: '你已登入，可以編輯鐵路資料。',
 	signOut: '登出',
+	signOutFailed: '登出失敗，請重試',
 	offlineHeadline: '無法連線服務',
 	offlineBody: '無法連線到網頁儀表板服務。請確認遊戲正在執行，且連接埠正確。',
 	expiredHeadline: '登入已過期',
 	expiredBody: '請在遊戲中重新點擊「網頁儀表板」按鈕以取得新的連結。',
 	lanWarning: '本服務以明文 HTTP 開放至區域網路，同網段的人可以讀取登入權杖。若不需要，請將 allowLanAccess 關閉後重新啟動。',
 	stageNote: '資料管理將於下一階段提供。',
-	stageFootnote: '階段 2：僅登入與權限。'
+	stageFootnote: '階段 3.3：地圖與選區繪製。',
+
+	modeAll: '全部',
+	modeTRAIN: '軌道交通',
+	modeBOAT: '渡輪',
+	modeCABLE_CAR: '纜車',
+	modeAIRPLANE: '飛機',
+
+	tabStations: '車站',
+	tabRoutes: '路線',
+	tabDepots: '車廠',
+
+	searchPlaceholder: '搜尋…',
+	clearSearch: '清除搜尋',
+	refresh: '重新整理',
+	refreshAriaLabel: '重新整理',
+	searchAriaLabel: '搜尋鐵路資料',
+	sidebarLabel: '鐵路資料',
+	listLabel: '鐵路資料列表',
+	mapLabel: '地圖',
+	readOnlyBadge: '唯讀',
+	editableBadge: '可編輯',
+
+	summaryPlatforms: '%s 個月台',
+	summarySidings: '%s 條側線',
+	summaryStops: '%s 站',
+	summaryRoutes: '%s 條路線',
+	summaryZone: '區域 %s',
+	untitled: '未命名',
+
+	emptyStations: '還沒有車站',
+	emptyRoutes: '還沒有路線',
+	emptyDepots: '還沒有車廠',
+	noResults: '沒有符合「%s」的項目',
+	loadingData: '正在讀取鐵路資料…',
+	dataUnavailable: '未載入世界',
+	dataUnavailableBody: '遊戲目前沒有開啟任何世界，暫無可顯示的資料。',
+	dataFailed: '讀取鐵路資料失敗。',
+	mapZoomIn: '放大',
+	mapZoomOut: '縮小',
+	mapFocusPlayer: '聚焦到玩家',
+	mapEditingHint: '在地圖上拖曳以繪製新的區域',
+	mapDraftSize: '%s × %s 格',
+	mapCancelEdit: '取消',
+	editAreaButton: '在地圖上重劃區域',
+	editButton: '編輯',
+	editRowLabel: '編輯 %s',
+	editStationTitle: '編輯車站',
+	editRouteTitle: '編輯路線',
+	editDepotTitle: '編輯車廠',
+	editClose: '關閉',
+	editCancel: '取消',
+	editSave: '儲存',
+	editSaving: '儲存中…',
+	editSaved: '已儲存',
+	editSavedWithWarnings: '已儲存，但有提示：%s',
+	editSavedNothing: '沒有任何變更',
+	editDiscardChanges: '有未儲存的變更，確定放棄嗎？',
+	editFixFields: '請修正標出的欄位',
+	editInvalidField: '伺服器拒絕了該值',
+	editSaveFailed: '儲存失敗，請重試',
+	editEditorOffline: '你已離開遊戲，這次變更無法記錄。請重新進入遊戲並登入後再儲存。',
+	editObjectGone: '該物件已在遊戲內被刪除。重新整理以更新列表。',
+	editNotPermitted: '你的帳號沒有編輯權限',
+	editSessionExpired: '登入已過期，請從遊戲內重新登入。',
+	editNoServer: '目前沒有開啟的世界，無處可儲存',
+	fieldName: '名稱',
+	fieldColor: '顏色',
+	fieldZone: '區域',
+	errorNameTooLong: '名稱過長',
+	errorWholeNumber: '請輸入整數',
+	errorTooSmall: '數值過小',
+	errorTooLarge: '數值過大',
+	errorColorRange: '請從色板中選色，或輸入十六進位值',
+	errorUnsupportedField: '目前版本無法編輯該欄位'
 };
 
 const TABLES = {
@@ -133,11 +367,41 @@ export function t(key) {
 }
 
 /**
+ * Looks up a string and substitutes its {@code %s} placeholders in order.
+ *
+ * Extra arguments are ignored and missing ones are left as a literal {@code %s} rather than becoming
+ * "undefined", so a table that is short a placeholder degrades to something a translator can spot.
+ *
+ * @param {string} key
+ * @param {...(string|number)} values
+ * @returns {string}
+ */
+export function f(key, ...values) {
+	let index = 0;
+	return t(key).replace(/%s/g, () => (index < values.length ? String(values[index++]) : '%s'));
+}
+
+/**
  * Replaces the text of every element carrying {@code data-i18n}, so the markup stays declarative and
  * this module stays free of DOM knowledge about individual elements.
+ * <p>
+ * Also fills in the three attributes that carry user-visible text. {@code data-i18n-aria-label} exists
+ * because an icon-only button has no text of its own: without it the accessible name would stay in
+ * whatever language the markup was written in, so a Chinese reader would hear "Refresh" from a screen
+ * reader while seeing a Chinese tooltip. That is worse than untranslated text, because it is
+ * inconsistent between the two senses.
  */
 export function applyTranslations(root) {
 	root.querySelectorAll('[data-i18n]').forEach(element => {
 		element.textContent = t(element.dataset.i18n);
+	});
+	root.querySelectorAll('[data-i18n-placeholder]').forEach(element => {
+		element.placeholder = t(element.dataset.i18nPlaceholder);
+	});
+	root.querySelectorAll('[data-i18n-title]').forEach(element => {
+		element.title = t(element.dataset.i18nTitle);
+	});
+	root.querySelectorAll('[data-i18n-aria-label]').forEach(element => {
+		element.setAttribute('aria-label', t(element.dataset.i18nAriaLabel));
 	});
 }

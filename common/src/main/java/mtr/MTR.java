@@ -15,6 +15,7 @@ import mtr.packet.PacketWebDashboardServer;
 import mtr.servlet.Webserver;
 import mtr.webdashboard.WebDashboardCommands;
 import mtr.webdashboard.WebDashboardPermissions;
+import mtr.webdashboard.WebDashboardRuntime;
 import mtr.webdashboard.WebDashboardServer;
 import mtr.webdashboard.WebDashboardTokenStore;
 import net.minecraft.commands.CommandSourceStack;
@@ -515,14 +516,15 @@ public class MTR implements IPacket {
 				// the integrated server fires the same event. The client also tries, so that a world
 				// loaded in a way this event does not cover still gets a dashboard.
 				WebDashboardServer.loadSettingsAndStart(minecraftServer.getServerDirectory().toPath().resolve("config"));
-				// The web layer only ever holds a UUID from a cookie, and the op-level permission fallback
-				// needs the server to resolve it to a player. Wired here so it exists for exactly as long as
-				// the server does.
-				WebDashboardPermissions.setServerSupplier(() -> minecraftServer);
+				// Everything that reads RailwayData has to run on the game thread, and the HTTP layer only
+				// holds a session, so it needs the server to reach the tick loop. This also backs the
+				// op-level permission fallback, which can only be evaluated for an online player.
+				WebDashboardRuntime.setServer(minecraftServer);
 			});
 			Registry.registerServerStoppingEvent(minecraftServer -> {
-				// Cleared first, so anything still running cannot resolve a stale player list.
-				WebDashboardPermissions.setServerSupplier(null);
+				// Cleared first, so anything still running cannot reach a stale player list or a half-torn-down
+				// world.
+				WebDashboardRuntime.setServer(null);
 				Webserver.stop();
 				WebDashboardServer.stop();
 			});

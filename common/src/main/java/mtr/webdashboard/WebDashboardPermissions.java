@@ -7,7 +7,6 @@ import net.minecraft.server.level.ServerPlayer;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
-import java.util.function.Supplier;
 
 /**
  * The single source of truth for "may this player edit through the web dashboard".
@@ -33,28 +32,21 @@ public final class WebDashboardPermissions {
 	/** Vanilla's top level: what {@code /op} grants and what a level-4 command requires. */
 	public static final int REQUIRED_OP_LEVEL = 4;
 
-	/**
-	 * How to reach the running server, needed because the op-level layer can only be evaluated for a
-	 * player who is online.
-	 * <p>
-	 * Web request threads hold only a UUID from a cookie, so without this they could not consult op
-	 * level at all. Set from the server-starting hook; null before the server exists and after it
-	 * stops, in which case op-based access is denied and only explicit grants still work.
-	 */
-	private static volatile Supplier<MinecraftServer> serverSupplier = () -> null;
-
 	private WebDashboardPermissions() {
 	}
 
-	public static void setServerSupplier(Supplier<MinecraftServer> supplier) {
-		serverSupplier = supplier == null ? () -> null : supplier;
-	}
-
 	/**
+	 * Resolves a UUID to an online player.
+	 * <p>
+	 * The op-level layer can only be evaluated for someone who is online, and a web request holds
+	 * nothing but a cookie, so this goes through {@link WebDashboardRuntime#getServer()}. With no server
+	 * loaded, op-based access is denied and only explicit grants still work - which is the right answer,
+	 * since there is no session to be op'd in the first place.
+	 *
 	 * @return the online player for this UUID, or null when they are offline or no server is running.
 	 */
 	public static ServerPlayer getOnlinePlayer(UUID uuid) {
-		final MinecraftServer server = serverSupplier.get();
+		final MinecraftServer server = WebDashboardRuntime.getServer();
 		return server == null || uuid == null ? null : server.getPlayerList().getPlayer(uuid);
 	}
 
@@ -139,13 +131,21 @@ public final class WebDashboardPermissions {
 	 * Refreshes the recorded name when a player joins, so {@code /mtr-webdashboard list} shows
 	 * something readable for someone who was granted access before ever connecting.
 	 * <p>
-	 * Only writes when the name actually changed, to avoid a file write on every join.
+	 * Returns immediately for a player with no entry at all. Almost everyone has none - the op-level
+	 * rule covers them - and without this check every join would go through the settings lock and a
+	 * file write, for a name that is not recorded anywhere.
+	 * <p>
+	 * Only writes when the name actually changed, so a player who already has an entry costs nothing
+	 * after the first join.
 	 */
 	public static void refreshName(ServerPlayer player) {
 		if (player == null) {
 			return;
 		}
 		final WebDashboardSettings settings = WebDashboardSettings.get();
+		if (!settings.hasPermissionEntry(player.getUUID())) {
+			return;
+		}
 		if (settings.updatePermissionName(player.getUUID(), player.getName().getString())) {
 			settings.save();
 		}

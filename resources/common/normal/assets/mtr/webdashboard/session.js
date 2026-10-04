@@ -116,16 +116,19 @@ export async function login(token) {
 }
 
 /**
- * Ends this browser's session. Idempotent on the server, so a failure here is not worth surfacing:
- * the caller reloads state either way.
+ * Ends this browser's session.
+ *
+ * @returns {Promise<boolean>} true when the server confirmed the sign-out. The caller reloads only on
+ *          success: reloading after a failure would silently sign the visitor back in, which looks
+ *          like the button simply did not work.
  */
 export async function logout() {
 	try {
-		await request(LOGOUT_ENDPOINT, { method: 'POST' });
+		const response = await request(LOGOUT_ENDPOINT, { method: 'POST' });
+		return response.ok;
 	} catch (error) {
-		// Ignored on purpose: the cookie is cleared server-side when the request lands, and the page
-		// re-reads its state afterwards regardless.
 		console.warn('[MTR-WebDashboard] Sign-out request failed:', error);
+		return false;
 	}
 }
 

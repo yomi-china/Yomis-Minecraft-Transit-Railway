@@ -286,6 +286,11 @@ public class RailwayData extends PersistentStateMapper implements IPacket {
 
 	public void simulateTrains() {
 		final List<? extends Player> players = world.players();
+		// A player who left this dimension would otherwise keep a stale entry here, and coming back to
+		// within 16 blocks of where they left would suppress the next snapshot. That snapshot is what
+		// repopulates their rail cache after the dimension they went to cleared it, so the entry has to
+		// go: every dimension change then resends immediately.
+		playerLastUpdatedPositions.keySet().retainAll(players);
 		players.forEach(player -> {
 			final BlockPos playerBlockPos = player.blockPosition();
 			final Vec3 playerPos = player.position();
@@ -511,11 +516,22 @@ public class RailwayData extends PersistentStateMapper implements IPacket {
 	}
 
 	private void sendRailsInChunks(ServerPlayer player, Map<BlockPos, Map<BlockPos, Rail>> railsToAdd) {
+		final long packetId = ++railsPacketIdCounter;
+
+		// An empty snapshot still has to be sent. ClientData.RAILS is only ever replaced by this
+		// packet, so skipping it leaves the client rendering the rails it was last given - from
+		// another dimension, another world or another server - until a non-empty snapshot happens
+		// to arrive. Same format as the chunked path below: one packet, chunk 0 of 1, no entries.
 		if (railsToAdd.isEmpty()) {
+			final FriendlyByteBuf packet = new FriendlyByteBuf(Unpooled.buffer());
+			packet.writeLong(packetId);
+			packet.writeInt(1);
+			packet.writeInt(0);
+			packet.writeInt(0);
+			Registry.sendToPlayer(player, PACKET_WRITE_RAILS, packet);
 			return;
 		}
 
-		final long packetId = ++railsPacketIdCounter;
 		final int MAX_SAFE = Math.min(MAX_PACKET_BYTES - 4096, RAIL_CHUNK_SIZE);
 		final List<Map.Entry<BlockPos, Map<BlockPos, Rail>>> entries = new ArrayList<>(railsToAdd.entrySet());
 		final List<List<Map.Entry<BlockPos, Map<BlockPos, Rail>>>> chunks = new ArrayList<>();
