@@ -1,5 +1,6 @@
 package mtr.screen;
 
+import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.BufferBuilder;
 import com.mojang.blaze3d.vertex.Tesselator;
 import mtr.client.IDrawing;
@@ -9,7 +10,7 @@ import mtr.mappings.ScreenMapper;
 import mtr.mappings.Text;
 import mtr.mappings.UtilitiesClient;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.GuiGraphics;
+import mtr.mappings.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.util.Mth;
 import org.apache.commons.lang3.StringUtils;
@@ -41,13 +42,16 @@ public class WidgetColorSelector extends ButtonMapper implements IGui {
 		this(screen, true, callback);
 	}
 
-	@Override
 	public void render(GuiGraphics guiGraphics, int mouseX, int mouseY, float delta) {
-		super.render(guiGraphics, mouseX, mouseY, delta);
+		super.render(guiGraphics.pose(), mouseX, mouseY, delta);
 		if (visible) {
 			final int margin = hasMargin ? 1 : 0;
 			guiGraphics.fill(UtilitiesClient.getWidgetX(this) - margin, UtilitiesClient.getWidgetY(this) - margin, UtilitiesClient.getWidgetX(this) + width + margin, UtilitiesClient.getWidgetY(this) + height + margin, ARGB_BLACK | color);
 		}
+	}
+
+	public void render(PoseStack poseStack, int mouseX, int mouseY, float delta) {
+		render(new GuiGraphics(poseStack), mouseX, mouseY, delta);
 	}
 
 	@Override

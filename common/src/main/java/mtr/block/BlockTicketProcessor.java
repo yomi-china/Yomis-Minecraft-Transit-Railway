@@ -31,7 +31,7 @@ public class BlockTicketProcessor extends BlockDirectionalDoubleBlockBase {
 	public static final EnumProperty<EnumTicketProcessorLights> LIGHTS = EnumProperty.create("lights", EnumTicketProcessorLights.class);
 
 	public BlockTicketProcessor(boolean hasLight, boolean canEnter, boolean canExit) {
-		super(Properties.of().requiresCorrectToolForDrops().strength(2).lightLevel(state -> 5).noOcclusion());
+		super(mtr.mappings.BlockProperties.create().requiresCorrectToolForDrops().strength(2).lightLevel(state -> 5).noOcclusion());
 		this.hasLight = hasLight;
 		this.canEnter = canEnter;
 		this.canExit = canExit;

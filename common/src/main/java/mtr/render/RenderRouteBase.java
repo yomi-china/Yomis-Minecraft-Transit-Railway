@@ -79,30 +79,19 @@ public abstract class RenderRouteBase<T extends BlockPSDTop.TileEntityRouteBase>
 					final int arrowDirection = IBlock.getStatePropertySafe(state, arrowDirectionProperty);
 
 					final String stationName = renderType == RenderType.STATION_NAME ? getStationNameForRendering(platformId) : null;
-
 					final ResourceLocation resourceLocation;
-					if (renderType == RenderType.STATION_NAME) {
-						if (stationName != null) {
-							resourceLocation = ClientData.DATA_CACHE.getStationName(stationName, width / height).resourceLocation;
-						} else {
-							resourceLocation = ClientData.DATA_CACHE.getDirectionArrow(platformId, (arrowDirection & 0b01) > 0, (arrowDirection & 0b10) > 0, HorizontalAlignment.CENTER, true, 0.25F, width / height, ARGB_WHITE, ARGB_BLACK, transparentWhite ? ARGB_WHITE : 0).resourceLocation;
-						}
-					} else if (renderType == RenderType.ARROW) {
+					if (renderType == RenderType.STATION_NAME && stationName != null) {
+						resourceLocation = ClientData.DATA_CACHE.getStationName(stationName, width / height).resourceLocation;
+					} else if (renderType == RenderType.ARROW || renderType == RenderType.STATION_NAME) {
 						resourceLocation = ClientData.DATA_CACHE.getDirectionArrow(platformId, (arrowDirection & 0b01) > 0, (arrowDirection & 0b10) > 0, HorizontalAlignment.CENTER, true, 0.25F, width / height, ARGB_WHITE, ARGB_BLACK, transparentWhite ? ARGB_WHITE : 0).resourceLocation;
 					} else {
 						resourceLocation = ClientData.DATA_CACHE.getRouteMap(platformId, false, arrowDirection == 2, width / height, transparentWhite).resourceLocation;
 					}
 
-					final int renderColor = (renderType == RenderType.STATION_NAME && stationName != null) ? ARGB_BLACK : color;
-
+					final int renderColor = stationName != null ? ARGB_BLACK : color;
 					RenderTrains.scheduleRender(resourceLocation, false, RenderTrains.QueuedRenderLayer.EXTERIOR, (matricesNew, vertexConsumer) -> {
 						storedMatrixTransformations.transform(matricesNew);
-						IDrawing.drawTexture(matricesNew, vertexConsumer,
-								leftBlocks == 0 ? sidePadding : 0, topPadding, 0,
-								1 - (rightBlocks == 0 ? sidePadding : 0), 1 - bottomPadding, 0,
-								(leftBlocks - (leftBlocks == 0 ? 0 : sidePadding)) / width, 0,
-								(width - rightBlocks + (rightBlocks == 0 ? 0 : sidePadding)) / width, 1,
-								facing.getOpposite(), renderColor, light);
+						IDrawing.drawTexture(matricesNew, vertexConsumer, leftBlocks == 0 ? sidePadding : 0, topPadding, 0, 1 - (rightBlocks == 0 ? sidePadding : 0), 1 - bottomPadding, 0, (leftBlocks - (leftBlocks == 0 ? 0 : sidePadding)) / width, 0, (width - rightBlocks + (rightBlocks == 0 ? 0 : sidePadding)) / width, 1, facing.getOpposite(), renderColor, light);
 						matricesNew.popPose();
 					});
 				}

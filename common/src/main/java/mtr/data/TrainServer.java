@@ -86,8 +86,8 @@ public class TrainServer extends Train {
 		super.startUp(world, trainCars, trainSpacing, isOppositeRail);
 		if (!world.isClientSide() && !isCurrentlyManual) {
 			MtrDebug.debugMessage(world, ridingEntities,
-					Component.translatable("gui.mtr.debug_departed").withStyle(ChatFormatting.GREEN)
-							.append(Component.literal(String.format(" §fdepartIdx=%d → targetIdx=%d §7(rp=%.1f)",
+					mtr.mappings.Text.translatable("gui.mtr.debug_departed").withStyle(ChatFormatting.GREEN)
+							.append(mtr.mappings.Text.literal(String.format(" §fdepartIdx=%d → targetIdx=%d §7(rp=%.1f)",
 									oldStop, nextStoppingIndex, railProgress)))
 			);
 		}
@@ -341,8 +341,8 @@ public class TrainServer extends Train {
 				final int tailIndex = getIndex(trainCars, spacing, true);
 				final float railSpeed = getRailSpeed(headIndex);
 				MtrDebug.debugMessage(world, ridingEntities,
-						Component.translatable("gui.mtr.debug_periodic").withStyle(ChatFormatting.AQUA)
-								.append(Component.literal(String.format(
+						mtr.mappings.Text.translatable("gui.mtr.debug_periodic").withStyle(ChatFormatting.AQUA)
+								.append(mtr.mappings.Text.literal(String.format(
 										" §f%s §7cars=%d headIdx=%d tailIdx=%d speed=%.3f railSpeed=%.3f progress=%.1f nextStop=%d nextPlat=%d routeId=%d",
 										baseTrainType, trainCars, headIndex, tailIndex, speed, railSpeed, railProgress, nextStoppingIndex, nextPlatformIndex, routeId
 								)))

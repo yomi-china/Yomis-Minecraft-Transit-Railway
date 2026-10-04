@@ -2,6 +2,7 @@ package mtr.render;
 
 import com.mojang.blaze3d.vertex.PoseStack;
 
+/** Keeps nested renderer pushes balanced when a conditional text element exits early. */
 public class MatrixStackHolder {
 
 	private int pushCounter;

@@ -7,11 +7,10 @@ import mtr.data.Rail;
 import mtr.data.RailwayData;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.FriendlyByteBuf;
-import net.minecraft.resources.ResourceKey;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.level.Level;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -36,12 +35,12 @@ public class PacketUpdateRailData {
 		if (RailwayData.hasNoPermission(player)) {
 			return;
 		}
-		final ResourceKey<Level> levelKey = packet.readResourceKey(net.minecraft.core.registries.Registries.DIMENSION);
+		final ResourceLocation dimensionId = packet.readResourceLocation();
 		final BlockPos posStart = packet.readBlockPos();
 		final BlockPos posEnd = packet.readBlockPos();
 		final Map<String, String> railData = readStringMap(packet);
 		server.execute(() -> {
-			final ServerLevel level = server.getLevel(levelKey);
+			final ServerLevel level = getLevel(server, dimensionId);
 			if (level == null) {
 				return;
 			}
@@ -76,5 +75,14 @@ public class PacketUpdateRailData {
 			map.put(packet.readUtf(), packet.readUtf());
 		}
 		return map;
+	}
+
+	private static ServerLevel getLevel(MinecraftServer server, ResourceLocation dimensionId) {
+		for (final ServerLevel level : server.getAllLevels()) {
+			if (level.dimension().location().equals(dimensionId)) {
+				return level;
+			}
+		}
+		return null;
 	}
 }

@@ -8,24 +8,8 @@ import mtr.block.BlockNode;
 import mtr.block.BlockPlatform;
 import mtr.block.BlockSignalLightBase;
 import mtr.block.BlockSignalSemaphoreBase;
-import mtr.client.ClientCache;
-import mtr.client.ClientData;
-import mtr.client.Config;
-import mtr.client.IDrawing;
-import mtr.client.ResourcePackCreatorProperties;
-import mtr.client.VoxyDepthCompat;
-import mtr.data.IGui;
-import mtr.data.Lift;
-import mtr.data.Rail;
-import mtr.data.RailType;
-import mtr.data.RailwayData;
-import mtr.data.RailwayDataCoolDownModule;
-import mtr.data.Route;
-import mtr.data.SignalBlocks;
-import mtr.data.Station;
-import mtr.data.Train;
-import mtr.data.TrainClient;
-import mtr.data.TransportMode;
+import mtr.client.*;
+import mtr.data.*;
 import mtr.entity.EntitySeat;
 import mtr.item.ItemNodeModifierBase;
 import mtr.mappings.EntityRendererMapper;
@@ -54,14 +38,7 @@ import net.minecraft.world.phys.Vec3;
 import org.apache.commons.lang3.StringUtils;
 
 import java.lang.reflect.Method;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.util.Set;
-import java.util.UUID;
+import java.util.*;
 import java.util.function.BiConsumer;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -70,12 +47,18 @@ public class RenderTrains extends EntityRendererMapper<EntitySeat> implements IG
 
 	public static int maxTrainRenderDistance;
 	public static int maxRailRenderDistance;
+	public static final ThreadLocal<Boolean> MSD_CAMERA_RELATIVE = ThreadLocal.withInitial(() -> false);
 	public static ResourcePackCreatorProperties creatorProperties = new ResourcePackCreatorProperties();
 
 	private static float lastRenderedTick;
 	private static int prevPlatformCount;
 	private static int prevSidingCount;
 	private static UUID renderedUuid;
+	private static Vec3 renderCameraPos = Vec3.ZERO;
+	private static Boolean anteAvailable;
+	private static Method anteGetRailRenderLevelMethod;
+	private static boolean anteFallbackActive;
+	private static int anteFallbackMaxDistance;
 
 	public static final int PLAYER_RENDER_OFFSET = 1000;
 
@@ -127,8 +110,6 @@ public class RenderTrains extends EntityRendererMapper<EntitySeat> implements IG
 	}
 
 	public static void render(EntitySeat entity, float tickDelta, PoseStack matrices, MultiBufferSource vertexConsumers) {
-		VoxyDepthCompat.writeLodDepthToCurrentFramebuffer();
-
 		final Minecraft client = Minecraft.getInstance();
 		final boolean backupRendering = entity == null;
 
@@ -170,14 +151,13 @@ public class RenderTrains extends EntityRendererMapper<EntitySeat> implements IG
 		} else {
 			maxTrainRenderDistance = configuredDistance;
 		}
-
 		maxRailRenderDistance = Config.getRailRenderDistanceBlocks();
 
 		if (!backupRendering) {
 			matrices.popPose();
 			matrices.pushPose();
-			final Vec3 cameraPosition = client.gameRenderer.getMainCamera().getPosition();
-			matrices.translate(-cameraPosition.x, -cameraPosition.y, -cameraPosition.z);
+			renderCameraPos = client.gameRenderer.getMainCamera().getPosition();
+			matrices.translate(-renderCameraPos.x, -renderCameraPos.y, -renderCameraPos.z);
 		}
 		matrices.pushPose();
 
@@ -261,7 +241,6 @@ public class RenderTrains extends EntityRendererMapper<EntitySeat> implements IG
 						}
 					}
 				}
-
 				IDrawing.narrateOrAnnounce(IGui.mergeStations(messages, "", " "));
 			}
 		}, (stopIndex, routeIds) -> {
@@ -287,18 +266,14 @@ public class RenderTrains extends EntityRendererMapper<EntitySeat> implements IG
 			UtilitiesClient.rotateXDegrees(matrices, 180);
 			UtilitiesClient.rotateYDegrees(matrices, 180 + lift.facing.toYRot());
 			final int light = LightTexture.pack(world.getBrightness(LightLayer.BLOCK, posAverage), world.getBrightness(LightLayer.SKY, posAverage));
-			if (lift.liftStyle == Lift.LiftStyle.TRANSPARENT){
-				new ModelLift1(lift.liftHeight, lift.liftWidth, lift.liftDepth, lift.isDoubleSided).render(matrices, vertexConsumers, lift, LIFT_TEXTURE_1, light, frontDoorValue, backDoorValue, false, 0, 1, false, true, false, false, false);
-			} else {
-				new ModelLift1(lift.liftHeight, lift.liftWidth, lift.liftDepth, lift.isDoubleSided).render(matrices, vertexConsumers, lift, LIFT_TEXTURE_2, light, frontDoorValue, backDoorValue, false, 0, 1, false, true, false, false, false);
-			}
+			final ResourceLocation liftTexture = lift.liftStyle == Lift.LiftStyle.TRANSPARENT ? LIFT_TEXTURE_1 : LIFT_TEXTURE_2;
+			new ModelLift1(lift.liftHeight, lift.liftWidth, lift.liftDepth, lift.isDoubleSided).render(matrices, vertexConsumers, lift, liftTexture, light, frontDoorValue, backDoorValue, false, 0, 1, false, true, false, false, false);
+
 			for (int i = 0; i < (lift.isDoubleSided ? 2 : 1); i++) {
 				UtilitiesClient.rotateYDegrees(matrices, 180);
 				matrices.pushPose();
 				matrices.translate(0.875F, -1.5, lift.liftDepth / 2F - 0.25 - SMALL_OFFSET);
-				renderLiftDisplay(matrices, vertexConsumers, posAverage,
-						ClientData.DATA_CACHE.requestLiftFloorText(lift.getCurrentFloorBlockPos())[0],
-						lift.getLiftDirection(), lift.displayColor, 0.1875F, 0.3125F);
+				renderLiftDisplay(matrices, vertexConsumers, posAverage, ClientData.DATA_CACHE.requestLiftFloorText(lift.getCurrentFloorBlockPos())[0], lift.getLiftDirection(), lift.displayColor, 0.1875F, 0.3125F);
 				matrices.popPose();
 			}
 
@@ -307,9 +282,8 @@ public class RenderTrains extends EntityRendererMapper<EntitySeat> implements IG
 
 		final boolean renderColors = isHoldingRailRelated(player);
 		final int maxRailDistance = maxRailRenderDistance;
-		// ANTE 距离 = max(实体渲染距离 × 16, 滑块轨道距离)：UtilitiesClient.getRenderDistance() 已按滑块放大，此处保持一致
 		anteFallbackActive = isAnteInstalled() && getAnteRailRenderLevel() >= 2;
-		anteFallbackMaxDistance = MTRClient.isReplayMod() ? 64 * 16 : Math.max(Minecraft.getInstance().options.renderDistance().get() * 16, maxRailRenderDistance);
+		anteFallbackMaxDistance = MTRClient.isReplayMod() ? 64 * 16 : Math.max(UtilitiesClient.getRenderDistance() * 16, maxRailRenderDistance);
 		final Map<UUID, RailType> renderedRailMap = new HashMap<>();
 		ClientData.RAILS.forEach((startPos, railMap) -> railMap.forEach((endPos, rail) -> {
 			if (!RailwayData.isBetween(player.getX(), startPos.getX(), endPos.getX(), maxRailDistance) || !RailwayData.isBetween(player.getZ(), startPos.getZ(), endPos.getZ(), maxRailDistance)) {
@@ -415,6 +389,9 @@ public class RenderTrains extends EntityRendererMapper<EntitySeat> implements IG
 
 	public static boolean shouldNotRender(BlockPos pos, int maxDistance, Direction facing) {
 		final Entity camera = Minecraft.getInstance().cameraEntity;
+		if (Boolean.TRUE.equals(MSD_CAMERA_RELATIVE.get())) {
+			pos = RailwayData.newBlockPos(pos.getX() + (int) renderCameraPos.x, pos.getY() + (int) renderCameraPos.y, pos.getZ() + (int) renderCameraPos.z);
+		}
 		return shouldNotRender(camera == null ? null : camera.position(), pos, maxDistance, facing);
 	}
 
@@ -429,20 +406,13 @@ public class RenderTrains extends EntityRendererMapper<EntitySeat> implements IG
 		if (shouldNotRender(pos, Math.min(RenderPIDS.MAX_VIEW_DISTANCE, RenderTrains.maxTrainRenderDistance), null)) {
 			return;
 		}
+
 		final MultiBufferSource.BufferSource immediate = MultiBufferSource.immediate(Tesselator.getInstance().getBuilder());
-		IDrawing.drawStringWithFont(matrices, Minecraft.getInstance().font, immediate, floorNumber,
-				IGui.HorizontalAlignment.CENTER, VerticalAlignment.BOTTOM,
-				0, height, maxWidth, -1, 18 / maxWidth,
-				displayColor.color, false, MAX_LIGHT_GLOWING, null);
+		IDrawing.drawStringWithFont(matrices, Minecraft.getInstance().font, immediate, floorNumber, IGui.HorizontalAlignment.CENTER, VerticalAlignment.BOTTOM, 0, height, maxWidth, -1, 18 / maxWidth, displayColor.color, false, MAX_LIGHT_GLOWING, null);
 		immediate.endBatch();
 
 		if (liftDirection != Lift.LiftDirection.NONE) {
-			IDrawing.drawTexture(matrices,
-					vertexConsumers.getBuffer(MoreRenderLayers.getLight(ARROW_TEXTURE, true)),
-					-maxWidth / 6, 0, maxWidth / 3, maxWidth / 3,
-					0, liftDirection == Lift.LiftDirection.UP ? 0 : 1,
-					1, liftDirection == Lift.LiftDirection.UP ? 1 : 0,
-					Direction.UP, displayColor.color, MAX_LIGHT_GLOWING);
+			IDrawing.drawTexture(matrices, vertexConsumers.getBuffer(MoreRenderLayers.getLight(ARROW_TEXTURE, true)), -maxWidth / 6, 0, maxWidth / 3, maxWidth / 3, 0, liftDirection == Lift.LiftDirection.UP ? 0 : 1, 1, liftDirection == Lift.LiftDirection.UP ? 1 : 0, Direction.UP, displayColor.color, MAX_LIGHT_GLOWING);
 		}
 	}
 
@@ -595,11 +565,6 @@ public class RenderTrains extends EntityRendererMapper<EntitySeat> implements IG
 		return (int) (Math.abs(px - pos.x) + Math.abs(pz - pos.z));
 	}
 
-	private static Boolean anteAvailable;
-	private static Method anteGetRailRenderLevelMethod;
-	private static boolean anteFallbackActive;
-	private static int anteFallbackMaxDistance;
-
 	private static boolean isAnteInstalled() {
 		if (anteAvailable == null) {
 			try {
@@ -642,7 +607,7 @@ public class RenderTrains extends EntityRendererMapper<EntitySeat> implements IG
 			final float u1 = width * i + 1 - width * signalBlocks.size() / 2;
 			final float u2 = u1 + width;
 
-			final int color = ARGB_BLACK | signalBlock.color.getMapColor().col;
+			final int color = ARGB_BLACK | signalBlock.color.getMaterialColor().col;
 			rail.render((x1, z1, x2, z2, x3, z3, x4, z4, y1, y2) -> {
 				final BlockPos pos2 = RailwayData.newBlockPos(x1, y1, z1);
 				if (shouldNotRender(pos2, maxRailDistance, null)) {

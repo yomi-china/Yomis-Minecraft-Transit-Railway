@@ -25,7 +25,7 @@ public class BlockGlassFence extends BlockDirectionalDoubleBlockBase {
 	public static final IntegerProperty NUMBER = IntegerProperty.create("number", 1, 7);
 
 	public BlockGlassFence() {
-		super(Properties.of().requiresCorrectToolForDrops().strength(2).noOcclusion());
+		super(mtr.mappings.BlockProperties.create().requiresCorrectToolForDrops().strength(2).noOcclusion());
 	}
 
 	@Override

@@ -16,6 +16,7 @@ import mtr.data.Siding;
 import mtr.data.Station;
 import mtr.data.TransportMode;
 import mtr.mappings.Text;
+import mtr.mappings.Utilities;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
@@ -302,7 +303,7 @@ public final class WebDashboardDataService {
 				object.addProperty("z", round(player.getZ(), 2));
 				// One decimal is enough for facing, which is not drawn yet but is cheap to publish and avoids
 				// a second round-trip when a directional marker is added.
-				object.addProperty("yaw", round(player.getYRot(), 1));
+				object.addProperty("yaw", round(Utilities.getYaw(player), 1));
 				players.add(object);
 			} catch (Exception e) {
 				System.out.println("[MTR-WebDashboard] Skipping a player entry: " + e);

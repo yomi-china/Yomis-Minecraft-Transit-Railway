@@ -30,7 +30,7 @@ import java.util.List;
 public abstract class BlockPIDSBaseVertical extends BlockDirectionalDoubleBlockBase implements EntityBlockMapper, IPIDS {
 
 	public BlockPIDSBaseVertical() {
-		super(Properties.of().requiresCorrectToolForDrops().strength(2).lightLevel(state -> 5));
+		super(mtr.mappings.BlockProperties.create().requiresCorrectToolForDrops().strength(2).lightLevel(state -> 5));
 	}
 
 	@Override

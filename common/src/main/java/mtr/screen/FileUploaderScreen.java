@@ -4,7 +4,7 @@ import mtr.data.IGui;
 import mtr.mappings.ScreenMapper;
 import mtr.mappings.Text;
 import mtr.mappings.UtilitiesClient;
-import net.minecraft.client.gui.GuiGraphics;
+import mtr.mappings.GuiGraphics;
 
 import java.nio.file.Path;
 import java.util.List;

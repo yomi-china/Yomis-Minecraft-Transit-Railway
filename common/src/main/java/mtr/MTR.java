@@ -484,13 +484,13 @@ public class MTR implements IPacket {
 			// Keeps the recorded name on an existing web permission entry current, so `list` stays
 			// readable for players who were granted access before they ever connected.
 			WebDashboardPermissions.refreshName(player);
-			final RailwayData railwayData = RailwayData.getInstance(player.level());
+			final RailwayData railwayData = RailwayData.getInstance(player.getCommandSenderWorld());
 			if (railwayData != null) {
 				railwayData.onPlayerJoin(player);
 			}
 		});
 		Registry.registerPlayerQuitEvent(player -> {
-			final RailwayData railwayData = RailwayData.getInstance(player.level());
+			final RailwayData railwayData = RailwayData.getInstance(player.getCommandSenderWorld());
 			if (railwayData != null) {
 				railwayData.disconnectPlayer(player);
 			}
@@ -555,10 +555,10 @@ public class MTR implements IPacket {
 									final ServerPlayer player = context.getSource().getPlayerOrException();
 									if ("on".equals(state)) {
 										MtrDebug.enableDebug(player.getUUID());
-										player.displayClientMessage(Component.translatable("gui.mtr.debug_signal_on"), false);
+										player.displayClientMessage(mtr.mappings.Text.translatable("gui.mtr.debug_signal_on"), false);
 									} else {
 										MtrDebug.disableDebug(player.getUUID());
-										player.displayClientMessage(Component.translatable("gui.mtr.debug_signal_off"), false);
+										player.displayClientMessage(mtr.mappings.Text.translatable("gui.mtr.debug_signal_off"), false);
 									}
 									return 1;
 								})

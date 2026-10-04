@@ -1,0 +1,23 @@
+pluginManagement {
+	repositories {
+		mavenCentral()
+		maven { url = "https://maven.fabricmc.net/" }
+		maven { url = "https://maven.minecraftforge.net/" }
+		maven { url = "https://maven.architectury.dev/" }
+		gradlePluginPortal()
+	}
+}
+
+rootProject.name = "fabric"
+
+gradle.beforeProject { project ->
+	def shared = new Properties()
+	def file = project.file("../gradle.properties")
+	if (file.isFile()) file.withInputStream { shared.load(it) }
+	shared.each { key, value -> if (!project.hasProperty(key)) project.ext.set(key.toString(), value.toString()) }
+}
+
+include("1_16_5", "1_17_1", "1_18_2")
+project(":1_16_5").projectDir = file("1_16_5")
+project(":1_17_1").projectDir = file("1_17_1")
+project(":1_18_2").projectDir = file("1_18_2")

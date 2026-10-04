@@ -40,7 +40,6 @@ public abstract class TrainRendererBase {
 	private static EntityRenderDispatcher entityRenderDispatcher;
 	private static LocalPlayer player;
 	private static Vec3 playerEyePosition;
-
 	private static boolean flipActive;
 	private static final float FLIP_THRESHOLD_UP = 100;
 	private static final float FLIP_THRESHOLD_DOWN = 80;

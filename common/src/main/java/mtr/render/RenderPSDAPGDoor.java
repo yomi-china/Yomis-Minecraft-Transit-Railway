@@ -51,6 +51,9 @@ public class RenderPSDAPGDoor<T extends BlockPSDAPGDoorBase.TileEntityPSDAPGDoor
 		}
 
 		final BlockPos pos = entity.getBlockPos();
+		if (IBlock.getStatePropertySafe(world, pos, BlockPSDAPGDoorBase.TEMP)) {
+			return;
+		}
 
 		final Direction facing = IBlock.getStatePropertySafe(world, pos, BlockPSDAPGDoorBase.FACING);
 		final boolean side = IBlock.getStatePropertySafe(world, pos, BlockPSDAPGDoorBase.SIDE) == EnumSide.RIGHT;

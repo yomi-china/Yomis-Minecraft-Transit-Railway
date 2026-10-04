@@ -12,7 +12,7 @@ import net.minecraft.world.phys.shapes.VoxelShape;
 public abstract class BlockPSDAPGBase extends BlockDirectionalDoubleBlockBase {
 
 	public BlockPSDAPGBase() {
-		super(Properties.of().requiresCorrectToolForDrops().strength(2).noOcclusion());
+		super(mtr.mappings.BlockProperties.create().requiresCorrectToolForDrops().strength(2).noOcclusion());
 	}
 
 	@Override

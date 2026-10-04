@@ -1,350 +1,81 @@
-import groovy.json.JsonSlurper
 import org.apache.tools.ant.filters.ReplaceTokens
 
-plugins {
-	id "java"
-	id "architectury-plugin" version "3.4-SNAPSHOT"
-	id "de.undercouch.download" version "+"
-	id "dev.architectury.loom" version "1.5.+" apply false
-	id "com.github.johnrengelman.shadow" version "+" apply false
-}
-
-def default_minecraft_version = "1.20.1"
-def minecraft_version = rootProject.properties.containsKey("buildVersion") ? rootProject.getProperties().get("buildVersion").toString() : default_minecraft_version
-def minecraft_main_version = minecraft_version.split("\\.")[1] as int
-def patreon_api_key = rootProject.properties.containsKey("patreonApiKey") ? rootProject.getProperties().get("patreonApiKey").toString() : ""
-boolean joml_math = minecraft_version == "1.19.3" || minecraft_version == "1.19.4" || minecraft_version == "1.20" || minecraft_version == "1.20.1"
-boolean parchment_not_avail = false
-String parchment_version = parchment_not_avail ? "N/A" : new XmlSlurper().parse("https://ldtteam.jfrog.io/artifactory/parchmentmc-internal/org/parchmentmc/data/parchment-${minecraft_version}/maven-metadata.xml").versioning.release
-def testServer = rootProject.properties.containsKey("testServer") ? rootProject.getProperties().get("testServer").toString() : ""
-
-def fabric_loader_versions = [
-		"1.20.1": "0.19.3",
-		"1.19.2": "0.19.3"
-]
-def forge_versions = [
-		"1.20.1": "1.20.1-47.4.22",
-		"1.19.2": "1.19.2-43.5.2"
-]
-def fabric_api_versions = [
-		"1.20.1": "0.92.11+1.20.1",
-		"1.19.2": "0.77.0+1.19.2"
-]
-def mod_menu_versions = [
-		"1.20.1": "7.2.2",
-		"1.19.2": "4.2.0-beta.2"
-]
-def architectury_versions = [
-		"1.20.1": "9.2.14",
-		"1.19.2": "6.6.92"
-]
-
-rootProject.ext.minecraft_version = minecraft_version
-rootProject.ext.fabric_loader_version = [minecraft_version, fabric_loader_versions[minecraft_version]]
-rootProject.ext.forge_version = forge_versions[minecraft_version]
-rootProject.ext.fabric_api_data = [fabric_api_versions[minecraft_version], ""]
-rootProject.ext.mod_menu_data = [mod_menu_versions[minecraft_version], ""]
-rootProject.ext.architectury_data = [architectury_versions[minecraft_version], ""]
-
-rootProject.ext.architectury_id = minecraft_main_version == 16 ? "me.shedaniel" : "dev.architectury"
-rootProject.ext.variation = rootProject.properties.containsKey("variation") ? rootProject.getProperties().get("variation").toString() : "normal"
-rootProject.ext.variation_header = rootProject.variation == "normal" ? "MTR" : rootProject.variation == "server" ? "MTR-server" : "Modern-Elevators-Escalators"
-
-architectury {
-	minecraft = minecraft_version
-}
-
-subprojects {
-	apply plugin: "dev.architectury.loom"
-	apply plugin: "com.github.johnrengelman.shadow"
-
-	loom {
-		silentMojangMappingsLicense()
-
-		mixin {
-			defaultRefmapName.set("mtr-refmap.json")
-		}
-	}
-
-	configurations {
-		shadowCommon
-	}
-
-	dependencies {
-		minecraft "com.mojang:minecraft:${minecraft_version}"
-		mappings parchment_not_avail ? loom.officialMojangMappings() : loom.layered() {
-			officialMojangMappings()
-			parchment("org.parchmentmc.data:parchment-${minecraft_version}:${parchment_version}@zip")
-		}
-		implementation name: "Dynmap-3.2.1"
-		implementation name: "BlueMapAPI-2.1.1"
-		implementation "xyz.jpenilla:squaremap-api:1.2.1"
-		implementation "net.kyori:adventure-api:4.13.1"
-		implementation "net.kyori:adventure-text-minimessage:4.13.1"
-		implementation "net.kyori:adventure-text-serializer-gson:4.13.1"
-		implementation "org.eclipse.jetty:jetty-http:9.+"
-		implementation "org.eclipse.jetty:jetty-io:9.+"
-		implementation "org.eclipse.jetty:jetty-security:9.+"
-		implementation "org.eclipse.jetty:jetty-server:9.+"
-		implementation "org.eclipse.jetty:jetty-servlet:9.+"
-		implementation "org.eclipse.jetty:jetty-util:9.+"
-		implementation "org.eclipse.jetty:jetty-util-ajax:9.+"
-		implementation "javax.servlet:javax.servlet-api:+"
-		implementation "org.msgpack:msgpack-core:+"
-		implementation "com.hierynomus:sshj:+"
-		implementation "com.github.jonafanho:Minecraft-Mod-API-Tools:${rootProject.minecraft_mod_api_tools_version}"
-		shadowCommon "org.eclipse.jetty:jetty-http:9.+"
-		shadowCommon "org.eclipse.jetty:jetty-io:9.+"
-		shadowCommon "org.eclipse.jetty:jetty-security:9.+"
-		shadowCommon "org.eclipse.jetty:jetty-server:9.+"
-		shadowCommon "org.eclipse.jetty:jetty-servlet:9.+"
-		shadowCommon "org.eclipse.jetty:jetty-util:9.+"
-		shadowCommon "org.eclipse.jetty:jetty-util-ajax:9.+"
-		shadowCommon "javax.servlet:javax.servlet-api:+"
-		shadowCommon "org.msgpack:msgpack-core:+"
-	}
-}
+def minecraftVersion = "1.16.5"
+def variation = providers.gradleProperty("variation").getOrElse("normal")
+def patreonApiKey = providers.gradleProperty("patreonApiKey").getOrElse("")
+def testServer = providers.gradleProperty("testServer").getOrElse("")
+def modVersion = providers.gradleProperty("mod_version").get()
 
 tasks.register("setupFiles") {
-	System.out.println("Fabric Loader: " + rootProject.fabric_loader_version[1])
-	System.out.println("Forge: " + rootProject.forge_version)
-	System.out.println("Fabric API: " + rootProject.fabric_api_data[0])
-	System.out.println("Mod Menu: " + rootProject.mod_menu_data[0])
-	System.out.println("Architectury: " + rootProject.architectury_data[0].split("\\+")[0])
-
-	/*
-	download.run {
-		src "https://github.com/jonafanho/Minecraft-Mappings/archive/refs/heads/1.19.4.zip"
-		dest "common/src/main/java/mtr/mappings/mappings.zip"
-		overwrite true
-		retries - 1
-	}
-	copy {
-		outputs.upToDateWhen { false }
-		from(zipTree("common/src/main/java/mtr/mappings/mappings.zip")) { eachFile { file -> file.relativePath = new RelativePath(true, file.relativePath.segments.drop(1) as String[]) } }
-		into "common/src/main/java/mtr/mappings"
-		filter(ReplaceTokens, tokens: ["package": "mtr.mappings"])
-	}
-	ant.path { ant.fileset(dir: "common/src/main/java/mtr/mappings", includes: "Fabric*.java") }.list().each {
-		ant.move(file: it, todir: "fabric/src/main/java/mtr/mappings")
-	}
-	ant.path { ant.fileset(dir: "common/src/main/java/mtr/mappings", includes: "Forge*.java") }.list().each {
-		ant.move(file: it, todir: "forge/src/main/java/mtr/mappings")
-	}
-	 */
-
-	delete fileTree("common/src/main/resources/assets/mtr/sounds")
-	delete fileTree("common/src/main/resources/assets/mtr/textures")
-	delete fileTree("common/src/main/resources/assets/mtr/website")
-	// The web dashboard page is copied back by the "resources/common/normal" block below, but only
-	// for the normal and server variations. Deleting it here keeps a lifts build from reusing a
-	// stale copy from an earlier normal build, the same reason website is deleted above.
-	delete fileTree("common/src/main/resources/assets/mtr/webdashboard")
-	delete fileTree("common/src/main/resources/assets/mtr/sounds.json")
-	delete fileTree("common/src/main/resources/data/mtr/loot_tables")
-	delete fileTree("common/src/main/resources/data/mtr/recipes")
-	delete fileTree("fabric/src/main/resources")
-	delete fileTree("forge/src/main/resources")
-	copy {
-		outputs.upToDateWhen { false }
-		from "resources/common/lifts"
-		into "common/src/main/resources"
-	}
-	if (rootProject.variation == "normal") {
+	doLast {
+		copy { from "resources/common/lifts"; into "common/src/main/resources" }
+		if (variation == "normal") copy { from "resources/common/normal"; into "common/src/main/resources" }
+		if (variation == "normal" || variation == "server") {
+			copy { from "resources/common/normal/data"; into "common/src/main/resources/data" }
+			copy { from "resources/common/normal/assets/mtr/website"; into "common/src/main/resources/assets/mtr/website" }
+			copy { from "resources/common/normal/assets/mtr/webdashboard"; into "common/src/main/resources/assets/mtr/webdashboard" }
+		}
+		copy { from "resources/fabric/" + (variation == "lifts" ? "lifts" : "normal"); into "fabric/src/main/resources" }
+		copy { from "resources/forge/" + (variation == "lifts" ? "lifts" : "normal"); into "forge/src/main/resources" }
 		copy {
-			outputs.upToDateWhen { false }
-			from "resources/common/normal"
-			into "common/src/main/resources"
-		}
-	}
-	if (rootProject.variation == "normal" || rootProject.variation == "server") {
-		download.run {
-			src "https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.0/fabric.min.js"
-			dest "common/src/main/resources/assets/mtr/website/fabric.min.js"
-			overwrite true
-			retries - 1
-		}
-		download.run {
-			src "https://gp3e.saobby.com/i/C2hOSxdTiYpoJxZ7.js"
-			dest "common/src/main/resources/assets/mtr/website/fontfaceobserver.standalone.js"
-			overwrite true
-			retries - 1
+			from "common/src/main/KeysTemplate.java"
+			into "common/src/main/java/mtr"
+			filter(ReplaceTokens, tokens: ["key": patreonApiKey, "version": minecraftVersion + "-" + modVersion, "lifts": variation, "server": testServer])
+			rename "(.+)Template.java", "\$1.java"
 		}
 		copy {
-			outputs.upToDateWhen { false }
-			from "resources/common/normal/data"
-			into "common/src/main/resources/data"
-		}
-		copy {
-			outputs.upToDateWhen { false }
-			from "resources/common/normal/assets/mtr/website"
+			from "common/src/main/version-template.js"
 			into "common/src/main/resources/assets/mtr/website"
+			filter(ReplaceTokens, tokens: ["version": minecraftVersion + "-" + modVersion])
+			rename "(.+)-template.js", "\$1.js"
 		}
-	}
-	copy {
-		outputs.upToDateWhen { false }
-		from "resources/fabric/" + (rootProject.variation == "lifts" ? "lifts" : "normal")
-		into "fabric/src/main/resources"
-	}
-	copy {
-		outputs.upToDateWhen { false }
-		from "resources/forge/" + (rootProject.variation == "lifts" ? "lifts" : "normal")
-		into "forge/src/main/resources"
-	}
-
-	/*
-    download.run {
-        src "https://crowdin.com/backend/download/project/minecraft-transit-railway.zip"
-        dest "common/src/main/java/mtr/mappings/lang.zip"
-        overwrite true
-        retries - 1
-    }
-    copy {
-        outputs.upToDateWhen { false }
-        from(zipTree("common/src/main/java/mtr/mappings/lang.zip"))
-        into "common/src/main/resources/assets/mtr/lang"
-    }
-    */
-
-	copy {
-		outputs.upToDateWhen { false }
-		from "common/src/main/KeysTemplate.java"
-		into "common/src/main/java/mtr"
-		filter(ReplaceTokens, tokens: ["key": patreon_api_key, "version": minecraft_version + "-" + rootProject.mod_version, "lifts": rootProject.variation, "server": testServer])
-		rename "(.+)Template.java", "\$1.java"
-	}
-	copy {
-		outputs.upToDateWhen { false }
-		from "common/src/main/latest.json"
-		into "build/latest"
-		filter(ReplaceTokens, tokens: ["version": rootProject.mod_version])
-	}
-	copy {
-		outputs.upToDateWhen { false }
-		from "common/src/main/version-template.js"
-		into "common/src/main/resources/assets/mtr/website"
-		filter(ReplaceTokens, tokens: ["version": minecraft_version + "-" + rootProject.mod_version])
-		rename "(.+)-template.js", "\$1.js"
-	}
-	copy {
-		outputs.upToDateWhen { false }
-		from "fabric/src/main/UnknownPacketMixinTemplate.java"
-		into "fabric/src/main/java/mtr/mixin"
-		filter(ReplaceTokens, tokens: ["path1": minecraft_main_version <= 17 || minecraft_version == "1.18" ? "apache/logging/log4j" : "slf4j", "path2": minecraft_main_version <= 17 || minecraft_version == "1.18" ? "apache.logging.log4j" : "slf4j"])
-		rename "(.+)Template.java", "\$1.java"
-	}
-	copy {
-		outputs.upToDateWhen { false }
-		from "forge/src/main/LevelRendererMixinTemplate.java"
-		into "forge/src/main/java/mtr/mixin"
-		filter(ReplaceTokens, tokens: ["path": joml_math ? "org.joml" : "com.mojang.math"])
-		rename "(.+)Template.java", "\$1.java"
-	}
-
-	if (minecraft_main_version <= 17) {
 		copy {
-			outputs.upToDateWhen { false }
-			from "fabric/src/main/BlockEntityExtensionTemplate.java"
-			into "fabric/src/main/java/" + (minecraft_main_version == 16 ? "me/shedaniel" : "dev") + "/architectury/extensions"
-			filter(ReplaceTokens, tokens: ["package": minecraft_main_version == 16 ? "me.shedaniel" : "dev"])
+			from "fabric/src/main/UnknownPacketMixinTemplate.java"
+			into "fabric/src/main/java/mtr/mixin"
+			filter(ReplaceTokens, tokens: ["path1": "apache/logging/log4j", "path2": "apache.logging.log4j"])
 			rename "(.+)Template.java", "\$1.java"
 		}
 	}
-	if (minecraft_main_version != 16) {
-		ant.delete(dir: "fabric/src/main/java/me")
-	}
-	if (minecraft_main_version != 17) {
-		ant.delete(dir: "fabric/src/main/java/dev")
+}
+
+def forgeJavaHome = file("C:/Users/FrostyHulan/.jdks/corretto-21.0.5")
+def versions = ["1_16_5", "1_17_1", "1_18_2"]
+
+def runChild = { String name, String directory, String task ->
+	tasks.register(name, Exec) {
+		dependsOn("setupFiles")
+		workingDir = file(directory)
+		if (directory == "forge") {
+			environment "JAVA_HOME", forgeJavaHome.absolutePath
+			environment "PATH", "${forgeJavaHome}/bin;${System.getenv('PATH')}"
+		}
+		ignoreExitValue = true
+		commandLine "cmd", "/c", file("${directory}/gradlew.bat").absolutePath, task, "--no-daemon"
 	}
 }
 
-allprojects {
-	apply plugin: "architectury-plugin"
+def versionBuilds = versions.collectMany { version ->
+	[runChild("fabricBuild_${version}", "fabric", ":${version}:build"),
+	 runChild("forgeBuild_${version}", "forge", ":${version}:build")]
+}
 
-	version = minecraft_version + "-" + rootProject.mod_version
-	group = rootProject.maven_group
-
-	repositories {
-		mavenCentral()
-		maven { url = "https://jitpack.io/" }
-		maven { url = "https://maven.terraformersmc.com/" }
-		maven { url = "https://repo.papermc.io/repository/maven-public/" }
-		maven { url = "https://libraries.minecraft.net/" }
-		maven { url = "https://repo.spongepowered.org/repository/maven-public/" }
-		maven {
-			name = 'ParchmentMC'
-			url = 'https://maven.parchmentmc.org'
-		}
-		flatDir {
-			dirs "../libs"
-		}
-	}
-
-
-	afterEvaluate {
-		for (def task in it.tasks) {
-			if (task != rootProject.tasks.setupFiles) {
-				task.dependsOn rootProject.tasks.setupFiles
-			}
+def buildSummary = tasks.register("buildSummary") {
+	dependsOn(versionBuilds)
+	doLast {
+		def failed = versionBuilds.findAll { it.get().executionResult.get().exitValue != 0 }
+		if (!failed.empty) {
+			throw new GradleException("Failed builds: ${failed.collect { it.name }.join(', ')}")
 		}
 	}
 }
 
-java {
-	toolchain {
-		languageVersion.set(JavaLanguageVersion.of(minecraft_main_version == 16 ? 8 : minecraft_main_version == 17 ? 16 : 17))
-	}
-	withSourcesJar()
-	withJavadocJar()
+tasks.register("build") {
+	group = "build"
+	description = "Builds all Fabric and Forge versions and reports failures at the end."
+	dependsOn(buildSummary)
 }
 
-static String[] getModrinthData(String loader, String minecraftVersion, String projectId) {
-	def versionsArray = getJson("https://api.modrinth.com/v2/project/" + projectId + "/version")
-	for (def versionElement : versionsArray) {
-		if (versionElement["loaders"].contains(loader) && versionElement["game_versions"].contains(minecraftVersion)) {
-			return [versionElement["version_number"], versionElement["files"][0]["url"]]
-		}
-	}
-	return ["", ""]
-}
-
-static Object getJson(String url) {
-	int tries = 0
-	while (true) {
-		try {
-			if (tries > 1) {
-				System.out.println("Parsed ${url} after ${tries} tries")
-			}
-			return new JsonSlurper().parse(url.toURL())
-		} catch (Exception ignored) {
-			Thread.sleep(1000)
-		}
-	}
-}
-
-import org.gradle.api.internal.file.copy.CopyAction;
-import org.gradle.api.internal.file.copy.CopyActionProcessingStream;
-
-class DummyArchiveTask extends AbstractArchiveTask {
-
-	protected CopyAction createCopyAction() {
-		return new DummyCopyAction();
-	}
-
-	class DummyCopyAction implements CopyAction {
-
-		@Override
-		WorkResult execute(CopyActionProcessingStream stream) {
-			return WorkResults.didWork(true);
-		}
-	}
-}
-
-task dummyForgeOutput(type: DummyArchiveTask) {
-	// Forgix's mergeJars task doesn't extend AbstractArchiveTask.
-	// This is to make github.com/teaconmc/longjing happy.
-	destinationDirectory = file("build/release/")
-	archiveBaseName = "YMTR-forge"
-	archiveVersion = minecraft_version + "-" + rootProject.mod_version
-	archiveExtension = "jar"
+tasks.register("clean") {
+	group = "build"
+	dependsOn(runChild("fabricClean", "fabric", "clean"), runChild("forgeClean", "forge", "clean"))
 }

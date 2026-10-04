@@ -23,7 +23,7 @@ public abstract class BlockStationNameTallBase extends BlockStationNameBase impl
 	public static final BooleanProperty METAL = BooleanProperty.create("metal");
 
 	public BlockStationNameTallBase() {
-		super(Properties.of().requiresCorrectToolForDrops().strength(2).noOcclusion());
+		super(mtr.mappings.BlockProperties.create().requiresCorrectToolForDrops().strength(2).noOcclusion());
 	}
 
 	@Override

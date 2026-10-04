@@ -40,7 +40,7 @@ public class BlockLiftButtons extends BlockDirectionalMapper implements EntityBl
 	public static final BooleanProperty UNLOCKED = BooleanProperty.create("unlocked");
 
 	public BlockLiftButtons() {
-		super(Properties.of().requiresCorrectToolForDrops().strength(2));
+		super(mtr.mappings.BlockProperties.create().requiresCorrectToolForDrops().strength(2));
 	}
 
 	@Override

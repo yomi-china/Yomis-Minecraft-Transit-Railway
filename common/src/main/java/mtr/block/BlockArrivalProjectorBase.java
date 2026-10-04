@@ -31,7 +31,7 @@ import java.util.Set;
 public abstract class BlockArrivalProjectorBase extends BlockDirectionalMapper implements EntityBlockMapper {
 
 	public BlockArrivalProjectorBase() {
-		super(Properties.of().requiresCorrectToolForDrops().strength(2).lightLevel(state -> 5).noOcclusion());
+		super(mtr.mappings.BlockProperties.create().requiresCorrectToolForDrops().strength(2).lightLevel(state -> 5).noOcclusion());
 	}
 
 	@Override

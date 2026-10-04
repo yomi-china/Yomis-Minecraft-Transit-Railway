@@ -20,7 +20,7 @@ import mtr.mappings.UtilitiesClient;
 import mtr.model.ModelTrainBase;
 import mtr.render.RenderTrains;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.GuiGraphics;
+import mtr.mappings.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.renderer.LightTexture;
 import net.minecraft.client.renderer.MultiBufferSource;

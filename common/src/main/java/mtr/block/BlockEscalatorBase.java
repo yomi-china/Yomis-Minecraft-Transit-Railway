@@ -23,7 +23,7 @@ public abstract class BlockEscalatorBase extends HorizontalBlockWithSoftLanding 
 	public static final EnumProperty<EnumEscalatorOrientation> ORIENTATION = EnumProperty.create("orientation", EnumEscalatorOrientation.class);
 
 	protected BlockEscalatorBase() {
-		super(Properties.of().requiresCorrectToolForDrops().strength(2).noOcclusion());
+		super(mtr.mappings.BlockProperties.create().requiresCorrectToolForDrops().strength(2).noOcclusion());
 	}
 
 	@Override

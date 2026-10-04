@@ -28,7 +28,7 @@ public class BlockTicketBarrier extends BlockDirectionalMapper {
 	public static final EnumProperty<TicketSystem.EnumTicketBarrierOpen> OPEN = EnumProperty.create("open", TicketSystem.EnumTicketBarrierOpen.class);
 
 	public BlockTicketBarrier(boolean isEntrance) {
-		super(Properties.of().requiresCorrectToolForDrops().strength(2).lightLevel(state -> 5).noOcclusion());
+		super(mtr.mappings.BlockProperties.create().requiresCorrectToolForDrops().strength(2).lightLevel(state -> 5).noOcclusion());
 		this.isEntrance = isEntrance;
 	}
 

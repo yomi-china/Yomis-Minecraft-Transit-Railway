@@ -50,7 +50,7 @@ public class BlockRailwaySign extends BlockDirectionalMapper implements EntityBl
 	public static final float SMALL_SIGN_PERCENTAGE = 0.75F;
 
 	public BlockRailwaySign(int length, boolean isOdd) {
-		super(Properties.of().requiresCorrectToolForDrops().strength(2).lightLevel(state -> 15));
+		super(mtr.mappings.BlockProperties.create().requiresCorrectToolForDrops().strength(2).lightLevel(state -> 15));
 		this.length = length;
 		this.isOdd = isOdd;
 	}

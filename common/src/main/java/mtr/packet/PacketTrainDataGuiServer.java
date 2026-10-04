@@ -335,7 +335,7 @@ public class PacketTrainDataGuiServer extends PacketTrainDataBase {
 			return;
 		}
 
-		final Level world = player.level();
+		final Level world = player.getCommandSenderWorld();
 		final RailwayData railwayData = RailwayData.getInstance(world);
 		if (railwayData == null) {
 			return;
@@ -361,7 +361,7 @@ public class PacketTrainDataGuiServer extends PacketTrainDataBase {
 	}
 
 	public static void generatePathC2S(MinecraftServer minecraftServer, ServerPlayer player, FriendlyByteBuf packet) {
-		final Level world = player.level();
+		final Level world = player.getCommandSenderWorld();
 		final RailwayData railwayData = RailwayData.getInstance(world);
 		if (railwayData != null) {
 			final long depotId = packet.readLong();
@@ -374,7 +374,7 @@ public class PacketTrainDataGuiServer extends PacketTrainDataBase {
 			return;
 		}
 
-		final Level world = player.level();
+		final Level world = player.getCommandSenderWorld();
 		final RailwayData railwayData = RailwayData.getInstance(world);
 		if (railwayData != null) {
 			final long depotId = packet.readLong();
@@ -414,7 +414,7 @@ public class PacketTrainDataGuiServer extends PacketTrainDataBase {
 			strings[i] = packet.readUtf(SerializedDataBase.PACKET_STRING_READ_LENGTH);
 		}
 		minecraftServer.execute(() -> {
-			final BlockEntity entity = player.level().getBlockEntity(pos);
+			final BlockEntity entity = player.getCommandSenderWorld().getBlockEntity(pos);
 			if (entity instanceof BlockTrainSensorBase.TileEntityTrainSensorBase) {
 				setTileEntityDataAndWriteUpdate(player, entity2 -> entity2.setData(filterIds, stoppedOnly, movingOnly, number, strings), (BlockTrainSensorBase.TileEntityTrainSensorBase) entity);
 			}
@@ -427,7 +427,7 @@ public class PacketTrainDataGuiServer extends PacketTrainDataBase {
 		final String floorDescription = packet.readUtf(SerializedDataBase.PACKET_STRING_READ_LENGTH);
 		final boolean shouldDing = packet.readBoolean();
 		minecraftServer.execute(() -> {
-			final BlockEntity entity = player.level().getBlockEntity(pos);
+			final BlockEntity entity = player.getCommandSenderWorld().getBlockEntity(pos);
 			if (entity instanceof BlockLiftTrackFloor.TileEntityLiftTrackFloor) {
 				setTileEntityDataAndWriteUpdate(player, entity2 -> entity2.setData(floorNumber, floorDescription, shouldDing), (BlockLiftTrackFloor.TileEntityLiftTrackFloor) entity);
 			}
@@ -449,12 +449,12 @@ public class PacketTrainDataGuiServer extends PacketTrainDataBase {
 		}
 
 		minecraftServer.execute(() -> {
-			final BlockEntity entity = player.level().getBlockEntity(signPos);
+			final BlockEntity entity = player.getCommandSenderWorld().getBlockEntity(signPos);
 			if (entity instanceof BlockRailwaySign.TileEntityRailwaySign) {
 				setTileEntityDataAndWriteUpdate(player, entity2 -> entity2.setData(selectedIds, signIds), (BlockRailwaySign.TileEntityRailwaySign) entity);
 			} else if (entity instanceof BlockRouteSignBase.TileEntityRouteSignBase) {
 				final long platformId = selectedIds.isEmpty() ? 0 : (long) selectedIds.toArray()[0];
-				final BlockEntity entityAbove = player.level().getBlockEntity(signPos.above());
+				final BlockEntity entityAbove = player.getCommandSenderWorld().getBlockEntity(signPos.above());
 				if (entityAbove instanceof BlockRouteSignBase.TileEntityRouteSignBase) {
 					setTileEntityDataAndWriteUpdate(player, entity2 -> entity2.setPlatformId(platformId), ((BlockRouteSignBase.TileEntityRouteSignBase) entityAbove), (BlockRouteSignBase.TileEntityRouteSignBase) entity);
 				} else {
@@ -465,7 +465,7 @@ public class PacketTrainDataGuiServer extends PacketTrainDataBase {
 	}
 
 	public static void receiveDriveTrainC2S(MinecraftServer minecraftServer, ServerPlayer player, FriendlyByteBuf packet) {
-		final RailwayData railwayData = RailwayData.getInstance(player.level());
+		final RailwayData railwayData = RailwayData.getInstance(player.getCommandSenderWorld());
 		if (railwayData != null) {
 			final boolean pressingAccelerate = packet.readBoolean();
 			final boolean pressingBrake = packet.readBoolean();
@@ -475,7 +475,7 @@ public class PacketTrainDataGuiServer extends PacketTrainDataBase {
 	}
 
 	public static void receivePressLiftButtonC2S(MinecraftServer minecraftServer, ServerPlayer player, FriendlyByteBuf packet) {
-		final RailwayData railwayData = RailwayData.getInstance(player.level());
+		final RailwayData railwayData = RailwayData.getInstance(player.getCommandSenderWorld());
 		if (railwayData != null) {
 			final long id = packet.readLong();
 			final int floor = packet.readInt();
@@ -494,7 +494,7 @@ public class PacketTrainDataGuiServer extends PacketTrainDataBase {
 		final int emeralds = packet.readInt();
 
 		minecraftServer.execute(() -> {
-			final Level world = player.level();
+			final Level world = player.getCommandSenderWorld();
 
 			TicketSystem.addObjectivesIfMissing(world);
 			Score balanceScore = TicketSystem.getPlayerScore(world, player, TicketSystem.BALANCE_OBJECTIVE);
@@ -527,12 +527,12 @@ public class PacketTrainDataGuiServer extends PacketTrainDataBase {
 		minecraftServer.execute(() -> {
 			final List<IPIDS.TileEntityPIDS> entities = new ArrayList<>();
 
-			final BlockEntity entity1 = player.level().getBlockEntity(pos1);
+			final BlockEntity entity1 = player.getCommandSenderWorld().getBlockEntity(pos1);
 			if (entity1 instanceof IPIDS.TileEntityPIDS) {
 				entities.add((IPIDS.TileEntityPIDS) entity1);
 			}
 
-			final BlockEntity entity2 = player.level().getBlockEntity(pos2);
+			final BlockEntity entity2 = player.getCommandSenderWorld().getBlockEntity(pos2);
 			if (entity2 instanceof IPIDS.TileEntityPIDS) {
 				entities.add((IPIDS.TileEntityPIDS) entity2);
 			}
@@ -550,7 +550,7 @@ public class PacketTrainDataGuiServer extends PacketTrainDataBase {
 		}
 		final int displayPage = packet.readInt();
 		minecraftServer.execute(() -> {
-			final BlockEntity entity = player.level().getBlockEntity(pos);
+			final BlockEntity entity = player.getCommandSenderWorld().getBlockEntity(pos);
 			if (entity instanceof BlockArrivalProjectorBase.TileEntityArrivalProjectorBase) {
 				setTileEntityDataAndWriteUpdate(player, entity2 -> entity2.setData(platformIds, displayPage), ((BlockArrivalProjectorBase.TileEntityArrivalProjectorBase) entity));
 			}
@@ -562,7 +562,7 @@ public class PacketTrainDataGuiServer extends PacketTrainDataBase {
 			return;
 		}
 
-		final Level world = player.level();
+		final Level world = player.getCommandSenderWorld();
 		final RailwayData railwayData = RailwayData.getInstance(world);
 		if (railwayData != null) {
 			final boolean useTimeAndWindSync = packet.readBoolean();
@@ -576,7 +576,7 @@ public class PacketTrainDataGuiServer extends PacketTrainDataBase {
 	}
 
 	public static void receiveRemoveRailAction(MinecraftServer minecraftServer, Player player, FriendlyByteBuf packet) {
-		final Level world = player.level();
+		final Level world = player.getCommandSenderWorld();
 		final RailwayData railwayData = RailwayData.getInstance(world);
 		if (railwayData != null) {
 			final long id = packet.readLong();
@@ -586,7 +586,7 @@ public class PacketTrainDataGuiServer extends PacketTrainDataBase {
 
 	public static void receiveUpdateTrainPassengerPosition(MinecraftServer minecraftServer, Player player, FriendlyByteBuf packet) {
 		final FriendlyByteBuf packetFullCopy = new FriendlyByteBuf(packet.copy());
-		minecraftServer.execute(() -> player.level().players().forEach(sendPlayer -> {
+		minecraftServer.execute(() -> player.getCommandSenderWorld().players().forEach(sendPlayer -> {
 			if (sendPlayer != player) {
 				Registry.sendToPlayer((ServerPlayer) sendPlayer, PACKET_UPDATE_TRAIN_PASSENGER_POSITION, packetFullCopy);
 			}
@@ -595,7 +595,7 @@ public class PacketTrainDataGuiServer extends PacketTrainDataBase {
 
 	public static void receiveUpdateLiftPassengerPosition(MinecraftServer minecraftServer, Player player, FriendlyByteBuf packet) {
 		final FriendlyByteBuf packetFullCopy = new FriendlyByteBuf(packet.copy());
-		minecraftServer.execute(() -> player.level().players().forEach(sendPlayer -> {
+		minecraftServer.execute(() -> player.getCommandSenderWorld().players().forEach(sendPlayer -> {
 			if (sendPlayer != player) {
 				Registry.sendToPlayer((ServerPlayer) sendPlayer, PACKET_UPDATE_LIFT_PASSENGER_POSITION, packetFullCopy);
 			}
@@ -603,7 +603,7 @@ public class PacketTrainDataGuiServer extends PacketTrainDataBase {
 	}
 
 	public static void receiveUpdateEntitySeatPassengerPosition(MinecraftServer minecraftServer, Player player, FriendlyByteBuf packet) {
-		final RailwayData railwayData = RailwayData.getInstance(player.level());
+		final RailwayData railwayData = RailwayData.getInstance(player.getCommandSenderWorld());
 		if (railwayData != null) {
 			final double x = packet.readDouble();
 			final double y = packet.readDouble();
@@ -639,7 +639,7 @@ public class PacketTrainDataGuiServer extends PacketTrainDataBase {
 
 	@SafeVarargs
 	private static <T extends BlockEntityMapper> void setTileEntityDataAndWriteUpdate(ServerPlayer player, Consumer<T> setData, T... entities) {
-		final RailwayData railwayData = RailwayData.getInstance(player.level());
+		final RailwayData railwayData = RailwayData.getInstance(player.getCommandSenderWorld());
 
 		if (railwayData != null && entities.length > 0) {
 			final CompoundTag compoundTagOld = new CompoundTag();

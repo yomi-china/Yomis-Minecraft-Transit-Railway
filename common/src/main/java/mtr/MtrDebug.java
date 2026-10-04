@@ -1,5 +1,6 @@
 package mtr;
 
+import mtr.mappings.Text;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.player.Player;
@@ -26,7 +27,7 @@ public class MtrDebug {
 	}
 
 	public static void debugMessage(Level world, Set<UUID> ridingEntities, String message) {
-		debugMessage(world, ridingEntities, Component.literal(message));
+		debugMessage(world, ridingEntities, Text.literal(message));
 	}
 
 	public static void debugMessage(Level world, Set<UUID> ridingEntities, Component message) {

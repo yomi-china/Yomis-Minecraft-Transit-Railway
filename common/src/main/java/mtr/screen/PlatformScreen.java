@@ -6,7 +6,7 @@ import mtr.mappings.ButtonMapper;
 import mtr.mappings.Text;
 import mtr.mappings.UtilitiesClient;
 import mtr.packet.PacketTrainDataGuiClient;
-import net.minecraft.client.gui.GuiGraphics;
+import mtr.mappings.GuiGraphics;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 
@@ -45,13 +45,13 @@ public class PlatformScreen extends SavedRailScreenBase<Platform> {
 		UtilitiesClient.setWidgetX(sliderAdcTimeMin, SQUARE_SIZE + textWidth);
 		sliderAdcTimeMin.setHeight(SQUARE_SIZE / 2);
 		sliderAdcTimeMin.setWidth(width - textWidth - SQUARE_SIZE * 2 - sliderTextWidth);
-		sliderAdcTimeMin.setY(yBase);
+		UtilitiesClient.setWidgetY(sliderAdcTimeMin, yBase);
 		sliderAdcTimeMin.setValue((int) Math.floor(savedRailBase.getAdcTime() / 2F / SECONDS_PER_MINUTE));
 
 		UtilitiesClient.setWidgetX(sliderAdcTimeSec, SQUARE_SIZE + textWidth);
 		sliderAdcTimeSec.setHeight(SQUARE_SIZE / 2);
 		sliderAdcTimeSec.setWidth(width - textWidth - SQUARE_SIZE * 2 - sliderTextWidth);
-		sliderAdcTimeSec.setY(yBase + SQUARE_SIZE / 2);
+		UtilitiesClient.setWidgetY(sliderAdcTimeSec, yBase + SQUARE_SIZE / 2);
 		sliderAdcTimeSec.setValue(savedRailBase.getAdcTime() % (SECONDS_PER_MINUTE * 2));
 
 		if (showScheduleControls) {
@@ -64,7 +64,7 @@ public class PlatformScreen extends SavedRailScreenBase<Platform> {
 		final int psdButtonY = SQUARE_SIZE * 7 + TEXT_FIELD_PADDING;
 		UtilitiesClient.setWidgetX(buttonPsdDisplayMode, SQUARE_SIZE + textWidth);
 		buttonPsdDisplayMode.setWidth(width - textWidth - SQUARE_SIZE * 2 - sliderTextWidth);
-		buttonPsdDisplayMode.setY(psdButtonY);
+		UtilitiesClient.setWidgetY(buttonPsdDisplayMode, psdButtonY);
 		buttonPsdDisplayMode.setMessage(Text.translatable("gui.mtr.psd_display_mode_" + psdDisplayModeTemp));
 		addDrawableChild(buttonPsdDisplayMode);
 	}
