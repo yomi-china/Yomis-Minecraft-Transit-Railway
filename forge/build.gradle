@@ -1,161 +1,130 @@
-import org.apache.tools.ant.filters.ReplaceTokens
-import org.apache.tools.ant.taskdefs.condition.Os
+plugins {
+	id "architectury-plugin" version "3.4-SNAPSHOT" apply false
+	id "dev.architectury.loom" version "1.13.469" apply false
+	id "com.github.johnrengelman.shadow" version "+" apply false
+}
 
-loom {
-	forge {
-		mixinConfig "mtr.mixins.json"
-		mixinConfig "mtr.voxy.mixins.json"
+def versions = [
+	"1_16_5": [minecraft: "1.16.5", javaRelease: 8, forge: "1.16.5-36.2.39", architecturyGroup: "me.shedaniel", architectury: "1.32.66"],
+	"1_17_1": [minecraft: "1.17.1", javaRelease: 16, forge: "1.17.1-37.1.1", architecturyGroup: "dev.architectury", architectury: "2.8.67"],
+	"1_18_2": [minecraft: "1.18.2", javaRelease: 17, forge: "1.18.2-40.2.17", architecturyGroup: "dev.architectury", architectury: "4.12.94"],
+	"1_19_2": [minecraft: "1.19.2", javaRelease: 17, forge: "1.19.2-43.3.8", architecturyGroup: "dev.architectury", architectury: "6.6.92"],
+	"1_19_4": [minecraft: "1.19.4", javaRelease: 17, forge: "1.19.4-45.2.0", architecturyGroup: "dev.architectury", architectury: "8.2.89"]
+]
+
+allprojects {
+	group = "mtr"
+	version = "${findProperty("minecraftVersion") ?: "1.16.5"}-${findProperty("mod_version") ?: "3.6.4"}"
+	repositories {
+		mavenCentral()
+		maven { url = "https://maven.minecraftforge.net/" }
+		maven { url = "https://maven.architectury.dev/" }
+		maven { url = "https://jitpack.io/" }
+		maven { url = "https://repo.papermc.io/repository/maven-public/" }
+		maven { url = "https://repo.spongepowered.org/repository/maven-public/" }
+		flatDir { dirs "../../libs" }
 	}
 }
 
-architectury {
-	platformSetupLoomIde()
-	forge()
-}
+subprojects { project ->
+	def config = versions[project.name]
+	if (config == null) return
+	apply plugin: "java"
+	apply plugin: "architectury-plugin"
+	apply plugin: "dev.architectury.loom"
+	apply plugin: "com.github.johnrengelman.shadow"
+	project.ext.minecraftVersion = config.minecraft
+	version = "${config.minecraft}-${rootProject.findProperty("mod_version") ?: "3.6.4"}"
 
-configurations {
-	common
-	shadowCommon
-	compileClasspath.extendsFrom common
-	runtimeClasspath.extendsFrom common
-	developmentForge.extendsFrom common
-}
-
-dependencies {
-	forge "net.minecraftforge:forge:${rootProject.forge_version}"
-	modApi "${rootProject.architectury_id}:architectury-forge:${rootProject.architectury_data[0].split("\\+")[0]}"
-
-	forgeRuntimeLibrary "org.eclipse.jetty:jetty-http:9.+"
-	forgeRuntimeLibrary "org.eclipse.jetty:jetty-io:9.+"
-	forgeRuntimeLibrary "org.eclipse.jetty:jetty-security:9.+"
-	forgeRuntimeLibrary "org.eclipse.jetty:jetty-server:9.+"
-	forgeRuntimeLibrary "org.eclipse.jetty:jetty-servlet:9.+"
-	forgeRuntimeLibrary "org.eclipse.jetty:jetty-util:9.+"
-	forgeRuntimeLibrary "org.eclipse.jetty:jetty-util-ajax:9.+"
-	forgeRuntimeLibrary "javax.servlet:javax.servlet-api:+"
-	forgeRuntimeLibrary "org.msgpack:msgpack-core:+"
-	forgeRuntimeLibrary "com.googlecode.soundlibs:mp3spi:1.9.5.4"
-	forgeRuntimeLibrary "com.googlecode.soundlibs:jlayer:1.0.1.4"
-	forgeRuntimeLibrary "com.googlecode.soundlibs:tritonus-share:0.3.7.4"
-
-
-	common(project(path: ":common", configuration: "namedElements")) { transitive false }
-	shadowCommon(project(path: ":common", configuration: "transformProductionForge")) { transitive = false }
-}
-
-processResources {
-	inputs.property "version", project.version
-
-	filesMatching("META-INF/mods.toml") {
-		expand "version": project.version
+	architectury {
+		minecraft = config.minecraft
 	}
-}
-
-shadowJar {
-	exclude "fabric.mod.json"
-
-	configurations = [project.configurations.shadowCommon]
-	archiveClassifier = "dev-shadow"
-	relocate "javax.servlet", "mtr.libraries.javax.servlet"
-	relocate "org.eclipse", "mtr.libraries.org.eclipse"
-}
-
-remapJar {
-	input.set shadowJar.archiveFile
-	dependsOn shadowJar
-	archiveClassifier = null
-}
-
-components.java {
-	withVariantsFromConfiguration(project.configurations.shadowRuntimeElements) {
-		skip()
+	loom {
+		forge {
+			mixinConfig "mtr.mixins.json"
+			mixinConfig "mtr.voxy.mixins.json"
+		}
+		mixin.defaultRefmapName.set("mtr-refmap.json")
 	}
-}
-
-tasks.register("moveForgeBuilds") {
-	doLast {
-		delete fileTree("../build/release").matching {
-			include "**/${rootProject.variation_header}-forge*"
+	configurations { shadowCommon }
+	sourceSets.main {
+		java.srcDirs = ["../../common/src/main/java", "../src/main/java", "src/main/java"]
+		java.exclude "mtr/client/VoxyDepthCompat.java"
+		java.exclude "UpdateSolder.java"
+		if (project.name in ["1_19_2", "1_19_4"]) {
+			def commonJava = rootProject.file("../common/src/main/java").toPath()
+			def versionJava = project.file("src/main/java").toPath()
+			def overrides = fileTree(project.file("src/main/java")).matching { include "**/*.java" }.files.collect { versionJava.relativize(it.toPath()).toString() } as Set
+			java.exclude { entry -> entry.file.toPath().startsWith(commonJava) && commonJava.relativize(entry.file.toPath()).toString() in overrides }
 		}
-		delete fileTree("../build/libs").matching {
-			include "**/${rootProject.variation_header}-forge*"
+		def platformJava = rootProject.file("src/main/java").toPath()
+		java.exclude { entry ->
+			entry.file.toPath().startsWith(platformJava) && (entry.file.name in ["MTRForge.java", "ForgeUtilities.java"] ||
+				(project.name != "1_16_5" && entry.file.name == "EntitySetOldPosAndRotMixin.java"))
 		}
-		delete fileTree("../build/latest").matching {
-			include "**/${rootProject.variation_header}-forge*"
-		}
-		copy {
-			from "build/libs"
-			include "*${rootProject.mod_version}.jar"
-			into "../build/release"
-			rename "(.+)", "${rootProject.variation_header}-\$1"
-		}
-		if (rootProject.variation == "normal") {
-			copy {
-				from "build/libs"
-				into "../build/latest"
-				rename { fileName -> "YMTR-${fileName.replace(rootProject.mod_version, "latest")}" }
-			}
-			copy {
-				from "build/libs"
-				include "*${rootProject.mod_version}-dev-shadow.jar"
-				into "../build/libs"
-				rename "(.+)", "YMTR-\$1"
-			}
-		}
+		resources.srcDirs = ["../../common/src/main/resources", "../src/main/resources", "src/main/resources"]
 	}
-}
-
-tasks.register("testServer") {
-	doLast {
-		if (rootProject.variation == "normal") {
-			copy {
-				from "../resources/eula.txt"
-				into "server"
-			}
-			copy {
-				from "../resources/server.properties"
-				into "server"
-				filter(ReplaceTokens, tokens: ["port": String.valueOf(25500 + new Random().nextInt(500))])
-			}
-			copy {
-				from "../build/latest"
-				into "server/mods"
-				include "MTR-forge-*-latest.jar"
-				rename "(.+)", "MTR.jar"
-			}
-			download.run {
-				src rootProject.architectury_data[1]
-				dest "forge/server/mods/architectury.jar"
-				overwrite true
-				retries - 1
-			}
-			download.run {
-				src "https://maven.minecraftforge.net/net/minecraftforge/forge/${rootProject.forge_version}/forge-${rootProject.forge_version}-installer.jar"
-				dest "forge/server/forge-installer.jar"
-				overwrite true
-				retries - 1
-			}
-			javaexec {
-				mainClass = "-jar"
-				args = ["forge-installer.jar", "--installServer"]
-				workingDir = "server"
-			}
-			if (!rootProject.forge_version.startsWith("1.16.5")) {
-				javaexec {
-					mainClass = "@libraries/net/minecraftforge/forge/${rootProject.forge_version}/${Os.isFamily(Os.FAMILY_WINDOWS) ? "win" : "unix"}_args.txt"
-					args = ["nogui"]
-					jvmArgs = ["-Xms4G", "-Xmx4G"]
-					workingDir = "server"
-				}
-			}
-		}
+	dependencies {
+		minecraft "com.mojang:minecraft:${config.minecraft}"
+		mappings loom.officialMojangMappings()
+		forge "net.minecraftforge:forge:${config.forge}"
+		modApi "${config.architecturyGroup}:architectury-forge:${config.architectury}"
+		compileOnly "dev.architectury:architectury-injectables:1.0.10"
+		implementation name: "Dynmap-3.2.1"
+		implementation name: "BlueMapAPI-2.1.1"
+		implementation "xyz.jpenilla:squaremap-api:1.2.1"
+		implementation "net.kyori:adventure-api:4.13.1"
+		implementation "net.kyori:adventure-text-minimessage:4.13.1"
+		implementation "net.kyori:adventure-text-serializer-gson:4.13.1"
+		implementation "org.eclipse.jetty:jetty-http:9.+"
+		implementation "org.eclipse.jetty:jetty-io:9.+"
+		implementation "org.eclipse.jetty:jetty-security:9.+"
+		implementation "org.eclipse.jetty:jetty-server:9.+"
+		implementation "org.eclipse.jetty:jetty-servlet:9.+"
+		implementation "org.eclipse.jetty:jetty-util:9.+"
+		implementation "org.eclipse.jetty:jetty-util-ajax:9.+"
+		implementation "javax.servlet:javax.servlet-api:+"
+		implementation "org.msgpack:msgpack-core:+"
+		implementation "com.hierynomus:sshj:+"
+		implementation "com.github.jonafanho:Minecraft-Mod-API-Tools:${rootProject.minecraft_mod_api_tools_version}"
+		compileOnly files("../../libs/MSD1.3.4-common.jar")
+		shadowCommon "org.eclipse.jetty:jetty-http:9.+"
+		shadowCommon "org.eclipse.jetty:jetty-io:9.+"
+		shadowCommon "org.eclipse.jetty:jetty-security:9.+"
+		shadowCommon "org.eclipse.jetty:jetty-server:9.+"
+		shadowCommon "org.eclipse.jetty:jetty-servlet:9.+"
+		shadowCommon "org.eclipse.jetty:jetty-util:9.+"
+		shadowCommon "org.eclipse.jetty:jetty-util-ajax:9.+"
+		shadowCommon "javax.servlet:javax.servlet-api:+"
+		shadowCommon "org.msgpack:msgpack-core:+"
+		shadowCommon "com.googlecode.soundlibs:mp3spi:1.9.5.4"
+		shadowCommon "com.googlecode.soundlibs:jlayer:1.0.1.4"
+		shadowCommon "com.googlecode.soundlibs:tritonus-share:0.3.7.4"
 	}
-}
-
-afterEvaluate {
-	for (def task in it.tasks) {
-		if (task == tasks.build) {
-			task.finalizedBy tasks.moveForgeBuilds
-		}
+	processResources {
+		inputs.property "version", project.version
+		filesMatching("META-INF/mods.toml") { expand "version": project.version }
+	}
+	java {
+		toolchain.languageVersion = JavaLanguageVersion.of(21)
+		withSourcesJar()
+	}
+	tasks.withType(JavaCompile).configureEach {
+		options.encoding = "UTF-8"
+		options.release = config.javaRelease
+		options.compilerArgs += ["-Xmaxerrs", "500"]
+	}
+	shadowJar {
+		exclude "fabric.mod.json"
+		configurations = [project.configurations.shadowCommon]
+		archiveClassifier = "dev-shadow"
+		relocate "javax.servlet", "mtr.libraries.javax.servlet"
+		relocate "org.eclipse", "mtr.libraries.org.eclipse"
+		mergeServiceFiles()
+	}
+	remapJar {
+		input.set shadowJar.archiveFile
+		dependsOn shadowJar
+		archiveClassifier = null
 	}
 }

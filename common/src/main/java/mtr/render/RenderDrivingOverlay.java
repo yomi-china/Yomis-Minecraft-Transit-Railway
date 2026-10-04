@@ -3,20 +3,26 @@ package mtr.render;
 import com.mojang.blaze3d.platform.Window;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.BufferBuilder;
+import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.Tesselator;
+import com.mojang.math.Matrix4f;
+import com.mojang.math.Vector3f;
 import mtr.client.IDrawing;
 import mtr.data.*;
 import mtr.mappings.UtilitiesClient;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.GuiGraphics;
+import mtr.mappings.GuiGraphics;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.util.Mth;
-import org.joml.Matrix4f;
 
 public class RenderDrivingOverlay implements IGui {
 
 	private static TrainClient trainClient;
 	private static int coolDown;
+
+	public static void render(PoseStack poseStack) {
+		render(new GuiGraphics(poseStack));
+	}
 
 	private static final int EDGE_PADDING = 16;
 	private static final int TOOL_SIZE = 96;
@@ -99,7 +105,7 @@ public class RenderDrivingOverlay implements IGui {
 		final int centerX = screenWidth - RADIUS - EDGE_PADDING;
 		final int centerY = screenHeight - RADIUS - EDGE_PADDING;
 
-		final var matrixStack = guiGraphics.pose();
+		final PoseStack matrixStack = guiGraphics.pose();
 		matrixStack.pushPose();
 		matrixStack.translate(centerX, centerY, 0);
 
@@ -123,38 +129,38 @@ public class RenderDrivingOverlay implements IGui {
 			drawRectangle(buffer, pose, -RADIUS + 1, -halfEdge, RADIUS - 1, halfEdge, 0xFF222222);
 			tesselator.end();
 			UtilitiesClient.finishDrawingRectangle();
-			matrixStack.mulPose(com.mojang.math.Axis.ZP.rotationDegrees(SPEEDOMETER_CIRCLE_INTERVAL));
+			matrixStack.mulPose(Vector3f.ZP.rotationDegrees(SPEEDOMETER_CIRCLE_INTERVAL));
 		}
 		matrixStack.popPose();
 
 		matrixStack.pushPose();
-		matrixStack.mulPose(com.mojang.math.Axis.ZP.rotationDegrees(SPEEDOMETER_START_ANGLE));
+		matrixStack.mulPose(Vector3f.ZP.rotationDegrees(SPEEDOMETER_START_ANGLE));
 		for (int i = 0; i <= maxSpeedKmh; i += SPEEDOMETER_TICK_INTERVAL) {
 			final boolean isMajor = (i % 20 == 0);
 			final int tickLength = isMajor ? 8 : 4;
 			guiGraphics.fill(-RADIUS + 2, -1, -RADIUS + 2 + tickLength, 1, LIGHT_GRAY);
-			matrixStack.mulPose(com.mojang.math.Axis.ZP.rotationDegrees((float) SPEEDOMETER_TICK_INTERVAL * SPEEDOMETER_SPAN / maxSpeedKmh));
+			matrixStack.mulPose(Vector3f.ZP.rotationDegrees((float) SPEEDOMETER_TICK_INTERVAL * SPEEDOMETER_SPAN / maxSpeedKmh));
 		}
 		matrixStack.popPose();
 
 		matrixStack.pushPose();
-		matrixStack.mulPose(com.mojang.math.Axis.ZP.rotationDegrees(SPEEDOMETER_START_ANGLE));
+		matrixStack.mulPose(Vector3f.ZP.rotationDegrees(SPEEDOMETER_START_ANGLE));
 		for (int i = 0; i <= maxSpeedKmh; i += 20) {
 			matrixStack.pushPose();
 			matrixStack.translate(-RADIUS + 12, 0, 0);
-			matrixStack.mulPose(com.mojang.math.Axis.ZP.rotationDegrees(-SPEEDOMETER_START_ANGLE - (float) i * SPEEDOMETER_SPAN / maxSpeedKmh));
+			matrixStack.mulPose(Vector3f.ZP.rotationDegrees(-SPEEDOMETER_START_ANGLE - (float) i * SPEEDOMETER_SPAN / maxSpeedKmh));
 			matrixStack.scale(0.5F, 0.5F, 1);
 			final String label = String.valueOf(i);
 			final int width = client.font.width(label);
 			guiGraphics.drawString(client.font, label, -width / 2, -4, ARGB_WHITE, false);
 			matrixStack.popPose();
-			matrixStack.mulPose(com.mojang.math.Axis.ZP.rotationDegrees(20F * SPEEDOMETER_SPAN / maxSpeedKmh));
+			matrixStack.mulPose(Vector3f.ZP.rotationDegrees(20F * SPEEDOMETER_SPAN / maxSpeedKmh));
 		}
 		matrixStack.popPose();
 
 		matrixStack.pushPose();
 		final float needleAngle = SPEEDOMETER_START_ANGLE + (float) speedKmh * SPEEDOMETER_SPAN / maxSpeedKmh;
-		matrixStack.mulPose(com.mojang.math.Axis.ZP.rotationDegrees(needleAngle));
+		matrixStack.mulPose(Vector3f.ZP.rotationDegrees(needleAngle));
 		final Matrix4f needlePose = matrixStack.last().pose();
 		UtilitiesClient.beginDrawingRectangle(buffer);
 		drawRectangle(buffer, needlePose, -RADIUS + 4, -1, 0, 1, RED_COLOR);

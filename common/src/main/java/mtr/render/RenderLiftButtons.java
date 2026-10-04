@@ -27,11 +27,7 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 public class RenderLiftButtons extends BlockEntityRendererMapper<BlockLiftButtons.TileEntityLiftButtons> implements IGui, IBlock {
 
@@ -67,7 +63,7 @@ public class RenderLiftButtons extends BlockEntityRendererMapper<BlockLiftButton
 		matrices.translate(0.5, 0, 0.5);
 
 		final boolean[] buttonStates = {false, false, false, false};
-		final Map<BlockPos, Object[]> liftDisplays = new HashMap<>(); // Object[]{floorText, direction, displayColor}
+		final Map<BlockPos, Object[]> liftDisplays = new HashMap<>();
 		final List<BlockPos> liftPositions = new ArrayList<>();
 		entity.forEachTrackPosition(world, (trackPosition, trackFloorTileEntity) -> {
 			renderLiftObjectLink(matrices, vertexConsumers, world, pos, trackPosition, facing, holdingLinker);
@@ -84,11 +80,7 @@ public class RenderLiftButtons extends BlockEntityRendererMapper<BlockLiftButton
 
 					final BlockPos liftPos = RailwayData.newBlockPos(lift.getPositionX(), 0, lift.getPositionZ());
 					liftPositions.add(liftPos);
-					liftDisplays.put(liftPos, new Object[]{
-							ClientData.DATA_CACHE.requestLiftFloorText(lift.getCurrentFloorBlockPos())[0],
-							lift.getLiftDirection(),
-							lift.displayColor
-					});
+					liftDisplays.put(liftPos, new Object[]{ClientData.DATA_CACHE.requestLiftFloorText(lift.getCurrentFloorBlockPos())[0], lift.getLiftDirection(), lift.displayColor});
 				}
 			});
 		});

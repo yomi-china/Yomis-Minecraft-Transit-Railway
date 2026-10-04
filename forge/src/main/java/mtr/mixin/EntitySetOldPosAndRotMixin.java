@@ -17,8 +17,8 @@ public class EntitySetOldPosAndRotMixin {
 	@Unique
 	private float savedYRotO, savedXRotO;
 
-	@Inject(method = "setOldPosAndRot", at = @At("HEAD"))
-	private void beforeSetOldPosAndRot(CallbackInfo ci) {
+	@Inject(method = "setPosAndOldPos", at = @At("HEAD"))
+	private void beforeSetOldPosAndRot(double x, double y, double z, CallbackInfo ci) {
 		final Entity self = (Entity) (Object) this;
 		if (self instanceof LocalPlayer && ClientData.isRiding(self.getUUID())) {
 			savedXo = self.xo;
@@ -29,8 +29,8 @@ public class EntitySetOldPosAndRotMixin {
 		}
 	}
 
-	@Inject(method = "setOldPosAndRot", at = @At("RETURN"))
-	private void afterSetOldPosAndRot(CallbackInfo ci) {
+	@Inject(method = "setPosAndOldPos", at = @At("RETURN"))
+	private void afterSetOldPosAndRot(double x, double y, double z, CallbackInfo ci) {
 		final Entity self = (Entity) (Object) this;
 		if (self instanceof LocalPlayer && ClientData.isRiding(self.getUUID())) {
 			self.xo = savedXo;

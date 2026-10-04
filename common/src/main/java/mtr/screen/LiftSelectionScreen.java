@@ -9,7 +9,7 @@ import mtr.mappings.ScreenMapper;
 import mtr.mappings.Text;
 import mtr.packet.PacketTrainDataGuiClient;
 import mtr.render.RenderTrains;
-import net.minecraft.client.gui.GuiGraphics;
+import mtr.mappings.GuiGraphics;
 import net.minecraft.core.BlockPos;
 
 import java.util.ArrayList;

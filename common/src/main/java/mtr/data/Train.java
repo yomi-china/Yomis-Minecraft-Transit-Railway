@@ -5,11 +5,11 @@ import mtr.Keys;
 import mtr.block.BlockPSDAPGBase;
 import mtr.block.BlockPlatform;
 import mtr.MtrDebug;
+import mtr.mappings.RegistryUtilities;
 import mtr.packet.IPacket;
 import mtr.path.PathData;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.NonNullList;
-import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.NbtIo;
 import net.minecraft.network.FriendlyByteBuf;
@@ -842,10 +842,10 @@ public abstract class Train extends NameColorDataBase implements IPacket {
 					nextStoppingIndex, headIndex, railProgress, speed, brakingDist, nextPlatformIndex, isCurrentlyManual);
 			final String railInfo = nextStoppingIndex < path.size() && nextStoppingIndex >= 0 ? " §7rail=" + path.get(nextStoppingIndex).rail.railType : "";
 			MtrDebug.debugMessage(world, ridingEntities,
-					Component.literal("§e[")
-							.append(Component.translatable(reasonKey).withStyle(ChatFormatting.YELLOW))
-							.append(Component.literal("]"))
-							.append(Component.literal(body + railInfo + " §7" + details))
+					mtr.mappings.Text.literal("§e[")
+							.append(mtr.mappings.Text.translatable(reasonKey).withStyle(ChatFormatting.YELLOW))
+							.append(mtr.mappings.Text.literal("]"))
+							.append(mtr.mappings.Text.literal(body + railInfo + " §7" + details))
 			);
 		}
 	}
@@ -999,8 +999,8 @@ public abstract class Train extends NameColorDataBase implements IPacket {
 		if (onboardToolItem == null && !onboardToolChecked) {
 			onboardToolChecked = true;
 			final ResourceLocation id = new ResourceLocation("mtryum", "onboard_tool");
-			if (BuiltInRegistries.ITEM.containsKey(id)) {
-				onboardToolItem = BuiltInRegistries.ITEM.get(id);
+			if (RegistryUtilities.registryGetItem().containsKey(id)) {
+				onboardToolItem = RegistryUtilities.registryGetItem().get(id);
 			}
 		}
 		return onboardToolItem != null && player.isHolding(onboardToolItem);

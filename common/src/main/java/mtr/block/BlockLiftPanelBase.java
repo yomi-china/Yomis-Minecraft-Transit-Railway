@@ -48,7 +48,7 @@ public abstract class BlockLiftPanelBase extends BlockDirectionalMapper implemen
 	public static final BooleanProperty TEMP = BooleanProperty.create("temp");
 
 	public BlockLiftPanelBase(boolean isOdd, boolean isFlat) {
-		super(Properties.of().requiresCorrectToolForDrops().strength(2).lightLevel(state -> 5));
+		super(mtr.mappings.BlockProperties.create().requiresCorrectToolForDrops().strength(2).lightLevel(state -> 5));
 		this.isOdd = isOdd;
 		this.isFlat = isFlat;
 	}

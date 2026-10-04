@@ -153,7 +153,7 @@ public final class WebDashboardSession {
 				}
 			}
 
-			final JsonElement parsed = JsonParser.parseString(builder.toString());
+			final JsonElement parsed = new JsonParser().parse(builder.toString());
 			return parsed != null && parsed.isJsonObject() ? parsed.getAsJsonObject() : null;
 		} catch (Exception e) {
 			System.out.println("[MTR-WebDashboard] Could not read a JSON request body: " + e);

@@ -1,5 +1,6 @@
 package mtr.screen;
 
+import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.BufferBuilder;
 import com.mojang.blaze3d.vertex.Tesselator;
@@ -12,7 +13,7 @@ import mtr.mappings.UtilitiesClient;
 import mtr.mappings.WidgetMapper;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
-import net.minecraft.client.gui.GuiGraphics;
+import mtr.mappings.GuiGraphics;
 import net.minecraft.client.gui.components.events.GuiEventListener;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.player.LocalPlayer;
@@ -92,7 +93,10 @@ public class WidgetMap implements WidgetMapper, SelectableMapper, GuiEventListen
 		setShowStations(true);
 	}
 
-	@Override
+	public void render(PoseStack poseStack, int mouseX, int mouseY, float delta) {
+		render(new GuiGraphics(poseStack), mouseX, mouseY, delta);
+	}
+
 	public void render(GuiGraphics guiGraphics, int mouseX, int mouseY, float delta) {
 		if (isAnimating) {
 			final long elapsed = System.currentTimeMillis() - animStartMillis;
@@ -120,7 +124,7 @@ public class WidgetMap implements WidgetMapper, SelectableMapper, GuiEventListen
 		for (int i = topLeft.getA(); i <= bottomRight.getA(); i += increment) {
 			for (int j = topLeft.getB(); j <= bottomRight.getB(); j += increment) {
 				if (world != null) {
-					final int color = divideColorRGB(world.getBlockState(RailwayData.newBlockPos(i, world.getHeight(Heightmap.Types.MOTION_BLOCKING, i, j) - 1, j)).getBlock().defaultMapColor().col, 2);
+					final int color = divideColorRGB(world.getBlockState(RailwayData.newBlockPos(i, world.getHeight(Heightmap.Types.MOTION_BLOCKING, i, j) - 1, j)).getMaterial().getColor().col, 2);
 					drawRectangleFromWorldCoords(buffer, i, j, i + increment, j + increment, ARGB_BLACK | color);
 				}
 			}

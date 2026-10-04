@@ -240,6 +240,7 @@ public class JonModelTrainRenderer extends TrainRendererBase implements IGui {
 	}
 
 	private static class FakeBoat extends Boat {
+
 		private float progress;
 		private final Level level;
 
@@ -254,8 +255,7 @@ public class JonModelTrainRenderer extends TrainRendererBase implements IGui {
 			return progress;
 		}
 
-		@Override
-		public Level level() {
+		public Level getLevel() {
 			return level;
 		}
 	}

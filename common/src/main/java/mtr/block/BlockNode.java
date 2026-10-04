@@ -8,6 +8,7 @@ import mtr.mappings.BlockDirectionalMapper;
 import mtr.mappings.BlockEntityMapper;
 import mtr.mappings.EntityBlockMapper;
 import mtr.mappings.Text;
+import mtr.mappings.Utilities;
 import mtr.packet.PacketTrainDataGuiServer;
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.BlockPos;
@@ -48,7 +49,7 @@ public class BlockNode extends BlockDirectionalMapper {
 	public static final BooleanProperty WATERLOGGED = BlockStateProperties.WATERLOGGED;
 
 	public BlockNode(TransportMode transportMode) {
-		super(BlockBehaviour.Properties.of().strength(2).noOcclusion());
+		super(mtr.mappings.BlockProperties.create().strength(2).noOcclusion());
 		this.transportMode = transportMode;
 		registerDefaultState(defaultBlockState()
 				.setValue(FACING, false)
@@ -81,7 +82,7 @@ public class BlockNode extends BlockDirectionalMapper {
 	public BlockState updateShape(BlockState state, Direction direction, BlockState neighborState,
 								  LevelAccessor world, BlockPos pos, BlockPos neighborPos) {
 		if (state.getValue(WATERLOGGED)) {
-			world.scheduleTick(pos, Fluids.WATER, Fluids.WATER.getTickDelay(world));
+			Utilities.scheduleFluidTick(world, pos, Fluids.WATER, Fluids.WATER.getTickDelay(world));
 		}
 
 		return super.updateShape(state, direction, neighborState, world, pos, neighborPos);
@@ -151,7 +152,7 @@ public class BlockNode extends BlockDirectionalMapper {
 									  LevelAccessor world, BlockPos pos, BlockPos posFrom) {
 			if (state.canSurvive(world, pos)) {
 				if (state.getValue(WATERLOGGED)) {
-					world.scheduleTick(pos, Fluids.WATER, Fluids.WATER.getTickDelay(world));
+					Utilities.scheduleFluidTick(world, pos, Fluids.WATER, Fluids.WATER.getTickDelay(world));
 				}
 				return state;
 			} else {

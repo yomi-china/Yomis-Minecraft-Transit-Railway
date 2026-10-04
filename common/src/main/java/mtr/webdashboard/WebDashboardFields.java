@@ -8,6 +8,9 @@ import mtr.data.Station;
 import net.minecraft.network.FriendlyByteBuf;
 
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.function.Consumer;
@@ -34,10 +37,10 @@ final class WebDashboardFields {
 	}
 
 	/** The fields every {@link NameColorDataBase} accepts, which is every resource in this stage. */
-	private static final List<String> NAME_COLOR_FIELDS = List.of("name", "color");
+	private static final List<String> NAME_COLOR_FIELDS = Arrays.asList("name", "color");
 
 	/** Name, colour and zone: what a station accepts beyond the common pair. */
-	private static final List<String> STATION_FIELDS = List.of("name", "color", "zone");
+	private static final List<String> STATION_FIELDS = Arrays.asList("name", "color", "zone");
 
 	// ---- field parsing ------------------------------------------------------
 
@@ -117,7 +120,8 @@ final class WebDashboardFields {
 		// Unknown fields are refused rather than ignored for now, so a client that spells "color" as "colour"
 		// fails loudly instead of appearing to succeed. This should soften to ignoring once the field set
 		// stops moving.
-		for (final String key : body.keySet()) {
+		for (final java.util.Map.Entry<String, JsonElement> entry : body.entrySet()) {
+			final String key = entry.getKey();
 			if (acceptedFields(kind).stream().noneMatch(key::equals)) {
 				throw new FieldException(key, "not a field of " + kind + "; this build accepts " + String.join(", ", acceptedFields(kind)));
 			}
@@ -167,7 +171,7 @@ final class WebDashboardFields {
 
 	/** @return the object kinds the write API knows about. */
 	static Set<String> knownKinds() {
-		return Set.of("station", "route", "depot");
+		return Collections.unmodifiableSet(new HashSet<>(Arrays.asList("station", "route", "depot")));
 	}
 
 	/** A field was present but unusable. Carries the field name so the response can point at it. */

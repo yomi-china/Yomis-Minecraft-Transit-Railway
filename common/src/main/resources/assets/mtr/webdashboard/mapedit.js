@@ -1,24 +1,14 @@
 /*
- * The map's area-editing state machine. Pure logic: takes a state object and world coordinates,
- * mutates nothing it was not handed, and touches no DOM.
- *
- * Separate from map.js because this is the part the user asked to be written carefully, and because
- * the invariants below are exactly what a test can pin down while the canvas drawing cannot be.
+ * The map's area-editing state machine. Pure logic: no DOM, no canvas.
  *
  * Invariants:
- *
- *   1. draftCorner2 is non-null only when draftCorner1 is non-null. Drawing relies on this to know
- *      whether a drag is in progress.
- *   2. Entering edit mode leaves both draft corners NULL. The object's existing selection is kept
- *      separately in `original`.
- *   3. A draft that was released without moving is discarded, not kept as a one-block selection.
+ *   1. draftCorner2 is non-null only when draftCorner1 is non-null.
+ *   2. Entering edit mode leaves both draft corners null; the object's existing selection is kept in
+ *      `original`. This differs from the game, whose WidgetMap.startEditingArea seeds the draw area from
+ *      the current corners - which would make the first click treat a corner of the existing selection as
+ *      the drag origin and produce a far larger rectangle than intended.
+ *   3. A drag released without moving is discarded, not kept as a one-block selection.
  *   4. Leaving edit mode clears every field.
- *
- * Invariant 2 is where this deliberately differs from the game. WidgetMap.startEditingArea seeds its
- * draw area from the object's current corners, so the first click of a drag would treat a corner of
- * the existing selection as the drag's origin - producing a huge unexpected rectangle when the user
- * meant to start a small one. The existing selection still needs to be visible while editing, so it
- * lives in `original` and is drawn as a faint outline, never used as a drag origin.
  */
 
 /**
@@ -33,10 +23,9 @@ export function createEditState() {
 }
 
 /**
- * Floors a world coordinate to the block containing it.
- *
- * A deliberate copy of mapview.js's `snapToBlock` rather than an import: this module is the edit state
- * machine and is kept free of dependencies so it can be reasoned about and tested on its own.
+ * Floors a world coordinate to the block containing it, as WidgetMap.coordsToWorldPos does. A selection is
+ * a set of blocks - AreaBase.inArea tests block coordinates inclusively - so a fractional corner describes
+ * nothing the mod can act on.
  */
 function snapToBlock(value) {
 	return Number.isFinite(value) ? Math.floor(value) : 0;
@@ -62,9 +51,8 @@ export function hasDraft(edit) {
  *
  * @param {'station'|'depot'} kind
  * @param {string} id
- * @param {{corner1: {x: number, z: number}|null, corner2: {x: number, z: number}|null}} area the
- *        object's current selection, or an object with null corners when it has none.
- * @returns {EditState} a new state. Draft corners are null by invariant 2.
+ * @param {{corner1: WorldPoint|null, corner2: WorldPoint|null}} area the object's current selection.
+ * @returns {EditState} a new state, with null draft corners by invariant 2.
  */
 export function beginEdit(kind, id, area) {
 	const corner1 = area && area.corner1 ? { x: area.corner1.x, z: area.corner1.z } : null;
@@ -72,8 +60,8 @@ export function beginEdit(kind, id, area) {
 	return {
 		kind,
 		id,
-		// Copied, not referenced: the world payload is replaced wholesale when data reloads, and holding a
-		// reference into the old one would keep a stale selection alive on screen.
+		// Copied, not referenced: the world payload is replaced wholesale on reload, and holding a reference
+		// into the old one would keep a stale selection on screen.
 		original: corner1 && corner2 ? { c1: corner1, c2: corner2 } : null,
 		draftCorner1: null,
 		draftCorner2: null,
@@ -81,30 +69,17 @@ export function beginEdit(kind, id, area) {
 	};
 }
 
-/**
- * Leaves edit mode, discarding any draft. Returns a fresh state so callers cannot keep a reference to
- * something half-cleared.
- *
- * @returns {EditState} a state representing "not editing".
- */
+/** @returns {EditState} a fresh "not editing" state, discarding any draft. */
 export function cancelEdit() {
 	return createEditState();
 }
 
 /**
- * Feeds a pointer position into the drag, starting one if none is in progress.
- *
- * The first call anchors the rectangle; later calls move its opposite corner. This is one function
- * rather than a separate "start" and "drag" so a caller cannot start a drag twice and lose the anchor.
- *
- * Both corners are floored to whole blocks as they are recorded, mirroring `WidgetMap.coordsToWorldPos`,
- * which floors every position it converts. A selection is a set of blocks - `AreaBase.inArea` tests block
- * coordinates, inclusively - so a fractional corner cannot describe anything the mod can act on. Storing
- * one also put sixteen digits of noise into the live size readout.
+ * Feeds a pointer position into the drag, starting one if none is in progress. The first call anchors the
+ * rectangle and later calls move its opposite corner; one function rather than separate "start" and "drag"
+ * so a caller cannot start a drag twice and lose the anchor.
  *
  * @param {EditState} edit mutated in place.
- * @param {number} worldX
- * @param {number} worldZ
  */
 export function dragToEdit(edit, worldX, worldZ) {
 	if (!isEditing(edit)) {
@@ -124,9 +99,8 @@ export function dragToEdit(edit, worldX, worldZ) {
 	edit.draftCorner2 = { x: blockX, z: blockZ };
 	edit.hasMoved = true;
 
-	// Matches WidgetMap.mouseDragged, including its `+1`. Because the mod tests areas inclusively, equal
-	// corners already describe a one-block selection - the nudge makes the box one block *wide* on that axis,
-	// which is the game's own convention and is what the size readout counts.
+	// Matches WidgetMap.mouseDragged. Areas are tested inclusively, so equal corners already describe one
+	// block; the nudge makes the box one block *wide* on that axis, which is the game's convention.
 	if (edit.draftCorner1.x === edit.draftCorner2.x) {
 		edit.draftCorner2.x += 1;
 	}
@@ -136,11 +110,7 @@ export function dragToEdit(edit, worldX, worldZ) {
 }
 
 /**
- * Ends the drag.
- *
- * Invariant 3: a release with no movement throws the draft away rather than leaving a one-block
- * selection behind. In the game a stray click always produces a selection, which is tolerable when the
- * user is holding a mouse in-game but not when a misclick on a web page silently redefines a station.
+ * Ends the drag, discarding the draft when nothing moved (invariant 3).
  *
  * @param {EditState} edit mutated in place.
  * @returns {boolean} whether a usable draft remains.
@@ -158,9 +128,8 @@ export function endEditDrag(edit) {
 }
 
 /**
- * The draft rectangle, normalised so min <= max on both axes.
- *
- * @returns {{minX: number, minZ: number, maxX: number, maxZ: number}|null} null when there is no draft.
+ * @returns {{minX: number, minZ: number, maxX: number, maxZ: number}|null} the draft rectangle, normalised
+ *          so min <= max on both axes, or null when there is no draft.
  */
 export function getDraftBounds(edit) {
 	if (edit == null || edit.draftCorner1 == null || edit.draftCorner2 == null) {
@@ -175,13 +144,8 @@ export function getDraftBounds(edit) {
 }
 
 /**
- * Keeps the dragged corner and swaps the other two.
- *
- * The game stores the selection as whichever two corners the user happened to drag, and their order is
- * what gets saved. Nothing downstream depends on the order - the server stores both corners and every
- * containment test normalises - so this is presentational only, and the UI will warn that the selection
- * must not be no larger than the station. It exists so that the two corners can be chosen deliberately
- * rather than by accident of drag direction.
+ * Swaps which corner of the draft is the anchor, keeping the same rectangle. Presentational only: nothing
+ * downstream depends on corner order.
  *
  * @returns {EditState} a new state with the corners rotated, or the input when there is no draft.
  */

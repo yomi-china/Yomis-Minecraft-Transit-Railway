@@ -45,7 +45,7 @@ public class BlockPSDTop extends BlockDirectionalMapper implements EntityBlockMa
 	public static final EnumProperty<EnumPersistent> PERSISTENT = EnumProperty.create("persistent", EnumPersistent.class);
 
 	public BlockPSDTop() {
-		super(Properties.of().requiresCorrectToolForDrops().strength(2).noOcclusion());
+		super(mtr.mappings.BlockProperties.create().requiresCorrectToolForDrops().strength(2).noOcclusion());
 	}
 
 	@Override

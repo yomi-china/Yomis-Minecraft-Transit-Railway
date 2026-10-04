@@ -124,7 +124,7 @@ public final class WebDashboardEdits {
 			throw new EditFailure(503, "web_editor_offline", "The account that signed in is no longer in the game, so this change cannot be recorded");
 		}
 
-		final Level world = editor.level();
+		final Level world = editor.level;
 		final RailwayData railwayData = RailwayData.getInstance(world);
 		if (railwayData == null) {
 			throw new EditFailure(503, "no_server", "This world has no railway data loaded");
@@ -201,7 +201,8 @@ public final class WebDashboardEdits {
 		json.addProperty("name", object.name);
 		json.addProperty("color", object.color);
 		json.addProperty("transportMode", object.transportMode.toString());
-		if (object instanceof Station station) {
+		if (object instanceof Station) {
+			final Station station = (Station) object;
 			json.addProperty("zone", station.zone);
 			final boolean hasArea = station.corner1 != null && station.corner2 != null;
 			json.addProperty("hasArea", hasArea);
@@ -218,7 +219,8 @@ public final class WebDashboardEdits {
 		lines.add("id: " + object.id);
 		lines.add("name: " + object.name);
 		lines.add("color: " + object.color);
-		if (object instanceof Station station) {
+		if (object instanceof Station) {
+			final Station station = (Station) object;
 			lines.add("zone: " + station.zone);
 		}
 		return lines;

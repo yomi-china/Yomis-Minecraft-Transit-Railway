@@ -1,36 +1,25 @@
 /*
  * Pure geometry for the dashboard map. No DOM, no canvas, no state.
  *
- * Split out from map.js so the part most likely to be subtly wrong - the world/screen transform and
- * the thresholds that decide what is visible - can be asserted in Node without a browser, alongside
- * the existing list tests. See docs/web-dashboard/dev/test-map.mjs.
- *
- * The transform is copied from the game's WidgetMap, where it is written out explicitly:
+ * The transform is the game's WidgetMap transform:
  *
  *     screenX = (worldX - centerX) * scale + width  / 2
  *     screenZ = (worldZ - centerZ) * scale + height / 2
- *     worldX  = (screenX - width  / 2) / scale + centerX
- *     worldZ  = (screenZ - height / 2) / scale + centerZ
  *
- * World X maps to screen X and world Z to screen Y. There is no rotation and no Y (height) anywhere:
- * the game's map is a flat top-down view, and matching that is the whole point.
+ * World X maps to screen X and world Z to screen Y; there is no rotation and no Y (height) anywhere, the
+ * game's map being a flat top-down view.
  */
 
-/*
- * Zoom range.
- *
- * Deliberately NOT the game's 1/128 .. 64. The browser viewport is far larger than the game's map
- * panel, and shedding the Minecraft UI's limits is the reason this dashboard exists at all. These are
- * the dashboard's own choice, so they are exported as named constants rather than hard-coded in tests.
- */
+/* Zoom range. Deliberately wider than the game's 1/128 .. 64: a browser viewport is far larger than the
+ * game's map panel, so the Minecraft UI's limits do not apply. */
 export const MIN_SCALE = 1 / 2048;
 export const MAX_SCALE = 256;
 
-/** Matches the game's initial scale: one pixel per block. */
+/** The game's initial scale: one pixel per block. */
 export const DEFAULT_SCALE = 1;
 
-/* Rendering constants that DO mirror the game, so the two look alike.
- * Hard-coded on purpose: if the game changes one, the map test should fail and prompt a review. */
+/* Rendering constants that mirror the game so the two look alike. Hard-coded deliberately: if the game
+ * changes one, test-map.mjs fails and prompts a review. */
 
 /** WidgetMap.OUTLINE_BASE_WORLD_WIDTH - outline width in world units, scaled by zoom. */
 export const OUTLINE_BASE_WORLD_WIDTH = 0.9;
@@ -56,8 +45,6 @@ export const COLOR_SAVED_RAIL = 0xFFFFFFFF;
 export const COLOR_PLAYER_MARKER = 0xFF4285F4;
 
 /**
- * A view is everything needed to turn world coordinates into screen coordinates.
- *
  * @typedef {{centerX: number, centerZ: number, scale: number, width: number, height: number}} View
  */
 
@@ -74,9 +61,7 @@ export function clampScale(scale) {
 	return Math.min(MAX_SCALE, Math.max(MIN_SCALE, scale));
 }
 
-/**
- * @returns {{x: number, z: number}} the world position under a screen point.
- */
+/** @returns {{x: number, z: number}} the world position under a screen point. */
 export function screenToWorld(view, screenX, screenY) {
 	return {
 		x: (screenX - view.width / 2) / view.scale + view.centerX,
@@ -84,9 +69,7 @@ export function screenToWorld(view, screenX, screenY) {
 	};
 }
 
-/**
- * @returns {{x: number, y: number}} the screen position of a world position.
- */
+/** @returns {{x: number, y: number}} the screen position of a world position. */
 export function worldToScreen(view, worldX, worldZ) {
 	return {
 		x: (worldX - view.centerX) * view.scale + view.width / 2,
@@ -95,22 +78,16 @@ export function worldToScreen(view, worldX, worldZ) {
 }
 
 /**
- * Zooms while keeping the world point under the cursor pinned, then re-clamps the scale about that
- * same point.
+ * @returns {View} a new view zoomed about a screen point, keeping the world point under it pinned.
  *
- * Re-clamping matters: clamping first and anchoring afterwards would slide the map when the zoom hits
- * a limit, because the anchor would no longer correspond to the edge of the range.
- *
- * @returns {View} a new view; the input is not modified.
+ * The scale is clamped about that same point, not before anchoring: clamping first would slide the map
+ * whenever the zoom hits a limit.
  */
 export function zoomAt(view, anchorScreenX, anchorScreenY, factor) {
 	return zoomToAt(view, anchorScreenX, anchorScreenY, view.scale * factor);
 }
 
-/**
- * @returns {View} a new view with the given scale, keeping {@code (anchorScreenX, anchorScreenY)} over
- *         the same world point.
- */
+/** @returns {View} a new view at the given scale, keeping the anchor over the same world point. */
 export function zoomToAt(view, anchorScreenX, anchorScreenY, targetScale) {
 	const before = screenToWorld(view, anchorScreenX, anchorScreenY);
 	const scale = clampScale(targetScale);
@@ -138,8 +115,8 @@ export function centerOn(view, worldX, worldZ) {
 }
 
 /**
- * Frames a world-space box, leaving a margin. The game has no equivalent - its "find" only recentres
- * and raises the scale to a minimum, which leaves an area larger than the view still clipped.
+ * Frames a world-space box, leaving a margin. The game's "find" only recentres and raises the scale to a
+ * minimum, which leaves an area larger than the view still clipped.
  *
  * @param {number} paddingPx margin kept on each side.
  * @returns {View} a view showing the whole box, or the input unchanged when the box is degenerate.
@@ -151,7 +128,7 @@ export function fitBounds(view, minX, minZ, maxX, maxZ, paddingPx = 32) {
 
 	const usableWidth = Math.max(1, view.width - paddingPx * 2);
 	const usableHeight = Math.max(1, view.height - paddingPx * 2);
-	// A zero-width or zero-height selection would divide by zero, so the span is floored at one block.
+	// Floored at one block: a zero-width selection would divide by zero.
 	const spanX = Math.max(1, maxX - minX);
 	const spanZ = Math.max(1, maxZ - minZ);
 
@@ -176,14 +153,12 @@ export function isAnimationComplete(startMillis, nowMillis) {
 }
 
 /**
- * Interpolates a view during a zoom animation.
- *
- * Only the scale is eased; the centre is solved from the anchor so the point under the cursor stays
- * put throughout, which is what the game does when it recomputes the centre each frame.
+ * Interpolates a view during a zoom animation. Only the scale is eased; the centre is solved from the
+ * anchor so the point under the cursor stays put, as the game does when it recomputes the centre per frame.
  */
 export function interpolateZoom(fromView, toScale, anchorScreenX, anchorScreenY, progress) {
 	const scale = fromView.scale + (toScale - fromView.scale) * easeOutCubic(progress);
-	// Solved against the ORIGINAL view, so repeated frames do not compound a rounding drift.
+	// Solved against the original view, so repeated frames do not compound a rounding drift.
 	const anchor = screenToWorld(fromView, anchorScreenX, anchorScreenY);
 	return {
 		centerX: anchor.x - (anchorScreenX - fromView.width / 2) / scale,
@@ -197,9 +172,8 @@ export function interpolateZoom(fromView, toScale, anchorScreenX, anchorScreenY,
 // ---- what to draw -------------------------------------------------------
 
 /**
- * @returns {{minX: number, minZ: number, maxX: number, maxZ: number}} the world rectangle the view
- *         currently covers, optionally grown by a margin in screen pixels so partially visible shapes
- *         are not skipped.
+ * @returns {{minX: number, minZ: number, maxX: number, maxZ: number}} the world rectangle the view covers,
+ *          grown by a margin in screen pixels so partially visible shapes are not skipped.
  */
 export function visibleWorldBounds(view, marginPx = 0) {
 	const topLeft = screenToWorld(view, -marginPx, -marginPx);
@@ -213,11 +187,9 @@ export function isAreaVisible(bounds, minX, minZ, maxX, maxZ) {
 }
 
 /**
- * Outline width in world units.
- *
- * Mirrors WidgetMap.drawOutlineFromWorldCoords: start from a fixed world width scaled by zoom, clamp
- * that to a screen-pixel band, then refuse to let the outline exceed a share of the area's shorter
- * side so a tiny selection does not become a solid block of colour.
+ * Outline width in world units. Mirrors WidgetMap.drawOutlineFromWorldCoords: a fixed world width scaled by
+ * zoom, clamped to a screen-pixel band, then refused if it exceeds a share of the area's shorter side (so a
+ * tiny selection does not become a solid block of colour).
  */
 export function outlineWorldWidth(scale, spanX, spanZ) {
 	let screenWidth = OUTLINE_BASE_WORLD_WIDTH * scale;
@@ -232,9 +204,8 @@ export function outlineWorldWidth(scale, spanX, spanZ) {
 }
 
 /**
- * Whether an area is big enough on screen to justify drawing its name. Mirrors
- * WidgetMap.canDrawAreaText: the threshold depends on the area's own size, so a large station labels
- * itself sooner than a small one.
+ * Whether an area is big enough on screen to justify drawing its name. Mirrors WidgetMap.canDrawAreaText:
+ * the threshold depends on the area's own size, so a large station labels itself sooner than a small one.
  */
 export function shouldDrawAreaLabel(scale, spanX, spanZ) {
 	const longest = Math.max(Math.abs(spanX), Math.abs(spanZ));
@@ -250,13 +221,10 @@ export function shouldDrawSavedRailLabel(scale) {
 }
 
 /**
- * Splits one block into one slot per saved rail sitting on it.
+ * Splits one block into one slot per saved rail sitting on it, mirroring WidgetMap.mouseOnSavedRail: several
+ * platforms or sidings sharing a block are stacked along Z in equal slices. The same slicing is used for
+ * drawing and for hit testing, so the two cannot disagree about which rail is where.
  *
- * Mirrors WidgetMap.mouseOnSavedRail, where several platforms or sidings sharing a block are stacked
- * along Z in equal slices. A web map cannot simply draw them on top of each other - the count would be
- * invisible - so the same slicing is used for drawing as for hit testing.
- *
- * @param {number} count how many saved rails share the block.
  * @returns {Array<{zFrom: number, zTo: number}>} offsets within the block, in block units.
  */
 export function savedRailSlots(count) {
@@ -271,14 +239,11 @@ export function savedRailSlots(count) {
 }
 
 /**
- * Finds which saved rail a world point hits, replicating the game's test exactly.
- *
- * X is left-closed and right-open; Z is tested against the per-slot boundaries. That asymmetry is the
- * game's, not an oversight here: two adjacent blocks should not both claim the point between them.
+ * Finds which saved rail a world point hits, replicating the game's test. X is left-closed and right-open,
+ * Z is tested against the per-slot boundaries; the asymmetry is the game's, so two adjacent blocks cannot
+ * both claim the point between them.
  *
  * @param {Array<{pos: {x: number, z: number}, items: Array}>} groups saved rails grouped by block.
- * @param {number} worldX
- * @param {number} worldZ
  * @returns {{item: any, group: any, slot: {zFrom: number, zTo: number}}|null}
  */
 export function hitTestSavedRails(groups, worldX, worldZ) {
@@ -311,10 +276,7 @@ export function hitTestSavedRails(groups, worldX, worldZ) {
 /**
  * Converts the game's ARGB integer to a CSS rgba() string.
  *
- * Written out rather than inlined because the alpha values are easy to get wrong by hand: the game's
- * ARGB_BLACK_MORE_TRANSLUCENT is 0x40000000, and 0x40 is 64, giving alpha 64/255 = 0.251.
- *
- * @param {number} argb a 32-bit ARGB value. A value with no alpha byte is treated as opaque.
+ * @param {number} argb a 32-bit ARGB value.
  * @returns {string} e.g. "rgba(0, 0, 0, 0.251)".
  */
 export function argbToRgba(argb) {
@@ -324,10 +286,8 @@ export function argbToRgba(argb) {
 }
 
 /**
- * A route or station colour is a plain 24-bit RGB with no alpha. Zero means "never set", which would
- * draw an invisible black shape, so callers render it as an outlined empty swatch instead.
- *
- * @returns {string} e.g. "#1e88e5", or null when there is no colour.
+ * @returns {string|null} a 24-bit RGB as "#rrggbb". Null for 0, which means "never set" - drawing it would
+ *          produce an invisible black shape, so callers show an outlined empty swatch instead.
  */
 export function rgbToCss(rgb) {
 	if (!Number.isFinite(rgb) || rgb === 0) {
@@ -340,16 +300,12 @@ export function rgbToCss(rgb) {
 export const FLY_DURATION_MS = 420;
 
 /**
- * Interpolates between two arbitrary views, for flying the map to an object when the user asks to
- * edit it.
+ * Interpolates between two arbitrary views, for flying the map to an object.
  *
- * Not the same as {@link interpolateZoom}: that one holds a world point fixed under a fixed screen
- * point, which is right for a wheel step but cannot express "go over there".
- *
- * The scale uses <b>geometric</b> interpolation rather than linear. Perceived zoom is logarithmic -
- * 1x to 2x looks like the same change as 100x to 200x - so a linear ramp from 1 to 8 sits at 4.5
- * halfway through, which reads as "barely moved, then suddenly enormous". The geometric midpoint is
- * sqrt(8) ~ 2.83, which reads as a constant rate of zooming.
+ * Unlike {@link interpolateZoom}, which holds a world point fixed under a fixed screen point, this moves the
+ * centre freely. The scale is interpolated <b>geometrically</b>: perceived zoom is logarithmic, so a linear
+ * ramp from 1x to 8x sits at 4.5 halfway through and reads as "barely moved, then suddenly enormous",
+ * whereas the geometric midpoint of sqrt(8) reads as a constant rate.
  */
 export function interpolateView(fromView, toView, progress) {
 	const eased = easeOutCubic(progress);
@@ -367,11 +323,9 @@ export function interpolateView(fromView, toView, progress) {
 // ---- grid ---------------------------------------------------------------
 
 /**
- * Lowest zoom at which the reference grid is drawn.
- *
- * Not just a legibility choice: the number of grid lines on screen is `viewport / (spacing * scale)`,
- * so a low enough scale draws thousands of lines and stalls the frame. At this scale the spacing
- * already snaps to 1024 blocks, which keeps a wide viewport to a couple of dozen lines.
+ * Lowest zoom at which the reference grid is drawn. The line count is `viewport / (spacing * scale)`, so a
+ * low enough scale draws thousands of lines and stalls the frame; above this threshold the spacing has
+ * already snapped to 1024 blocks, keeping a wide viewport to a couple of dozen lines.
  */
 export const GRID_MIN_SCALE = 0.05;
 
@@ -379,14 +333,12 @@ export const GRID_MIN_SCALE = 0.05;
 const GRID_TARGET_PX = 48;
 
 /**
- * Spacing of the reference grid, in blocks.
+ * Spacing of the reference grid, in blocks. A scale reference only, since no terrain is drawn, so it is
+ * chosen to stay legible rather than to mean anything: the candidates are block counts a player thinks in.
+ * Taking the first at or above the target spacing makes the value change rarely as the user zooms, which is
+ * what stops the grid shimmering.
  *
- * Only a scale reference - the dashboard draws no terrain - so the spacing is chosen to stay legible
- * rather than to mean anything. The candidate list is the set of block counts a player thinks in:
- * chunks and round numbers. Picking the first candidate at or above the target spacing makes the value
- * change rarely as the user zooms, which is what stops the grid from shimmering.
- *
- * @returns {number} block spacing, or 0 when the grid should not be drawn at all.
+ * @returns {number} block spacing, or 0 when the grid should not be drawn.
  */
 export function gridSpacing(scale) {
 	if (!Number.isFinite(scale) || scale < GRID_MIN_SCALE) {
@@ -405,12 +357,9 @@ export function gridSpacing(scale) {
 // ---- sanity limits ------------------------------------------------------
 
 /**
- * Largest world coordinate Minecraft itself accepts on the horizontal axes.
- *
- * Anything beyond this cannot come from a legitimate build, and the dashboard has to say so rather than
- * draw it: a station selection carrying `x = 29999945` is corrupt, and letting it into a bounding box
- * pushes the whole map to a scale of ~0.0005, where every real selection collapses into a single pixel.
- * That is exactly what "fit everything" appeared to do.
+ * Largest horizontal world coordinate Minecraft accepts. Anything beyond it cannot come from a legitimate
+ * build, and letting such a value into a bounding box pushes the whole map to a scale of ~0.0005 where every
+ * real selection collapses into a single pixel.
  */
 export const MAX_WORLD_COORDINATE = 30000000;
 
@@ -430,9 +379,8 @@ export function isSaneHeight(value) {
 /**
  * @returns {boolean} whether both corners of an area are usable.
  *
- * A corrupt corner is treated as "no selection" rather than clamped. Clamping would invent a selection
- * the player never drew, which is worse than drawing nothing - and the corruption is reported to the
- * console separately so it is not silent.
+ * A corrupt corner is treated as "no selection" rather than clamped: clamping would invent a selection the
+ * player never drew, which is worse than drawing nothing.
  */
 export function isSaneArea(corner1, corner2) {
 	if (!corner1 || !corner2) {
@@ -452,12 +400,9 @@ export function isSanePoint(x, z) {
 /**
  * Snaps a world rectangle to whole device pixels.
  *
- * Without this, adjacent blocks each round independently and a one-pixel seam appears between them -
- * a gap that reads as a grid line and is not in the original. Rounding the near edge down and the far
- * edge up also guarantees a visible sliver for a shape thinner than a pixel, which is what you want
- * when zoomed far out.
- *
- * @returns {{x: number, y: number, width: number, height: number}} device-pixel aligned.
+ * Adjacent blocks would otherwise round independently and leave a one-pixel seam that reads as a grid line,
+ * and rounding the near edge down and the far edge up guarantees a visible sliver for a shape thinner than a
+ * pixel - which is the useful behaviour when zoomed far out.
  */
 export function snapRect(x1, y1, x2, y2) {
 	const left = Math.round(Math.min(x1, x2));
@@ -474,15 +419,12 @@ export function round(value, decimals) {
 }
 
 /**
- * Snaps a world coordinate down to the block that contains it.
+ * Snaps a world coordinate down to the block containing it.
  *
- * A selection is a set of blocks, not a pair of arbitrary points, and every containment test in the mod
- * treats it that way: {@code AreaBase.inArea} compares block coordinates, and a platform's midpoint is a
- * {@code BlockPos}. So a corner of (80.93, 23.4) means exactly the same selection as (80, 23).
- *
- * Floors rather than rounds: the block the cursor is inside is the block the user pointed at, and rounding
- * would make a click just past a block boundary select the next one along. The game has the same floors on
- * its own conversion, which is what makes the two agree on which blocks a selection covers.
+ * A selection is a set of blocks, not a pair of points: AreaBase.inArea compares block coordinates and a
+ * platform's midpoint is a BlockPos, so a corner of (80.93, 23.4) means the same selection as (80, 23).
+ * Floors rather than rounds, because the block the cursor is inside is the block the user pointed at - this
+ * is also what the game's own conversion does, which is what makes the two agree.
  */
 export function snapToBlock(value) {
 	return Number.isFinite(value) ? Math.floor(value) : 0;
@@ -491,11 +433,8 @@ export function snapToBlock(value) {
 /**
  * Floors both corners of a selection to block boundaries and orders them low to high.
  *
- * No minimum size is imposed here. `mapedit.dragToEdit` already applies the game's own rule while the drag
- * is in progress (widening an axis whose corners coincide), so applying a second one at the end would report
- * a selection one block larger than the one the user watched being drawn.
- *
- * @returns {{corner1: {x: number, z: number}, corner2: {x: number, z: number}}} ordered low to high.
+ * No minimum size is imposed: mapedit.dragToEdit already applies the game's rule during the drag, so a
+ * second one here would report a selection one block larger than the one the user watched being drawn.
  */
 export function snapAreaCorners(corner1, corner2) {
 	const x1 = snapToBlock(corner1.x);
@@ -517,13 +456,9 @@ export const AREA_CORNER_RADIUS_PX = 4;
 export const SAVED_RAIL_CORNER_RADIUS_PX = 3;
 
 /**
- * Corner radius that will actually be used, never more than half the shorter side.
- *
- * A radius larger than half the side makes `roundRect` produce a lens or a pill rather than a rounded
- * rectangle, which at low zoom - where a block is a couple of pixels - looks like a smudge. Clamping
- * keeps the shape readable at every zoom.
- *
- * @returns {number} a radius in the same units as width and height.
+ * Corner radius that will actually be used, never more than half the shorter side. A larger radius makes
+ * roundRect produce a lens or a pill rather than a rounded rectangle, which at low zoom - where a block is a
+ * couple of pixels - looks like a smudge.
  */
 export function clampCornerRadius(radius, width, height) {
 	const limit = Math.min(Math.abs(width), Math.abs(height)) / 2;

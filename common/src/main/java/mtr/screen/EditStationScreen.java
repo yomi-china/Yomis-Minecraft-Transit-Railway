@@ -10,7 +10,7 @@ import mtr.mappings.Text;
 import mtr.mappings.UtilitiesClient;
 import mtr.packet.PacketTrainDataGuiClient;
 import net.minecraft.Util;
-import net.minecraft.client.gui.GuiGraphics;
+import mtr.mappings.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.network.chat.Component;
 
@@ -85,8 +85,8 @@ public class EditStationScreen extends EditNameColorScreenBase<Station> {
         setPositionsAndInit(0, width / 2, width / 4 * 3);
 
         final int yFields = HEADER_H + 20;
-        textFieldName.setY(yFields);
-        colorSelector.setY(yFields);
+        UtilitiesClient.setWidgetY(textFieldName, yFields);
+        UtilitiesClient.setWidgetY(colorSelector, yFields);
 
         final int zoneX = width / 4 * 3 + TEXT_FIELD_PADDING / 2;
         final int zoneW = width / 4 - TEXT_FIELD_PADDING;

@@ -6,7 +6,7 @@ import mtr.mappings.ScreenMapper;
 import mtr.mappings.Text;
 import mtr.mappings.UtilitiesClient;
 import mtr.screen.RailDataEditorClient.RailInfo;
-import net.minecraft.client.gui.GuiGraphics;
+import mtr.mappings.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.util.Mth;
 
@@ -216,13 +216,13 @@ public class RailDataEditorScreen extends ScreenMapper {
 
 		for (int i = 0; i < entries.size(); i++) {
 			final WidgetBetterTextField nameField = nameFields.get(i);
-			if (nameField.visible) nameField.render(guiGraphics, mouseX, mouseY, delta);
+			if (nameField.visible) guiGraphics.renderWidget(nameField, mouseX, mouseY, delta);
 			final Button typeButton = typeButtons.get(i);
-			if (typeButton.visible) typeButton.render(guiGraphics, mouseX, mouseY, delta);
+			if (typeButton.visible) guiGraphics.renderWidget(typeButton, mouseX, mouseY, delta);
 			final WidgetBetterTextField valueField = valueFields.get(i);
-			if (valueField.visible) valueField.render(guiGraphics, mouseX, mouseY, delta);
+			if (valueField.visible) guiGraphics.renderWidget(valueField, mouseX, mouseY, delta);
 			final Button deleteButton = deleteButtons.get(i);
-			if (deleteButton.visible) deleteButton.render(guiGraphics, mouseX, mouseY, delta);
+			if (deleteButton.visible) guiGraphics.renderWidget(deleteButton, mouseX, mouseY, delta);
 		}
 
 		if (maxScroll > 0) {
@@ -235,11 +235,11 @@ public class RailDataEditorScreen extends ScreenMapper {
 
 		guiGraphics.drawString(font, Text.translatable(getHintKey()).getString(), panelX + 12, panelY + panelHeight - 12, 0xFF808080);
 
-		buttonPrevRail.render(guiGraphics, mouseX, mouseY, delta);
-		buttonNextRail.render(guiGraphics, mouseX, mouseY, delta);
-		buttonAdd.render(guiGraphics, mouseX, mouseY, delta);
-		buttonSave.render(guiGraphics, mouseX, mouseY, delta);
-		buttonClose.render(guiGraphics, mouseX, mouseY, delta);
+		guiGraphics.renderWidget(buttonPrevRail, mouseX, mouseY, delta);
+		guiGraphics.renderWidget(buttonNextRail, mouseX, mouseY, delta);
+		guiGraphics.renderWidget(buttonAdd, mouseX, mouseY, delta);
+		guiGraphics.renderWidget(buttonSave, mouseX, mouseY, delta);
+		guiGraphics.renderWidget(buttonClose, mouseX, mouseY, delta);
 
 		guiGraphics.pose().popPose();
 	}
@@ -401,26 +401,26 @@ public class RailDataEditorScreen extends ScreenMapper {
 
 			final WidgetBetterTextField nameField = nameFields.get(i);
 			nameField.setVisible(visible);
-			nameField.setX(listX + 24);
-			nameField.setY(y);
+			UtilitiesClient.setWidgetX(nameField, listX + 24);
+			UtilitiesClient.setWidgetY(nameField, y);
 			nameField.setWidth(96);
 
 			final Button typeButton = typeButtons.get(i);
 			typeButton.visible = visible;
-			typeButton.setX(listX + 124);
-			typeButton.setY(y);
+			UtilitiesClient.setWidgetX(typeButton, listX + 124);
+			UtilitiesClient.setWidgetY(typeButton, y);
 			typeButton.setWidth(56);
 
 			final WidgetBetterTextField valueField = valueFields.get(i);
 			valueField.setVisible(visible);
-			valueField.setX(listX + 184);
-			valueField.setY(y);
+			UtilitiesClient.setWidgetX(valueField, listX + 184);
+			UtilitiesClient.setWidgetY(valueField, y);
 			valueField.setWidth(listWidth - 184 - 2);
 
 			final Button deleteButton = deleteButtons.get(i);
 			deleteButton.visible = visible;
-			deleteButton.setX(listX + 2);
-			deleteButton.setY(y);
+			UtilitiesClient.setWidgetX(deleteButton, listX + 2);
+			UtilitiesClient.setWidgetY(deleteButton, y);
 			deleteButton.setWidth(18);
 		}
 	}

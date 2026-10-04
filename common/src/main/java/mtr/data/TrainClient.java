@@ -505,11 +505,11 @@ public class TrainClient extends Train implements IGui {
 		final String devColor = absDev <= 0.5 ? "§a" : absDev <= 2.0 ? "§e" : "§c";
 		final String timeColor = actualSeconds <= refSeconds * 1.5 ? "§a" : actualSeconds <= refSeconds * 2.5 ? "§e" : "§c";
 
-		final Component message = Component.translatable("gui.mtr.stopping_score",
-				Component.literal(scoreColor + fmt(totalScore, 1) + "§f/100"),
-				Component.literal(devColor + fmt(absDev, 1) + "m§7(" + fmt(distanceScore, 1) + "/60)"),
-				Component.literal(timeColor + fmt(actualSeconds, 2) + "s§7(" + fmt(timeScore, 1) + "/40)"),
-				brakePenalty > 0 ? Component.literal(" §c-" + brakePenalty + " B" + (-scoringBrakeNotchMin)) : Component.literal("")
+		final Component message = mtr.mappings.Text.translatable("gui.mtr.stopping_score",
+				mtr.mappings.Text.literal(scoreColor + fmt(totalScore, 1) + "§f/100"),
+				mtr.mappings.Text.literal(devColor + fmt(absDev, 1) + "m§7(" + fmt(distanceScore, 1) + "/60)"),
+				mtr.mappings.Text.literal(timeColor + fmt(actualSeconds, 2) + "s§7(" + fmt(timeScore, 1) + "/40)"),
+				brakePenalty > 0 ? mtr.mappings.Text.literal(" §c-" + brakePenalty + " B" + (-scoringBrakeNotchMin)) : mtr.mappings.Text.literal("")
 		);
 
 		final Minecraft client = Minecraft.getInstance();

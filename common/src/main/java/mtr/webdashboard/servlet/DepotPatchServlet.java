@@ -1,4 +1,4 @@
-﻿package mtr.webdashboard.servlet;
+package mtr.webdashboard.servlet;
 
 import mtr.packet.IPacket;
 import net.minecraft.resources.ResourceLocation;

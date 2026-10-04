@@ -119,7 +119,7 @@ public final class WebDashboardCommands {
 	 */
 	private static boolean mayAdministrate(CommandSourceStack source) {
 		// No player means the console (or a command block): always allowed.
-		final ServerPlayer player = source.getPlayer();
+		final ServerPlayer player = source.getEntity() instanceof ServerPlayer ? (ServerPlayer) source.getEntity() : null;
 		if (player == null) {
 			return true;
 		}
@@ -157,29 +157,29 @@ public final class WebDashboardCommands {
 				return 0;
 			}
 
-			source.sendSuccess(() -> Text.translatable("gui.mtr.web_dashboard_command_reset", target.displayName), true);
+			source.sendSuccess(Text.translatable("gui.mtr.web_dashboard_command_reset", target.displayName), true);
 			warnIfNobodyCanEdit(source);
 			return 1;
 		}
 
 		WebDashboardPermissions.setPermission(target.uuid, granted, target.onlineName);
-		source.sendSuccess(() -> Text.translatable(granted ? "gui.mtr.web_dashboard_command_granted" : "gui.mtr.web_dashboard_command_revoked", target.displayName), true);
+		source.sendSuccess(Text.translatable(granted ? "gui.mtr.web_dashboard_command_granted" : "gui.mtr.web_dashboard_command_revoked", target.displayName), true);
 
 		// Told explicitly, because the same command means something different for an offline player on a
 		// server that later turns on authentication.
 		if (!target.online) {
-			source.sendSuccess(() -> Text.translatable("gui.mtr.web_dashboard_command_offline_note", target.displayName), false);
+			source.sendSuccess(Text.translatable("gui.mtr.web_dashboard_command_offline_note", target.displayName), false);
 		}
 
 		if (!granted) {
 			// Sign them out now rather than letting their open tab keep working until its next request.
 			final int endedSessions = WebDashboardTokenStore.revokePlayer(target.uuid);
 			if (endedSessions > 0) {
-				source.sendSuccess(() -> Text.translatable("gui.mtr.web_dashboard_command_sessions_ended", endedSessions), false);
+				source.sendSuccess(Text.translatable("gui.mtr.web_dashboard_command_sessions_ended", endedSessions), false);
 			}
 			warnIfNobodyCanEdit(source);
 		} else if (target.online) {
-			source.sendSuccess(() -> Text.translatable("gui.mtr.web_dashboard_command_tells_player"), false);
+			source.sendSuccess(Text.translatable("gui.mtr.web_dashboard_command_tells_player"), false);
 		}
 
 		return 1;
@@ -195,25 +195,25 @@ public final class WebDashboardCommands {
 		final boolean lanAccess = WebDashboardSettings.get().isAllowLanAccess();
 
 		// status is readable by anyone, so it reports service facts only - no player names, no UUIDs.
-		source.sendSuccess(() -> Text.translatable("gui.mtr.web_dashboard_status_header"), false);
+		source.sendSuccess(Text.translatable("gui.mtr.web_dashboard_status_header"), false);
 		// The state words are translated separately and appended, rather than passed into the sentence
 		// as an argument: a translation key with no placeholder reads as dead code and some tooling
 		// flags it. Vanilla composes its list output the same way.
-		source.sendSuccess(() -> Text.translatable("gui.mtr.web_dashboard_status_service", port)
+		source.sendSuccess(Text.translatable("gui.mtr.web_dashboard_status_service", port)
 				.append(Text.translatable(running ? "gui.mtr.web_dashboard_state_listening" : "gui.mtr.web_dashboard_state_not_listening")), false);
-		source.sendSuccess(() -> Text.translatable("gui.mtr.web_dashboard_status_bind", WebDashboardSettings.get().getBindHost())
+		source.sendSuccess(Text.translatable("gui.mtr.web_dashboard_status_bind", WebDashboardSettings.get().getBindHost())
 				.append(Text.translatable(lanAccess ? "gui.mtr.web_dashboard_state_on" : "gui.mtr.web_dashboard_state_off")), false);
-		source.sendSuccess(() -> Text.translatable("gui.mtr.web_dashboard_status_access", WebDashboardPermissions.describeTable(), WebDashboardPermissions.REQUIRED_OP_LEVEL), false);
-		source.sendSuccess(() -> Text.translatable("gui.mtr.web_dashboard_status_signins", WebDashboardTokenStore.getSessionCount(), WebDashboardTokenStore.getPendingLoginTokenCount()), false);
-		source.sendSuccess(() -> Text.translatable("gui.mtr.web_dashboard_status_tokens", WebDashboardSettings.get().getLoginTokenTtlSeconds(), WebDashboardSettings.get().getSessionTtlHours()), false);
-		source.sendSuccess(() -> Text.translatable("gui.mtr.web_dashboard_status_target", WebDashboardServer.getUrl()), false);
+		source.sendSuccess(Text.translatable("gui.mtr.web_dashboard_status_access", WebDashboardPermissions.describeTable(), WebDashboardPermissions.REQUIRED_OP_LEVEL), false);
+		source.sendSuccess(Text.translatable("gui.mtr.web_dashboard_status_signins", WebDashboardTokenStore.getSessionCount(), WebDashboardTokenStore.getPendingLoginTokenCount()), false);
+		source.sendSuccess(Text.translatable("gui.mtr.web_dashboard_status_tokens", WebDashboardSettings.get().getLoginTokenTtlSeconds(), WebDashboardSettings.get().getSessionTtlHours()), false);
+		source.sendSuccess(Text.translatable("gui.mtr.web_dashboard_status_target", WebDashboardServer.getUrl()), false);
 		if (server != null) {
-			source.sendSuccess(() -> Text.translatable("gui.mtr.web_dashboard_status_players", server.getPlayerList().getPlayerCount()), false);
+			source.sendSuccess(Text.translatable("gui.mtr.web_dashboard_status_players", server.getPlayerList().getPlayerCount()), false);
 		}
 
 		if (lanAccess) {
 			// Worth repeating here: this is the setting that puts sign-in tokens on the wire in clear text.
-			source.sendSuccess(() -> Text.translatable("gui.mtr.web_dashboard_status_lan_warning"), false);
+			source.sendSuccess(Text.translatable("gui.mtr.web_dashboard_status_lan_warning"), false);
 		}
 		return 1;
 	}
@@ -227,10 +227,10 @@ public final class WebDashboardCommands {
 		}
 		final List<PermissionEntryView> entries = WebDashboardSettings.get().listPermissionEntries();
 
-		source.sendSuccess(() -> Text.translatable("gui.mtr.web_dashboard_list_header", WebDashboardPermissions.describeTable()), false);
+		source.sendSuccess(Text.translatable("gui.mtr.web_dashboard_list_header", WebDashboardPermissions.describeTable()), false);
 
 		if (entries.isEmpty()) {
-			source.sendSuccess(() -> Text.translatable("gui.mtr.web_dashboard_list_empty", WebDashboardPermissions.REQUIRED_OP_LEVEL), false);
+			source.sendSuccess(Text.translatable("gui.mtr.web_dashboard_list_empty", WebDashboardPermissions.REQUIRED_OP_LEVEL), false);
 		} else {
 			for (final PermissionEntryView entry : entries) {
 				final boolean online = WebDashboardPermissions.getOnlinePlayer(entry.uuid) != null;
@@ -239,7 +239,7 @@ public final class WebDashboardCommands {
 				// an entry written for one does nothing for the other. Without this, a list can contain two
 				// lines that look identical and behave completely differently - which is exactly how a
 				// lockout was misdiagnosed once already.
-				source.sendSuccess(() -> Text.translatable("gui.mtr.web_dashboard_list_entry", entry.getDisplayName(), shortUuid(entry.uuid))
+				source.sendSuccess(Text.translatable("gui.mtr.web_dashboard_list_entry", entry.getDisplayName(), shortUuid(entry.uuid))
 						.append(Text.translatable(entry.granted ? "gui.mtr.web_dashboard_state_granted" : "gui.mtr.web_dashboard_state_denied"))
 						.append(Text.translatable(online ? "gui.mtr.web_dashboard_state_online" : "gui.mtr.web_dashboard_state_offline")), false);
 			}
@@ -247,7 +247,7 @@ public final class WebDashboardCommands {
 
 		final List<String> usernames = WebDashboardTokenStore.getSessionUsernames();
 		if (!usernames.isEmpty()) {
-			source.sendSuccess(() -> Text.translatable("gui.mtr.web_dashboard_list_sessions", String.join(", ", usernames)), false);
+			source.sendSuccess(Text.translatable("gui.mtr.web_dashboard_list_sessions", String.join(", ", usernames)), false);
 		}
 		return 1;
 	}
@@ -271,7 +271,7 @@ public final class WebDashboardCommands {
 	 */
 	private static void warnIfNobodyCanEdit(CommandSourceStack source) {
 		if (!WebDashboardPermissions.hasAnyExplicitGrant()) {
-			source.sendSuccess(() -> Text.translatable("gui.mtr.web_dashboard_command_no_grants", WebDashboardPermissions.REQUIRED_OP_LEVEL), false);
+			source.sendSuccess(Text.translatable("gui.mtr.web_dashboard_command_no_grants", WebDashboardPermissions.REQUIRED_OP_LEVEL), false);
 		}
 	}
 

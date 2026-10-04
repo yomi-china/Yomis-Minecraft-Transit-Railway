@@ -1,7 +1,5 @@
 package mtr;
 
-import dev.architectury.event.events.client.ClientLifecycleEvent;
-import dev.architectury.event.events.client.ClientTickEvent;
 import mtr.block.BlockPIDS1;
 import mtr.block.BlockPIDS2;
 import mtr.block.BlockPIDS3;
@@ -400,7 +398,7 @@ public class MTRClient implements IPacket {
 			// Registered straight through Architectury rather than the project's RegistryUtilitiesClient
 			// wrapper: that wrapper has no tick or stopping entry point on Fabric, and both loaders back
 			// these events.
-			ClientTickEvent.CLIENT_PRE.register(minecraft -> {
+			RegistryUtilitiesClient.registerClientTickEvent(minecraft -> {
 				if (webDashboardFallbackTicks >= 0 && ++webDashboardFallbackTicks > WEB_DASHBOARD_FALLBACK_TICKS) {
 					webDashboardFallbackTicks = -1;
 					if (!WebDashboardServer.isRunning()) {
@@ -409,7 +407,7 @@ public class MTRClient implements IPacket {
 					}
 				}
 			});
-			ClientLifecycleEvent.CLIENT_STOPPING.register(minecraft -> WebDashboardServer.stop());
+			RegistryUtilitiesClient.registerClientStoppingEvent(minecraft -> WebDashboardServer.stop());
 
 			BlockTactileMap.TileEntityTactileMap.updateSoundSource = TACTILE_MAP_SOUND_INSTANCE::setPos;
 			BlockTactileMap.TileEntityTactileMap.onUse = pos -> {

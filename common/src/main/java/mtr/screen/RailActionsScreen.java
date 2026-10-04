@@ -8,7 +8,7 @@ import mtr.data.NameColorDataBase;
 import mtr.mappings.ScreenMapper;
 import mtr.mappings.Text;
 import mtr.packet.IPacket;
-import net.minecraft.client.gui.GuiGraphics;
+import mtr.mappings.GuiGraphics;
 import net.minecraft.network.FriendlyByteBuf;
 
 public class RailActionsScreen extends ScreenMapper implements IGui, IPacket {
