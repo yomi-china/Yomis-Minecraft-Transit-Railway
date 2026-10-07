@@ -1,37 +1,24 @@
 package mtr.webdashboard.servlet;
 
+import com.google.gson.JsonObject;
+import mtr.webdashboard.WebDashboardDataService;
+
+import javax.servlet.AsyncContext;
+import javax.servlet.AsyncEvent;
+import javax.servlet.AsyncListener;
 import javax.servlet.http.HttpServletResponse;
+import java.io.PrintWriter;
 import java.nio.charset.StandardCharsets;
 
-/**
- * Shared JSON response helper for the web dashboard endpoints.
- * <p>
- * {@code mtr.servlet.IServletHandler} sets {@code Access-Control-Allow-Origin: *} on every response,
- * which lets any page in any browser read the railway data cross-origin. The dashboard handles
- * server state and, from stage 2, authenticated edits, so no CORS header is emitted here at all -
- * the page is same-origin and needs none.
- */
 public interface WebDashboardServletHandler {
 
 	String CONTENT_TYPE_JSON = "application/json; charset=utf-8";
+	long ASYNC_TIMEOUT_MILLIS = WebDashboardDataService.REQUEST_TIMEOUT_MILLIS + 2000L;
 
-	/**
-	 * Writes a UTF-8 JSON body with HTTP 200. The length is set explicitly so the container does not
-	 * fall back to chunked encoding for a small fixed-size payload.
-	 */
 	static void sendJson(HttpServletResponse response, String json) {
 		writeBody(response, HttpServletResponse.SC_OK, json);
 	}
 
-	/**
-	 * Writes a JSON error body with the given status.
-	 * <p>
-	 * Errors are JSON rather than HTML so the page can tell "you are not signed in" apart from "the
-	 * server is broken" without parsing a Jetty error page, and so a wrong password never renders a
-	 * stack trace to the visitor.
-	 *
-	 * @param error a short machine-readable code, e.g. {@code "bad_token"}.
-	 */
 	static void sendError(HttpServletResponse response, int status, String error) {
 		writeBody(response, status, "{\"error\":\"" + error + "\"}");
 	}
@@ -43,13 +30,74 @@ public interface WebDashboardServletHandler {
 			response.setContentType(CONTENT_TYPE_JSON);
 			response.setCharacterEncoding(StandardCharsets.UTF_8.name());
 			response.setContentLength(body.length);
-			// Authenticated responses must never be cached by the browser or an intermediary, or a
-			// signed-out visitor could be shown a stale "signed in" answer.
 			response.setHeader("Cache-Control", "no-store");
 			response.getOutputStream().write(body);
 			response.getOutputStream().flush();
 		} catch (Exception e) {
 			e.printStackTrace();
+		}
+	}
+
+	static void completeWith(AsyncContext asyncContext, int status, String body) {
+		synchronized (asyncContext) {
+			if (asyncContext.getResponse().isCommitted()) {
+				return;
+			}
+			try {
+				final HttpServletResponse response = (HttpServletResponse) asyncContext.getResponse();
+				response.setStatus(status);
+				response.setContentType(CONTENT_TYPE_JSON);
+				response.setCharacterEncoding("UTF-8");
+				response.setHeader("Cache-Control", "no-store");
+				try (PrintWriter writer = response.getWriter()) {
+					writer.write(body);
+				}
+			} catch (Exception e) {
+				System.out.println("[MTR-WebDashboard] Failed to write a response: " + e);
+			} finally {
+				complete(asyncContext);
+			}
+		}
+	}
+
+	static void completeWithError(AsyncContext asyncContext, int status, String error) {
+		final JsonObject json = new JsonObject();
+		json.addProperty("error", error);
+		completeWith(asyncContext, status, json.toString());
+	}
+
+	private static void complete(AsyncContext asyncContext) {
+		try {
+			asyncContext.complete();
+		} catch (Exception ignored) {
+		}
+	}
+
+	final class TimeoutListener implements AsyncListener {
+
+		private final AsyncContext asyncContext;
+
+		public TimeoutListener(AsyncContext asyncContext) {
+			this.asyncContext = asyncContext;
+		}
+
+		@Override
+		public void onTimeout(AsyncEvent event) {
+			System.out.println("[MTR-WebDashboard] Timed out waiting for the game thread to answer a data request.");
+			WebDashboardServletHandler.completeWithError(asyncContext, HttpServletResponse.SC_GATEWAY_TIMEOUT, "game_thread_timeout");
+		}
+
+		@Override
+		public void onComplete(AsyncEvent event) {
+		}
+
+		@Override
+		public void onError(AsyncEvent event) {
+			WebDashboardServletHandler.complete(asyncContext);
+		}
+
+		@Override
+		public void onStartAsync(AsyncEvent event) {
 		}
 	}
 }

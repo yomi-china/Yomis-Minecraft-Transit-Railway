@@ -1,26 +1,6 @@
-/*
- * Data access for the dashboard's API: the read-only snapshot, and the write endpoints.
- *
- * Every failure is normalised into a DataFailure whose `kind` says what went wrong, because the cases need
- * different messages and all of them look like "fetch failed" otherwise:
- *
- *   AUTH            the session expired or was revoked (401)
- *   FORBIDDEN       signed in but not allowed to edit (403)
- *   NO_SERVER       no world is loaded yet (503 no_server)
- *   EDITOR_OFFLINE  the account that signed in left the game (503 web_editor_offline)
- *   NOT_FOUND       the object was deleted in game (404 not_found)
- *   INVALID_FIELD   the server rejected a field (400 invalid_field / unsupported_field)
- *   BAD_REQUEST     the service answered something unexpected (404/500/malformed body)
- *   UNREACHABLE     the service could not be reached at all
- */
-
 const DATA_ENDPOINT = '/api/data';
 const META_ENDPOINT = '/api/meta';
 
-/**
- * Longer than the session calls' timeout: the server builds this payload on the game thread, and a busy tick
- * can legitimately take a while.
- */
 const REQUEST_TIMEOUT_MS = 12000;
 
 export const DataErrorKind = {
@@ -38,7 +18,6 @@ export class DataFailure extends Error {
 	constructor(kind, detail, body) {
 		super(kind + (detail ? ': ' + detail : ''));
 		this.kind = kind;
-		/** The server's parsed error body, when it sent one. */
 		this.body = body || null;
 	}
 
@@ -46,17 +25,8 @@ export class DataFailure extends Error {
 	get field() {
 		return this.body && typeof this.body.field === 'string' ? this.body.field : null;
 	}
-
-	/** @returns {string[]} the fields the server said it accepts. */
-	get acceptedFields() {
-		return this.body && Array.isArray(this.body.acceptedFields) ? this.body.acceptedFields : [];
-	}
 }
 
-/**
- * @param {string} path
- * @param {object} [init] extra fetch options. Writes pass method, headers and body here.
- */
 async function fetchJson(path, init) {
 	const controller = new AbortController();
 	const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -75,8 +45,6 @@ async function fetchJson(path, init) {
 		clearTimeout(timer);
 	}
 
-	// The error body is read before the status is turned into a kind, because a 400 and a 503 both carry the
-	// detail that decides which kind they are.
 	let errorBody = null;
 	if (!response.ok) {
 		try {
@@ -96,11 +64,9 @@ async function fetchJson(path, init) {
 		throw new DataFailure(DataErrorKind.FORBIDDEN, 'HTTP 403', errorBody);
 	}
 	if (response.status === 503 && errorBody && errorBody.error === 'web_editor_offline') {
-		// Its own kind because the remedy is nothing like "no world is open".
 		throw new DataFailure(DataErrorKind.EDITOR_OFFLINE, 'HTTP 503', errorBody);
 	}
 	if (response.status === 503) {
-		// no_server: the service is up but nothing is loaded to read from.
 		throw new DataFailure(DataErrorKind.NO_SERVER, 'HTTP 503', errorBody);
 	}
 	if (response.status === 404 && errorBody && errorBody.error === 'not_found') {
@@ -120,32 +86,20 @@ async function fetchJson(path, init) {
 	}
 }
 
-/**
- * @returns {Promise<object>} the full snapshot: every loaded world with its stations, platforms, routes,
- *          depots and sidings.
- * @throws {DataFailure}
- */
+/** @throws {DataFailure} */
 export async function fetchData() {
 	return await fetchJson(DATA_ENDPOINT);
 }
 
-/**
- * The mode and limit vocabulary. Loaded separately and treated as optional by the caller - it only supplies
- * behaviour flags and the untitled fallback, so the lists still work when it fails.
- *
- * @throws {DataFailure}
- */
+/** @throws {DataFailure} */
 export async function fetchMeta() {
 	return await fetchJson(META_ENDPOINT);
 }
 
 /**
- * Edits one object, sending only the fields being changed.
- *
  * @param {string} kind 'station' | 'route' | 'depot'; also the URL segment.
  * @param {string} id   the object's id as published, a string because it can exceed 2^53.
- * @returns {Promise<{changed: string[], warnings: string[], object: object}>} the object as saved, which
- *          may differ from what was sent if a value was clamped.
+ * @returns {Promise<{changed: string[], warnings: string[], object: object}>}
  * @throws {DataFailure}
  */
 export async function patch(kind, id, fields) {
@@ -158,7 +112,6 @@ export async function patch(kind, id, fields) {
 
 /**
  * @returns {object|null} the world to display: the overworld if loaded, otherwise the first one reported.
- *          No world switcher yet, so the choice is mechanical.
  */
 export function selectWorld(data) {
 	const worlds = data && Array.isArray(data.worlds) ? data.worlds : [];

@@ -1,23 +1,10 @@
 import { f, t } from './i18n.js?v=20';
 import { MODE_ALL, MODES, countForMode } from './lists.js?v=20';
 
-/*
- * DOM rendering for the sidebar.
- *
- * The whole sidebar is re-rendered on every state change rather than patched. At a page size of 20
- * rows that is a few dozen nodes, far below the point where reconciliation would earn its
- * complexity, and it removes a whole class of "the view and the state disagree" bugs.
- *
- * Event handling is delegated to the containers, so re-rendering cannot leave a stale listener
- * behind on a node that no longer exists.
- */
-
-/** Resolved once; the markup is static so there is no need to re-query on every render. */
 const el = {
 	body: document.body,
 	tabs: document.getElementById('tabs'),
 	modes: document.getElementById('modes'),
-	// The container, not just the chips: hiding only the children would leave its padding behind as a gap.
 	modesContainer: document.getElementById('sidebar-filters'),
 	search: document.getElementById('search'),
 	searchClear: document.getElementById('search-clear'),
@@ -26,7 +13,6 @@ const el = {
 	refresh: document.getElementById('refresh'),
 	readOnlyBadge: document.getElementById('readonly-badge'),
 	worldLabel: document.getElementById('world-label'),
-	// Map chrome. The canvas itself belongs to map.js; these are the overlay controls around it.
 	mapArea: document.getElementById('map-area'),
 	mapReadout: document.getElementById('map-readout'),
 	mapEditingBar: document.getElementById('map-editing-bar'),
@@ -38,23 +24,10 @@ const el = {
 	mapCancelEdit: document.getElementById('map-cancel-edit'),
 };
 
-/**
- * Switches the whole page to one view. The attribute lives on {@code body} because the shell and the
- * centred card are siblings that trade places, not nested alternatives.
- */
 export function setView(view) {
 	el.body.dataset.view = view;
 }
 
-/**
- * Shows the visitor's editing capability, in one badge whose wording follows the answer.
- *
- * The first version always read "Read-only" and only toggled visibility, which made a visitor with
- * edit rights see a badge claiming the opposite. Labels and colours are fully swapped now, so the
- * badge is unambiguous in both directions.
- *
- * @param {boolean} canEdit
- */
 export function setCanEdit(canEdit) {
 	if (!el.readOnlyBadge) {
 		return;
@@ -64,7 +37,6 @@ export function setCanEdit(canEdit) {
 	el.readOnlyBadge.textContent = t(canEdit ? 'editableBadge' : 'readOnlyBadge');
 }
 
-/** Shows which dimension is on screen. */
 export function setWorldLabel(dimension) {
 	if (el.worldLabel) {
 		el.worldLabel.textContent = dimension || '';
@@ -72,7 +44,6 @@ export function setWorldLabel(dimension) {
 	}
 }
 
-/** Shows the bar that appears while an area is being redrawn. */
 export function setMapEditing(editing) {
 	if (el.mapEditingBar) {
 		el.mapEditingBar.hidden = !editing;
@@ -82,15 +53,6 @@ export function setMapEditing(editing) {
 	}
 }
 
-/**
- * Updates the coordinate readout.
- *
- * Coordinates only. The player's name used to be prefixed here as well as shown in the top bar, which
- * printed it twice and mixed an identity into what is a position readout.
- *
- * @param {{x: number, z: number}|null} point the world position under the cursor, or null when the cursor
- *        is off the map.
- */
 export function setMapReadout(point) {
 	if (!el.mapReadout) {
 		return;
@@ -100,26 +62,9 @@ export function setMapReadout(point) {
 		return;
 	}
 	el.mapReadout.hidden = false;
-	// One decimal place, matching the game's own readout: enough to identify a block without the digits
-	// jittering as the cursor moves.
 	el.mapReadout.textContent = point.x.toFixed(1) + ', ' + point.z.toFixed(1);
 }
 
-/**
- * Shows how large the area being drawn currently is.
- *
- * This is the feedback that makes the drag legible - without it a finished rectangle gives no indication
- * of its own size, and a drag that failed to register looks identical to one that succeeded.
- *
- * @param {{minX: number, minZ: number, maxX: number, maxZ: number}|null} draft
- */
-/**
- * Shows the drawn selection's size, what it would move, and whether it can be saved.
- *
- * Reported because without it a drag that failed to register looks exactly like one that succeeded.
- *
- * @param {{minX: number, minZ: number, maxX: number, maxZ: number, invalid: boolean}|null} draft
- */
 export function setMapDraftSize(draft) {
 	if (!el.mapEditingSize) {
 		return;
@@ -132,22 +77,14 @@ export function setMapDraftSize(draft) {
 		return;
 	}
 
-	// Widths include both end blocks, so a 1-block selection reads as 1 rather than 0.
 	const width = Math.abs(draft.maxX - draft.minX) + 1;
 	const height = Math.abs(draft.maxZ - draft.minZ) + 1;
 	el.mapEditingSize.textContent = f('mapDraftSize', width, height);
 	el.mapEditingSize.dataset.invalid = draft.invalid ? 'true' : 'false';
 
-	// A selection whose corner sits on the world origin cannot be stored at all, so the button is disabled
-	// rather than left to fail on the server. See areafit.js for why (0, 0) is special.
 	setMapSaveEnabled(!draft.invalid);
 }
 
-/**
- * Enables or disables the save button in the editing bar.
- *
- * Also used to reflect a save in flight, which is why it takes a plain boolean rather than deriving one.
- */
 export function setMapSaveEnabled(enabled) {
 	if (el.mapSaveEdit) {
 		el.mapSaveEdit.disabled = !enabled;
@@ -165,19 +102,12 @@ export function getMapButtons() {
 	};
 }
 
-/**
- * Enables or disables the focus-on-player button.
- *
- * Disabled rather than hidden when the world reports no player, so the control does not come and go as the
- * viewer changes dimension, and so its absence is not mistaken for a missing feature.
- */
 export function setFocusPlayerEnabled(enabled) {
 	if (el.mapFocusPlayer) {
 		el.mapFocusPlayer.disabled = !enabled;
 	}
 }
 
-/** Reflects the search text into the input, for the cases where state changes it. */
 export function syncSearchInput(search) {
 	if (el.search && el.search.value !== search) {
 		el.search.value = search;
@@ -220,8 +150,6 @@ function renderModes(activeMode, activeTab, index) {
 		label.textContent = t(key);
 		button.appendChild(label);
 
-		// Counts are omitted on the stations tab: stations are not filtered, so every chip would show the
-		// same number and imply a filter that is not happening.
 		const count = countForMode(index, activeTab, mode);
 		if (count !== null) {
 			const badge = document.createElement('span');
@@ -233,16 +161,6 @@ function renderModes(activeMode, activeTab, index) {
 		return button;
 	}));
 
-	/*
-	 * The whole mode filter is hidden on the stations tab.
-	 *
-	 * Stations are shared by all four transport modes - `Station.hasTransportMode()` is false - so filtering
-	 * does nothing to that list. Leaving the chips clickable meant a control that visibly responded but
-	 * changed nothing, which reads as broken rather than as inapplicable.
-	 *
-	 * The note that used to explain the no-op was removed along with them. With the filter gone there is
-	 * nothing left to explain, and an apology for a control that is not on screen is just noise.
-	 */
 	if (el.modesContainer) {
 		el.modesContainer.hidden = activeTab === 'stations';
 	}
@@ -251,11 +169,6 @@ function renderModes(activeMode, activeTab, index) {
 	}
 }
 
-/**
- * @param {Array} rows   rows for the current page.
- * @param {string} state 'loading' | 'ready' | 'empty' | 'noresults' | 'unavailable' | 'failed'
- * @param {object} context extra data for the empty-state wording, e.g. the search text.
- */
 function renderList(rows, state, context = {}) {
 	if (!el.list || !el.empty) {
 		return;
@@ -280,10 +193,6 @@ function renderList(rows, state, context = {}) {
 	}
 
 	el.empty.hidden = true;
-	// The whole context is passed, not just the selected id: renderRow also needs context.hideMode to
-	// decide whether to show a mode tag. Passing a single field here threw on the first route or depot
-	// row, which killed the render and left the previous list on screen - so switching tabs appeared
-	// to do nothing at all.
 	el.list.replaceChildren(...rows.map((row, position) => renderRow(row, position, context)));
 }
 
@@ -307,25 +216,17 @@ function emptyBody(state) {
 }
 
 function renderRow(row, position, context) {
-	// A div with role="option" rather than a button, because the row now CONTAINS a button. A button inside
-	// a button is invalid HTML and browsers recover from it by dropping one of them, which silently breaks
-	// whichever action loses.
 	const item = document.createElement('div');
 	item.className = 'row';
 	item.dataset.id = row.id;
 	item.setAttribute('role', 'option');
 	item.setAttribute('aria-selected', String(row.id === context.selectedId));
-	// The row is only focusable when it is actually actionable, so the tab order does not fill up with
-	// rows that cannot be opened.
 	if (context.canEdit) {
 		item.tabIndex = 0;
 	}
-	// Staggered entrance, capped by index in CSS so a long page does not crawl in.
 	item.style.setProperty('--row-index', String(Math.min(position, 8)));
 
 	const swatch = document.createElement('span');
-	// A zero colour is a legitimate value and would render as an invisible black block, so it is marked
-	// and drawn as an outlined empty swatch instead.
 	swatch.className = row.color ? 'row__swatch' : 'row__swatch row__swatch--empty';
 	if (row.color) {
 		swatch.style.backgroundColor = '#' + row.color.toString(16).padStart(6, '0');
@@ -337,18 +238,12 @@ function renderRow(row, position, context) {
 	const name = document.createElement('span');
 	name.className = 'row__name';
 	name.textContent = row.name || t('untitled');
-	// The full name on hover, since a long one is ellipsised.
 	name.title = row.name || t('untitled');
 	text.appendChild(name);
 
 	if (row.summary && row.summary.length > 0) {
 		const summary = document.createElement('span');
 		summary.className = 'row__summary';
-		// Two shapes are possible: a translation key plus its argument, or a literal string that is
-		// already display-ready (a depot's name, for instance). Joining happens here rather than in
-		// lists.js so the derivation layer stays free of presentation decisions.
-		// A space rather than a separator character: the parts are already self-describing ("1 platform",
-		// "zone 15"), so a dot between them is visual noise.
 		summary.textContent = row.summary.map(part => (part.key ? f(part.key, part.value) : part.literal)).join(' ');
 		text.appendChild(summary);
 	}
@@ -356,16 +251,12 @@ function renderRow(row, position, context) {
 	item.append(swatch, text);
 
 	if (row.mode && !context.hideMode) {
-		// Which transport mode a route or depot belongs to. Redundant when a single mode is already
-		// selected, so the caller suppresses it then.
 		const mode = document.createElement('span');
 		mode.className = 'row__mode';
 		mode.textContent = t('mode' + row.mode);
 		item.appendChild(mode);
 	}
 
-	// The single editing entry point. Clicking the row does the same thing, so this is discoverability
-	// rather than a second path - and it is the only control on the row, which is the point.
 	if (context.canEdit && context.editableKinds && context.editableKinds.has(context.rowKind)) {
 		const edit = document.createElement('button');
 		edit.type = 'button';
@@ -380,7 +271,6 @@ function renderRow(row, position, context) {
 	return item;
 }
 
-/** The pencil glyph, inline so the page keeps its zero-external-request property. */
 function iconPencil() {
 	const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
 	svg.setAttribute('viewBox', '0 0 24 24');
@@ -394,15 +284,6 @@ function iconPencil() {
 	return svg;
 }
 
-/**
- * Renders the entire sidebar for the given state.
- *
- * @param {object} state   the store's snapshot.
- * @param {object} derived the result of deriving rows for that snapshot.
- * @param {object} [chrome] editing affordances: {@code canEdit}, {@code editableKinds} (the set of kinds
- *        the server accepts edits for) and {@code editAreaId}, the selected object's id when it has a
- *        drawable area and the visitor may change it.
- */
 export function renderSidebar(state, derived, chrome = {}) {
 	renderTabs(state.tab);
 	renderModes(state.mode, state.tab, state.index);
@@ -412,32 +293,12 @@ export function renderSidebar(state, derived, chrome = {}) {
 		emptyKey: derived.emptyKey,
 		selectedId: state.selectedId,
 		canEdit: chrome.canEdit,
-		// The singular kind, not the tab name: a tab is named for its collection ("stations") and the server
-		// and the editor speak of one object ("station"). The caller translates, because the mapping is a
-		// fact about the tabs rather than about rendering a row.
 		rowKind: chrome.rowKind,
 		editableKinds: chrome.editableKinds,
-		// Under a single-mode filter every route and depot row would repeat the same mode label.
 		hideMode: state.mode !== MODE_ALL
 	});
 }
 
-/**
- * Shows the "redraw area" action, but only when the selection actually has an area, the visitor may change
- * it, and no edit is already running.
- *
- * The editing flag is what makes cancelling work: once an edit begins the map owns the interaction, so the
- * button that started it must go away. Leaving it visible meant that pressing Cancel left the button on
- * screen doing nothing, because the object was still selected.
- *
- * Placed above the list rather than in the row's hover actions: the game puts area drawing on the list row,
- * but a web row has no room for a seventh icon without becoming a toolbar, and a mistaken click there would
- * redefine a station. One button for the selected item is harder to hit by accident.
- */
-/**
- * Wires the sidebar's interactions. Registered once; every handler reads the current state through
- * the callbacks rather than closing over a snapshot, so nothing goes stale after a re-render.
- */
 export function bindSidebar(handlers) {
 	if (el.tabs) {
 		el.tabs.addEventListener('click', event => {
@@ -463,14 +324,8 @@ export function bindSidebar(handlers) {
 			if (!row) {
 				return;
 			}
-			// Clicking the row and clicking its edit button do the same thing, by design: the button is the
-			// discoverable affordance and the row is the convenient one. Handled in one place so the two
-			// cannot drift apart.
 			handlers.onSelect(row.dataset.id);
 		});
-		// The row is a div rather than a button now, so the keyboard needs handling explicitly. Only Enter
-		// and Space are claimed, and only when the row itself is focused - never when the edit button is,
-		// which would double-fire.
 		el.list.addEventListener('keydown', event => {
 			if (event.key !== 'Enter' && event.key !== ' ') {
 				return;
@@ -484,7 +339,6 @@ export function bindSidebar(handlers) {
 
 	if (el.search) {
 		el.search.addEventListener('input', () => handlers.onSearch(el.search.value));
-		// Escape clears, matching the game's search field behaviour.
 		el.search.addEventListener('keydown', event => {
 			if (event.key === 'Escape') {
 				handlers.onSearch('');
@@ -499,12 +353,8 @@ export function bindSidebar(handlers) {
 	if (el.refresh) {
 		el.refresh.addEventListener('click', () => handlers.onRefresh());
 	}
-
-	// No arrow-key paging: the list scrolls, so the browser's own PageUp/PageDown, Home/End and arrow
-	// key scrolling all work on it already. Hijacking the arrows would take those away.
 }
 
-/** Shows whether a background load is in flight, so a slow game tick does not look like a freeze. */
 export function setBusy(busy) {
 	if (el.refresh) {
 		el.refresh.disabled = busy;

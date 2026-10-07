@@ -1,14 +1,3 @@
-/*
- * Colour maths for the picker. Pure functions: no DOM, no canvas, no state.
- *
- * HSV, not HSL. The picker's vertical axis is *value* - the brightest channel - so a fully saturated colour
- * sits at the top right and white is only at the very top. The two spaces are easy to confuse and produce a
- * picker that looks plausible and is wrong, so test-color.mjs pins the difference down explicitly.
- *
- * Split out from the picker for the usual reason: this is the part that is easy to get subtly wrong and
- * impossible to check by eye.
- */
-
 /** The largest colour, 24 bits of RGB with no alpha. */
 export const MAX_COLOR = 0xFFFFFF;
 
@@ -16,8 +5,6 @@ export const MAX_COLOR = 0xFFFFFF;
 export const HUE_MAX = 360;
 
 /**
- * Splits a 24-bit colour into channels.
- *
  * @returns {{r: number, g: number, b: number}} each in 0..255.
  */
 export function toComponents(color) {
@@ -32,17 +19,7 @@ export function fromComponents(r, g, b) {
 }
 
 /**
- * Converts a colour to HSV.
- *
- * <b>{@code h} is null for greys, and that is the important part.</b> Black, white and every grey have no
- * hue - the formula divides by zero - and returning 0 instead would mean that dragging the value slider to
- * the bottom and back up turns the colour red. The caller is expected to hold on to the last real hue and
- * reuse it; see the picker, which does exactly that.
- *
- * <b>{@code h} is continuous, not an integer degree.</b> Rounding it here was a real bug: a colour whose
- * exact hue is 240.5 became 241, and converting back moved the red channel by 1 - enough to fail an exact
- * round trip, and enough to make a colour drift by a step every time it was loaded into the picker and saved
- * again. The CSS string is the only place a hue needs to be whole, and {@link hueCss} rounds it there.
+ * <b>{@code h} is null for greys.</b> <b>{@code h} is continuous, not an integer degree.</b>
  *
  * @returns {{h: number|null, s: number, v: number}} h in 0..360 or null, s and v in 0..1.
  */
@@ -52,8 +29,6 @@ export function rgbToHsv(color) {
 	const min = Math.min(r, g, b);
 	const delta = max - min;
 
-	// Value is the brightest channel, which is what separates HSV from HSL: in HSL a fully saturated colour
-	// has lightness 0.5, here it has value 1.
 	const v = max / 255;
 	const s = max === 0 ? 0 : delta / max;
 
@@ -72,8 +47,6 @@ export function rgbToHsv(color) {
 }
 
 /**
- * Converts HSV to a colour.
- *
  * @param {number|null} h hue in degrees, continuous, or null for a grey.
  * @param {number} s saturation, 0..1.
  * @param {number} v value, 0..1.
@@ -105,10 +78,6 @@ export function hsvToRgb(h, s, v) {
 		r = c; g = 0; b = x;
 	}
 
-	// Rounded AFTER scaling by 255, not before. Rounding the fractional parts first collapses the whole
-	// lower half of the value axis: hsvToRgb(0, 1, 0.5) has c = 0.5, and Math.round(0.5 + 0) * 255 is 255,
-	// so half-bright red came back as full red. Every colour then round tripped to a vertex, which is what
-	// the round-trip assertion caught.
 	return fromComponents(
 		Math.round((r + m) * 255),
 		Math.round((g + m) * 255),
@@ -116,15 +85,6 @@ export function hsvToRgb(h, s, v) {
 	);
 }
 
-/**
- * Wraps a hue into [0, 360) <b>as a whole number of degrees</b>.
- *
- * 360 and 0 are the same colour but different CSS strings, and a hue that drifted to 360 would make the
- * picker's background-colour comparison never equal, so it would rewrite the style on every frame.
- *
- * Rounds, so this is for display and CSS only - never for carrying a hue between conversions. Use
- * {@link wrapHue} for that, or the colour will drift by a step each time it is round tripped.
- */
 export function normaliseHue(hue) {
 	return Math.round(wrapHue(hue));
 }
@@ -143,12 +103,7 @@ export function rgbCss(color) {
 	return 'rgb(' + r + ', ' + g + ', ' + b + ')';
 }
 
-/**
- * The fully saturated colour of a hue, as a CSS colour.
- *
- * This is the base layer of the picker's square: white is painted in horizontally and black vertically, and
- * what shows through is the pure hue.
- */
+/** @returns {string} the fully saturated colour of a hue, as a CSS colour. */
 export function hueCss(hue) {
 	return 'hsl(' + normaliseHue(hue) + ', 100%, 50%)';
 }
@@ -160,13 +115,6 @@ export function formatHex(color) {
 }
 
 /**
- * Parses a hex colour.
- *
- * Tolerant of a missing `#` and of upper case, because the field shows the `#` and a visitor retyping a
- * colour from elsewhere should not have to match the format exactly. Deliberately intolerant of everything
- * else: a half-typed value must be rejected so the caller can leave the picker where it is rather than
- * jumping it to a wrong colour.
- *
  * @returns {number|null} the colour, or null when the text is not one to six hex digits.
  */
 export function parseHex(text) {
@@ -178,17 +126,6 @@ export function parseHex(text) {
 		return null;
 	}
 	return parseInt(trimmed, 16);
-}
-
-/**
- * The closest colour to a hue/saturation/value triplet that the picker can actually show.
- *
- * Used when the caller has a hue from the picker and needs to know whether the value it just produced is
- * still that hue - greys and black are not, and the picker must not snap its cursor back to a corner while
- * the visitor is dragging through them.
- */
-export function isChromatic(color) {
-	return rgbToHsv(color).h != null;
 }
 
 export function clamp01(value) {

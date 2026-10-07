@@ -1,16 +1,3 @@
-/*
- * The map's area-editing state machine. Pure logic: no DOM, no canvas.
- *
- * Invariants:
- *   1. draftCorner2 is non-null only when draftCorner1 is non-null.
- *   2. Entering edit mode leaves both draft corners null; the object's existing selection is kept in
- *      `original`. This differs from the game, whose WidgetMap.startEditingArea seeds the draw area from
- *      the current corners - which would make the first click treat a corner of the existing selection as
- *      the drag origin and produce a far larger rectangle than intended.
- *   3. A drag released without moving is discarded, not kept as a one-block selection.
- *   4. Leaving edit mode clears every field.
- */
-
 /**
  * @typedef {{x: number, z: number}} WorldPoint
  * @typedef {{kind: 'station'|'depot'|null, id: string|null, original: {c1: WorldPoint, c2: WorldPoint}|null,
@@ -22,11 +9,6 @@ export function createEditState() {
 	return { kind: null, id: null, original: null, draftCorner1: null, draftCorner2: null, hasMoved: false };
 }
 
-/**
- * Floors a world coordinate to the block containing it, as WidgetMap.coordsToWorldPos does. A selection is
- * a set of blocks - AreaBase.inArea tests block coordinates inclusively - so a fractional corner describes
- * nothing the mod can act on.
- */
 function snapToBlock(value) {
 	return Number.isFinite(value) ? Math.floor(value) : 0;
 }
@@ -36,19 +18,12 @@ export function isEditing(edit) {
 	return edit != null && edit.kind != null && edit.id != null;
 }
 
-/** @returns {boolean} whether a rectangle is being dragged out right now. */
-export function isDrafting(edit) {
-	return isEditing(edit) && edit.draftCorner1 != null;
-}
-
 /** @returns {boolean} whether a completed draft is waiting to be confirmed. */
 export function hasDraft(edit) {
 	return isEditing(edit) && edit.draftCorner1 != null && edit.draftCorner2 != null && edit.hasMoved;
 }
 
 /**
- * Enters edit mode for one object.
- *
  * @param {'station'|'depot'} kind
  * @param {string} id
  * @param {{corner1: WorldPoint|null, corner2: WorldPoint|null}} area the object's current selection.
@@ -60,8 +35,6 @@ export function beginEdit(kind, id, area) {
 	return {
 		kind,
 		id,
-		// Copied, not referenced: the world payload is replaced wholesale on reload, and holding a reference
-		// into the old one would keep a stale selection on screen.
 		original: corner1 && corner2 ? { c1: corner1, c2: corner2 } : null,
 		draftCorner1: null,
 		draftCorner2: null,
@@ -75,10 +48,6 @@ export function cancelEdit() {
 }
 
 /**
- * Feeds a pointer position into the drag, starting one if none is in progress. The first call anchors the
- * rectangle and later calls move its opposite corner; one function rather than separate "start" and "drag"
- * so a caller cannot start a drag twice and lose the anchor.
- *
  * @param {EditState} edit mutated in place.
  */
 export function dragToEdit(edit, worldX, worldZ) {
@@ -99,8 +68,6 @@ export function dragToEdit(edit, worldX, worldZ) {
 	edit.draftCorner2 = { x: blockX, z: blockZ };
 	edit.hasMoved = true;
 
-	// Matches WidgetMap.mouseDragged. Areas are tested inclusively, so equal corners already describe one
-	// block; the nudge makes the box one block *wide* on that axis, which is the game's convention.
 	if (edit.draftCorner1.x === edit.draftCorner2.x) {
 		edit.draftCorner2.x += 1;
 	}
@@ -110,8 +77,6 @@ export function dragToEdit(edit, worldX, worldZ) {
 }
 
 /**
- * Ends the drag, discarding the draft when nothing moved (invariant 3).
- *
  * @param {EditState} edit mutated in place.
  * @returns {boolean} whether a usable draft remains.
  */
@@ -140,22 +105,5 @@ export function getDraftBounds(edit) {
 		minZ: Math.min(edit.draftCorner1.z, edit.draftCorner2.z),
 		maxX: Math.max(edit.draftCorner1.x, edit.draftCorner2.x),
 		maxZ: Math.max(edit.draftCorner1.z, edit.draftCorner2.z)
-	};
-}
-
-/**
- * Swaps which corner of the draft is the anchor, keeping the same rectangle. Presentational only: nothing
- * downstream depends on corner order.
- *
- * @returns {EditState} a new state with the corners rotated, or the input when there is no draft.
- */
-export function swapDraftCorners(edit) {
-	if (!hasDraft(edit)) {
-		return edit;
-	}
-	return {
-		...edit,
-		draftCorner1: { x: edit.draftCorner2.x, z: edit.draftCorner2.z },
-		draftCorner2: { x: edit.draftCorner1.x, z: edit.draftCorner1.z }
 	};
 }

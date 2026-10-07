@@ -1,23 +1,10 @@
-/*
- * Material Design 3 token layer for the MTR web dashboard.
- *
- * Only tokens and a couple of primitives live here - no component library. Stage 4 decides how
- * @material/web is bundled; keeping the token names identical to the official MD3 spec means the
- * components can be dropped in later without rewriting any of this.
- *
- * Everything is self-contained: no web fonts, no CDN, so the page works on a machine with no
- * internet access, which matters for a service that only listens on loopback.
- *
- * Reference palette: the MTR brand blue #4285F4 used by the in-game map's player marker.
- */
-
 :root {
 	color-scheme: light dark;
 
-	/* Typeface: system stack, deliberately not a downloaded webfont. */
+	
 	--md-ref-typeface-plain: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", "Noto Sans", "PingFang SC", "Microsoft YaHei", sans-serif;
 
-	/* Typescale */
+	
 	--md-sys-typescale-headline-small-size: 24px;
 	--md-sys-typescale-headline-small-line-height: 32px;
 	--md-sys-typescale-title-medium-size: 16px;
@@ -30,7 +17,7 @@
 	--md-sys-typescale-weight-medium: 500;
 	--md-sys-typescale-weight-semibold: 600;
 
-	/* Shape */
+	
 	--md-sys-shape-corner-extra-large: 28px;
 	--md-sys-shape-corner-large: 16px;
 	--md-sys-shape-corner-medium: 12px;
@@ -38,40 +25,38 @@
 	--md-sys-shape-corner-extra-small: 4px;
 	--md-sys-shape-corner-full: 999px;
 
-	/* Typescale, the sizes the sidebar needs beyond the card's */
+	
 	--md-sys-typescale-title-small-size: 14px;
 	--md-sys-typescale-title-small-line-height: 20px;
 	--md-sys-typescale-body-small-size: 12px;
 	--md-sys-typescale-body-small-line-height: 16px;
 	--md-sys-typescale-label-large-size: 14px;
 	--md-sys-typescale-label-large-line-height: 20px;
-	/* The sidebar row label is the MD3 list item's primary text, which is body-large, not body-medium. */
+	
 	--md-sys-typescale-body-large-size: 16px;
 	--md-sys-typescale-body-large-line-height: 24px;
 
-	/* State layer opacities, straight from the MD3 spec. Used instead of ad-hoc alphas so hover and
-	   pressed states read consistently across every component. */
+	
 	--md-sys-state-hover-opacity: 0.08;
 	--md-sys-state-focus-opacity: 0.10;
 	--md-sys-state-pressed-opacity: 0.10;
 
-	/* Motion */
+	
 	--md-sys-motion-duration-short: 150ms;
 	--md-sys-motion-duration-medium: 300ms;
 	--md-sys-motion-easing-standard: cubic-bezier(0.2, 0, 0, 1);
 	--md-sys-motion-easing-emphasized: cubic-bezier(0.05, 0.7, 0.1, 1);
 
-	/* Elevation */
+	
 	--md-sys-elevation-0: none;
 	--md-sys-elevation-1: 0 1px 2px rgba(0, 0, 0, 0.3), 0 1px 3px 1px rgba(0, 0, 0, 0.15);
 	--md-sys-elevation-2: 0 1px 2px rgba(0, 0, 0, 0.3), 0 2px 6px 2px rgba(0, 0, 0, 0.15);
 
-	/* Layout constants for the shell, kept here so the sidebar width has one definition. */
+	
 	--mtr-sidebar-width: 340px;
 	--mtr-topbar-height: 64px;
 }
 
-/* ---- Light scheme (default) ---- */
 :root {
 	--md-sys-color-primary: #0b57d0;
 	--md-sys-color-on-primary: #ffffff;
@@ -100,7 +85,6 @@
 	--md-sys-color-on-success-container: #072711;
 }
 
-/* ---- Dark scheme ---- */
 @media (prefers-color-scheme: dark) {
 	:root {
 		--md-sys-color-primary: #a8c7fa;
@@ -135,13 +119,6 @@
 	box-sizing: border-box;
 }
 
-/*
- * The hidden attribute is the one thing the whole page relies on to show or hide panels, badges and
- * secondary text. It is worth knowing that the browser stylesheet rule for it has zero specificity,
- * so ANY author rule that sets `display` on the same element silently defeats it - `.badge` and
- * `.chip__count` both do exactly that. This makes hidden mean hidden everywhere, whatever else the
- * element is styled with.
- */
 [hidden] {
 	display: none !important;
 }
@@ -159,7 +136,7 @@ body {
 	font-family: var(--md-ref-typeface-plain);
 	font-size: var(--md-sys-typescale-body-medium-size);
 	line-height: var(--md-sys-typescale-body-medium-line-height);
-	/* A faint grid, echoing the in-game map's block grid without drawing any terrain yet. */
+	
 	background-image:
 		linear-gradient(var(--md-sys-color-outline-variant) 1px, transparent 1px),
 		linear-gradient(90deg, var(--md-sys-color-outline-variant) 1px, transparent 1px);
@@ -237,7 +214,11 @@ body {
 	color: var(--md-sys-color-on-primary-container);
 }
 
-.card__icon svg {
+.card__icon svg,
+.topbar__icon svg,
+.search__icon svg,
+.row__edit svg,
+.icon-button svg {
 	fill: currentColor;
 }
 
@@ -256,20 +237,6 @@ body {
 	color: var(--md-sys-color-on-surface-variant);
 }
 
-.card__badges {
-	display: flex;
-	flex-wrap: wrap;
-	gap: 8px;
-}
-
-/*
- * View switching.
- *
- * The attribute lives on <body> rather than on the card, because the dashboard shell and the centred
- * card are siblings that trade places - so one attribute has to drive both. CSS reveals exactly the
- * matching panel, which means there is no way to end up with two views visible at once, something a
- * class-toggling approach would allow if a code path forgot to hide the previous one.
- */
 .view {
 	display: none;
 	flex-direction: column;
@@ -278,16 +245,11 @@ body {
 }
 
 body[data-view="readonly"] .view[data-view="readonly"],
-body[data-view="signedin"] .view[data-view="signedin"],
 body[data-view="offline"] .view[data-view="offline"],
 body[data-view="expired"] .view[data-view="expired"] {
 	display: flex;
 }
 
-/*
- * The headline for a visitor who cannot edit. Deliberately the largest text on the page: being
- * unable to edit is the one thing that must not be missed, and this is what a hand-typed URL shows.
- */
 .view__headline {
 	margin: 0;
 	font-size: 26px;
@@ -300,14 +262,6 @@ body[data-view="expired"] .view[data-view="expired"] {
 	color: var(--md-sys-color-on-surface-variant);
 }
 
-.view__note {
-	margin: 0;
-	font-size: var(--md-sys-typescale-label-medium-size);
-	line-height: var(--md-sys-typescale-label-medium-line-height);
-	color: var(--md-sys-color-on-surface-variant);
-}
-
-/* MD3 text button: no container, a state layer on hover/press, and a ripple-free scale feedback. */
 .button {
 	font: inherit;
 	font-weight: var(--md-sys-typescale-weight-medium);
@@ -333,14 +287,6 @@ body[data-view="expired"] .view[data-view="expired"] {
 	background-color: color-mix(in srgb, var(--md-sys-color-primary) 12%, transparent);
 }
 
-/*
- * MD3 filled button: the affirmative action.
- *
- * This class was referenced long before it was defined - the editing card's Save used it and silently fell
- * back to the bare `.button` rule, which has no background, so it rendered as an unfilled pill and read as
- * disabled even when it was not. A class name that looks plausible and does nothing is worse than a missing
- * one, because nothing complains.
- */
 .button--filled {
 	padding: 10px 24px;
 	background-color: var(--md-sys-color-primary);
@@ -358,16 +304,10 @@ body[data-view="expired"] .view[data-view="expired"] {
 }
 
 .button--filled:disabled {
-	/* The container stays but loses its fill, which is MD3's disabled treatment and reads as unavailable
-	   rather than as missing. */
+	
 	background-color: color-mix(in srgb, var(--md-sys-color-on-surface) 12%, transparent);
 	color: color-mix(in srgb, var(--md-sys-color-on-surface) 38%, transparent);
 	opacity: 1;
-}
-
-.button:focus-visible {
-	outline: 3px solid var(--md-sys-color-primary);
-	outline-offset: 2px;
 }
 
 .button:disabled {
@@ -421,10 +361,6 @@ body[data-view="expired"] .view[data-view="expired"] {
 	animation: none;
 }
 
-/*
- * Read-only is a normal, expected state rather than a failure, so it uses the neutral container
- * instead of the error one. The point is to inform, not to alarm.
- */
 .badge[data-state="readonly"] {
 	background-color: var(--md-sys-color-surface-container-high);
 	color: var(--md-sys-color-on-surface-variant);
@@ -434,14 +370,11 @@ body[data-view="expired"] .view[data-view="expired"] {
 	animation: none;
 }
 
-/* Editable is the counterpart of the read-only badge: same shape, different wording and colour, so
-   the visitor can tell at a glance which one applies to them. */
 .badge[data-state="editable"] {
 	background-color: var(--md-sys-color-primary-container);
 	color: var(--md-sys-color-on-primary-container);
 }
 
-/* The signed-in account badge: no dot, just the name on a primary container. */
 .badge--account {
 	background-color: var(--md-sys-color-secondary-container);
 	color: var(--md-sys-color-on-secondary-container);
@@ -471,10 +404,6 @@ body[data-view="expired"] .view[data-view="expired"] {
 	font-weight: var(--md-sys-typescale-weight-semibold);
 }
 
-/*
- * The plain-HTTP warning. Shown only when the operator has opened the service to the network, which
- * is the setting that makes sign-in tokens readable in transit.
- */
 .card__warning {
 	margin: 0;
 	padding: 12px 16px;
@@ -494,28 +423,15 @@ body[data-view="expired"] .view[data-view="expired"] {
 	line-height: var(--md-sys-typescale-label-medium-line-height);
 }
 
-/* =====================================================================================
-   Application shell - the dashboard layout
-   =====================================================================================
-   Which of the two layouts is visible is driven entirely by data-view on <body>, so there is no
-   way for the shell and the card to be on screen together. */
-
 .shell,
 .stage {
 	display: none;
 }
 
-/*
- * The dashboard is a fixed-height application frame, not a document.
- *
- * Without this the shell grows to fit the sidebar's contents, the page itself becomes scrollable,
- * and scrolling the list drags the top bar and map off screen. Pinning the height to the viewport and
- * clipping the overflow means the only thing that ever scrolls is .sidebar__list.
- */
 body[data-view="dashboard"] {
 	height: 100vh;
 	overflow: hidden;
-	/* The decorative grid belongs to the notice layouts, not to an application frame. */
+	
 	background-image: none;
 	background-color: var(--md-sys-color-surface-container-low);
 }
@@ -527,12 +443,9 @@ body[data-view="dashboard"] .shell {
 	overflow: hidden;
 }
 
-/* Every state other than the dashboard is a centred notice, and those do scroll when they are tall. */
 body:not([data-view="dashboard"]) .stage {
 	display: grid;
 }
-
-/* ---- top bar ---- */
 
 .topbar {
 	height: var(--mtr-topbar-height);
@@ -564,10 +477,6 @@ body:not([data-view="dashboard"]) .stage {
 	color: var(--md-sys-color-on-primary-container);
 }
 
-.topbar__icon svg {
-	fill: currentColor;
-}
-
 .topbar__title {
 	margin: 0;
 	font-size: var(--md-sys-typescale-title-medium-size);
@@ -584,9 +493,6 @@ body:not([data-view="dashboard"]) .stage {
 	text-overflow: ellipsis;
 }
 
-
-/* While an area is being drawn the editing bar owns the top of the map and shows the selection size, so
-   the coordinate readout would collide with it and is hidden instead. */
 .map-area.is-editing .map-readout {
 	display: none;
 }
@@ -596,8 +502,6 @@ body:not([data-view="dashboard"]) .stage {
 	align-items: center;
 	gap: 8px;
 }
-
-/* ---- content split ---- */
 
 .content {
 	flex: 1 1 auto;
@@ -615,21 +519,13 @@ body:not([data-view="dashboard"]) .stage {
 	border-right: 1px solid var(--md-sys-color-outline-variant);
 }
 
-/*
- * The map.
- *
- * `position: relative` with an absolutely positioned canvas, rather than a canvas sized by `height:
- * 100%`. A percentage height needs a parent with a definite height, and a flex item's height is not
- * definite - the canvas would collapse to its intrinsic 300x150. Filling an absolutely positioned box
- * sidesteps that entirely, and the parent's own height comes from the flex row above it.
- */
 .map-area {
 	position: relative;
 	flex: 1 1 auto;
 	min-width: 0;
 	min-height: 0;
 	overflow: hidden;
-	/* Matches the canvas background so there is no flash of a different colour before the first paint. */
+	
 	background-color: #121212;
 }
 
@@ -639,17 +535,14 @@ body:not([data-view="dashboard"]) .stage {
 	width: 100%;
 	height: 100%;
 	display: block;
-	/* The map handles its own gestures; letting the browser also scroll or zoom fights with it. */
+	
 	touch-action: none;
 }
 
-/* While an area is being redrawn, a left drag draws instead of panning. A crosshair is the only thing
-   that says so; without it the change in behaviour is invisible until the user tries to pan. */
 .map-area.is-editing #map {
 	cursor: crosshair;
 }
 
-/* Overlay controls, so they take no space away from the map. */
 .map-controls {
 	position: absolute;
 	top: 12px;
@@ -660,8 +553,6 @@ body:not([data-view="dashboard"]) .stage {
 	z-index: 2;
 }
 
-/* The map's own overlay chrome shares one surface treatment: a translucent dark panel over the light
-   map background, which is what makes the white labels readable in both colour schemes. */
 .map-controls .icon-button,
 .map-editing-bar .button,
 .map-readout {
@@ -698,8 +589,6 @@ body:not([data-view="dashboard"]) .stage {
 	text-overflow: ellipsis;
 }
 
-/* The live size of the rectangle being dragged. Tabular figures so the number does not jitter the bar
-   wider as the digits change. */
 .map-editing-bar__size {
 	flex: 0 0 auto;
 	padding: 2px 10px;
@@ -730,7 +619,6 @@ body:not([data-view="dashboard"]) .stage {
 	background-color: rgba(168, 199, 250, 0.12);
 }
 
-/* The save button is the one affirmative action in the bar, so it carries the filled treatment. */
 .map-editing-bar .button--filled {
 	background-color: #a8c7fa;
 	color: #062e6f;
@@ -747,19 +635,12 @@ body:not([data-view="dashboard"]) .stage {
 	color: #8f9291;
 }
 
-/*
- * Coordinate readout, pinned to the map's top-right corner: directly under the top bar and hard against
- * the right edge. Coordinates only - the player's name is shown once, elsewhere.
- */
 .map-readout {
 	position: absolute;
 	top: 8px;
 	right: 8px;
 	padding: 4px 10px;
 	border-radius: var(--md-sys-shape-corner-small);
-	background-color: rgba(32, 33, 36, 0.85);
-	color: #e3e3e3;
-	backdrop-filter: blur(4px);
 	font-size: var(--md-sys-typescale-label-medium-size);
 	line-height: var(--md-sys-typescale-label-medium-line-height);
 	font-variant-numeric: tabular-nums;
@@ -767,8 +648,6 @@ body:not([data-view="dashboard"]) .stage {
 	z-index: 2;
 }
 
-/* Narrow viewports stack instead of squeezing both panes; the map needs a usable width, and the
-   sidebar is the part that can be scrolled. */
 @media (max-width: 900px) {
 	.content {
 		flex-direction: column;
@@ -787,8 +666,6 @@ body:not([data-view="dashboard"]) .stage {
 		min-height: 40vh;
 	}
 }
-
-/* ---- sidebar sections ---- */
 
 .sidebar__filters {
 	padding: 12px 12px 4px;
@@ -811,8 +688,6 @@ body:not([data-view="dashboard"]) .stage {
 	transition: border-color var(--md-sys-motion-duration-short) var(--md-sys-motion-easing-standard);
 }
 
-/* MD3 outlined field: the border thickens and turns primary on focus rather than the whole field
-   changing colour. */
 .sidebar__search:focus-within {
 	border-color: var(--md-sys-color-primary);
 	box-shadow: inset 0 0 0 1px var(--md-sys-color-primary);
@@ -822,10 +697,6 @@ body:not([data-view="dashboard"]) .stage {
 	display: grid;
 	place-items: center;
 	color: var(--md-sys-color-on-surface-variant);
-}
-
-.search__icon svg {
-	fill: currentColor;
 }
 
 .search__input {
@@ -840,23 +711,10 @@ body:not([data-view="dashboard"]) .stage {
 	font-size: var(--md-sys-typescale-body-medium-size);
 }
 
-/* The browser's own clear affordance duplicates the icon button next to it. */
 .search__input::-webkit-search-cancel-button {
 	display: none;
 }
 
-/*
- * The one scrolling region in the whole application.
- *
- * `overflow-y: auto` alone is not enough here: a flex item's default `min-height` is `auto`, so the
- * box grows to fit its contents instead of scrolling and the overflow never triggers. `min-height: 0`
- * is what actually turns this into the scroll container. With it, a list of any length scrolls
- * smoothly inside the sidebar while the top bar and map stay put - which is the whole point of
- * replacing the game's page arrows.
- *
- * `overscroll-behavior: contain` stops a flick at the end of the list from scrolling the page behind
- * it (or triggering the browser's back gesture on a trackpad).
- */
 .sidebar__list {
 	flex: 1 1 auto;
 	min-height: 0;
@@ -866,7 +724,7 @@ body:not([data-view="dashboard"]) .stage {
 	display: flex;
 	flex-direction: column;
 	gap: 2px;
-	/* A slimmer, themed scrollbar; the default one is visually heavy against the MD3 surfaces. */
+	
 	scrollbar-width: thin;
 	scrollbar-color: var(--md-sys-color-outline-variant) transparent;
 }
@@ -888,12 +746,6 @@ body:not([data-view="dashboard"]) .stage {
 	background-color: var(--md-sys-color-outline);
 }
 
-/* ---- filter chips (MD3) ----
-   MD3 filter chip: 32dp tall, 8dp corner, 16dp horizontal padding, a 1dp outline when unselected
-   and a filled secondary container plus a leading check when selected. The leading check is the
-   spec's requirement that selection not be signalled by colour alone.
-   Sizes here are exactly the spec's: 8dp corner radius, 18x18 icon box, 8dp gap. */
-
 .chips {
 	display: flex;
 	flex-wrap: wrap;
@@ -905,7 +757,7 @@ body:not([data-view="dashboard"]) .stage {
 	align-items: center;
 	gap: 8px;
 	height: 32px;
-	/* 12px + the 1px border + the 3px focus ring space keeps the visual padding at the spec's 16dp. */
+	
 	padding: 0 15px;
 	border: 1px solid var(--md-sys-color-outline);
 	border-radius: var(--md-sys-shape-corner-small);
@@ -930,7 +782,7 @@ body:not([data-view="dashboard"]) .stage {
 
 .chip[aria-pressed="true"] {
 	background-color: var(--md-sys-color-secondary-container);
-	/* Transparent rather than removed, so selecting a chip does not shift the text by a pixel. */
+	
 	border-color: transparent;
 	color: var(--md-sys-color-on-secondary-container);
 }
@@ -939,8 +791,6 @@ body:not([data-view="dashboard"]) .stage {
 	background-color: color-mix(in srgb, var(--md-sys-color-on-secondary-container) calc(var(--md-sys-state-hover-opacity) * 100%), var(--md-sys-color-secondary-container));
 }
 
-/* The leading check, drawn from two borders so no icon font or sprite is needed. Only present when
-   selected, which is why selecting a chip widens it - the same thing the real component does. */
 .chip[aria-pressed="true"]::before {
 	content: "";
 	width: 8px;
@@ -970,26 +820,6 @@ body:not([data-view="dashboard"]) .stage {
 	outline-offset: 2px;
 }
 
-.hint {
-	margin: 8px 0 0;
-	color: var(--md-sys-color-on-surface-variant);
-	font-size: var(--md-sys-typescale-body-small-size);
-	line-height: var(--md-sys-typescale-body-small-line-height);
-}
-
-/*
- * MD3 filled tonal button.
- *
- * The container is the primary container, not the secondary one. In this dark palette
- * `--md-sys-color-secondary-container` is #444746 - a neutral grey within a few percent of the panel
- * behind it - so the button rendered as a dead grey block with no hierarchy at all: light grey text on a
- * dark grey fill, floating in a dark panel. The primary container (#0842a0) is the tonal surface the
- * component is meant to use: it carries the accent hue at low emphasis, which is what makes a filled
- * tonal button recognisable as one.
- *
- * The state layer follows the same `color-mix` over the container that the chips already use, so hover and
- * press behave identically across the panel.
- */
 .button--tonal {
 	min-height: 40px;
 	padding: 0 24px;
@@ -1004,8 +834,7 @@ body:not([data-view="dashboard"]) .stage {
 	align-items: center;
 	justify-content: center;
 	gap: 8px;
-	/* Icon and label stay on one line at the label-large size; without this the icon can ride above the
-	   text baseline and the whole button reads as misaligned. */
+	
 	white-space: nowrap;
 	transition: background-color var(--md-sys-motion-duration-short) var(--md-sys-motion-easing-standard);
 }
@@ -1015,18 +844,12 @@ body:not([data-view="dashboard"]) .stage {
 	flex: 0 0 auto;
 }
 
-/* MD3 state layer: the foreground colour at the state's opacity, mixed into the container. */
 .button--tonal:hover:not(:disabled) {
 	background-color: color-mix(in srgb, var(--md-sys-color-on-primary-container) calc(var(--md-sys-state-hover-opacity) * 100%), var(--md-sys-color-primary-container));
 }
 
 .button--tonal:active:not(:disabled) {
 	background-color: color-mix(in srgb, var(--md-sys-color-on-primary-container) calc(var(--md-sys-state-pressed-opacity) * 100%), var(--md-sys-color-primary-container));
-}
-
-.button--tonal:focus-visible {
-	outline: 3px solid var(--md-sys-color-primary);
-	outline-offset: 2px;
 }
 
 .button--tonal:disabled {
@@ -1039,17 +862,12 @@ body:not([data-view="dashboard"]) .stage {
 	width: 100%;
 }
 
-/* Height and padding of the compact text button used inside the map's editing bar. */
 .button--small {
 	min-height: 32px;
 	padding: 0 12px;
 	font-size: var(--md-sys-typescale-label-medium-size);
 	line-height: var(--md-sys-typescale-label-medium-line-height);
 }
-
-/* ---- primary tabs (MD3) ----
-   MD3 primary tabs: 48dp tall, active indicator is a 3dp bar with the top corners rounded to 3dp,
-   active label in primary, inactive in on-surface-variant. */
 
 .tabs {
 	display: flex;
@@ -1091,10 +909,6 @@ body:not([data-view="dashboard"]) .stage {
 	background-color: var(--md-sys-color-primary);
 }
 
-/* ---- list rows (MD3 list items) ----
-   MD3 list item: 56dp minimum height, 16dp leading, primary text in body-large, supporting text in
-   body-medium/on-surface-variant, 8dp state layer at 8% (hover) and 12% (selected). */
-
 .row {
 	display: flex;
 	align-items: center;
@@ -1109,7 +923,7 @@ body:not([data-view="dashboard"]) .stage {
 	font: inherit;
 	text-align: left;
 	cursor: pointer;
-	/* Staggered entrance, capped in JS at 8 rows so a full page does not crawl in. */
+	
 	animation: row-enter var(--md-sys-motion-duration-medium) var(--md-sys-motion-easing-emphasized) both;
 	animation-delay: calc(var(--row-index, 0) * 12ms);
 	transition: background-color var(--md-sys-motion-duration-short) var(--md-sys-motion-easing-standard);
@@ -1145,8 +959,6 @@ body:not([data-view="dashboard"]) .stage {
 	border-radius: var(--md-sys-shape-corner-extra-small);
 }
 
-/* Colour 0 is a real value and would draw an invisible black square, so it is shown as an empty
-   outlined slot instead, which reads as "no colour set" rather than as a rendering fault. */
 .row__swatch--empty {
 	border: 1px solid var(--md-sys-color-outline);
 	background-color: transparent;
@@ -1178,7 +990,7 @@ body:not([data-view="dashboard"]) .stage {
 
 .row__mode {
 	flex: 0 0 auto;
-	/* Pushes the badge, and with it the edit button, to the right end of the row. */
+	
 	margin-left: auto;
 	padding: 2px 8px;
 	border-radius: var(--md-sys-shape-corner-small);
@@ -1188,8 +1000,6 @@ body:not([data-view="dashboard"]) .stage {
 	line-height: var(--md-sys-typescale-label-medium-line-height);
 }
 
-/* The row's single action. The whole row is clickable too, but an icon makes the affordance discoverable
-   rather than something to be guessed at. */
 .row__edit {
 	flex: 0 0 auto;
 	display: inline-flex;
@@ -1197,7 +1007,7 @@ body:not([data-view="dashboard"]) .stage {
 	justify-content: center;
 	width: 32px;
 	height: 32px;
-	/* Also auto, so the button still sits at the right end on a row with no mode badge. */
+	
 	margin-left: auto;
 	padding: 0;
 	border: none;
@@ -1219,24 +1029,12 @@ body:not([data-view="dashboard"]) .stage {
 	outline-offset: 2px;
 }
 
-.row__edit svg {
-	fill: currentColor;
-}
-
-/* ---- the editing card ---------------------------------------------------- */
-
-/*
- * A non-modal popover anchored to the object on the map.
- *
- * `position: absolute` inside the map area, whose coordinates `left` and `top` are in - that is what the
- * placement maths in focus.js produces, and why the card is a child of the map area rather than the body.
- */
 .edit-card {
 	position: absolute;
 	z-index: 5;
 	display: flex;
 	flex-direction: column;
-	/* Overridden inline when the card has to be docked across the bottom of a narrow map. */
+	
 	width: 320px;
 	max-height: calc(100% - 16px);
 	border-radius: 16px;
@@ -1257,8 +1055,6 @@ body:not([data-view="dashboard"]) .stage {
 	}
 }
 
-/* The pointer at the object: a rotated square in the card's own colour, so the two read as one shape.
-   Hidden by JS when it could not reach the anchor, which is better than pointing at nothing. */
 .edit-card__arrow {
 	position: absolute;
 	width: 20px;
@@ -1303,7 +1099,6 @@ body:not([data-view="dashboard"]) .stage {
 	color: var(--md-sys-color-on-surface-variant);
 }
 
-/* MD3 outlined text field: a 1px outline that thickens and takes the primary colour on focus. */
 .edit-field__input {
 	box-sizing: border-box;
 	width: 100%;
@@ -1327,16 +1122,6 @@ body:not([data-view="dashboard"]) .stage {
 	font-size: var(--md-sys-typescale-body-small-size);
 }
 
-/* ---- colour picker ------------------------------------------------------- */
-
-/*
- * A continuous HSV picker: a saturation/value square with a hue bar beside it.
- *
- * The square is composed from three stacked backgrounds rather than drawn on a canvas - the pure hue
- * underneath, white faded in from the left, black faded in from the bottom. That composition IS the SV
- * plane, so dragging never repaints a gradient: only the cursors move, and the hue layer is touched only
- * when the hue itself changes.
- */
 .color-picker {
 	display: flex;
 	flex-direction: column;
@@ -1351,14 +1136,12 @@ body:not([data-view="dashboard"]) .stage {
 
 .color-picker__panel {
 	position: relative;
-	/* Fills the row rather than being a fixed width, so the square and the hue bar together span the card
-	   instead of leaving a strip of empty space to their right. The row is given an explicit height because
-	   a percentage height has no definite parent here. */
+	
 	flex: 1 1 auto;
 	min-width: 0;
 	height: 150px;
 	border-radius: var(--md-sys-shape-corner-extra-small);
-	/* Without this the browser treats a drag as a scroll on touch devices and the panel never sees it. */
+	
 	touch-action: none;
 	cursor: crosshair;
 	overflow: hidden;
@@ -1370,7 +1153,6 @@ body:not([data-view="dashboard"]) .stage {
 	outline-offset: 2px;
 }
 
-/* The base layer. Its backgroundColor is set inline from the hue. */
 .color-picker__hue-layer,
 .color-picker__white-layer,
 .color-picker__black-layer {
@@ -1378,7 +1160,6 @@ body:not([data-view="dashboard"]) .stage {
 	inset: 0;
 }
 
-/* White across the saturation axis, black up the value axis. Together they are the SV plane. */
 .color-picker__white-layer {
 	background: linear-gradient(to right, #FFFFFF, rgba(255, 255, 255, 0));
 }
@@ -1393,11 +1174,10 @@ body:not([data-view="dashboard"]) .stage {
 	width: 12px;
 	height: 12px;
 	border-radius: 50%;
-	/* Two rings, one light and one dark: a single ring vanishes against either the black corner or the white
-	   one, and the cursor has to be findable at both ends of both axes. */
+	
 	box-shadow: inset 0 0 0 2px #FFFFFF, 0 0 0 1px rgba(0, 0, 0, 0.6), 0 0 2px 2px rgba(0, 0, 0, 0.25);
 	transform: translate(-50%, -50%);
-	/* The cursors must never swallow the drag that is moving them. */
+	
 	pointer-events: none;
 }
 
@@ -1406,7 +1186,7 @@ body:not([data-view="dashboard"]) .stage {
 	flex: 0 0 20px;
 	width: 20px;
 	border-radius: var(--md-sys-shape-corner-extra-small);
-	/* Seven stops at 60 degree intervals: red, yellow, green, cyan, blue, magenta and back to red. */
+	
 	background: linear-gradient(
 		to bottom,
 		#FF0000 0%,
@@ -1447,8 +1227,6 @@ body:not([data-view="dashboard"]) .stage {
 	text-transform: lowercase;
 }
 
-/* A value the picker could not read. Marked rather than replaced, so the visitor can see and fix what they
-   typed; blur rolls it back to the real colour. */
 .color-picker__hex[data-invalid='true'] {
 	border-color: var(--md-sys-color-error, #f2b8b5);
 	box-shadow: inset 0 0 0 1px var(--md-sys-color-error, #f2b8b5);
@@ -1479,8 +1257,6 @@ body:not([data-view="dashboard"]) .stage {
 	padding: 12px 16px 16px;
 }
 
-/* ---- empty states ---- */
-
 .empty {
 	padding: 32px 24px;
 	text-align: center;
@@ -1499,8 +1275,6 @@ body:not([data-view="dashboard"]) .stage {
 	font-size: var(--md-sys-typescale-body-small-size);
 	line-height: var(--md-sys-typescale-body-small-line-height);
 }
-
-/* ---- icon buttons (MD3) ---- */
 
 .icon-button {
 	width: 40px;
@@ -1525,17 +1299,12 @@ body:not([data-view="dashboard"]) .stage {
 	cursor: default;
 }
 
-.icon-button svg {
-	fill: currentColor;
-}
-
 .icon-button--small {
 	width: 32px;
 	height: 32px;
 	flex: 0 0 32px;
 }
 
-/* Spins while a reload is in flight, so a slow game tick does not look like a frozen page. */
 .icon-button.is-busy svg {
 	animation: spin 900ms linear infinite;
 }
