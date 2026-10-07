@@ -16,6 +16,7 @@ import mtr.data.LiftClient;
 import mtr.data.NameColorDataBase;
 import mtr.data.Rail;
 import mtr.data.RailwayData;
+import mtr.data.SerializedDataBase;
 import mtr.data.Siding;
 import mtr.data.Train;
 import mtr.data.TransportMode;
@@ -375,11 +376,17 @@ public class PacketTrainDataGuiClient extends PacketTrainDataBase {
 
 	public static void generatePathS2C(Minecraft minecraftClient, FriendlyByteBuf packet) {
 		final long depotId = packet.readLong();
+		final int reason = packet.readInt();
 		final int successfulSegments = packet.readInt();
+		final int totalSegments = packet.readInt();
+		final String sidingName = packet.readUtf(SerializedDataBase.PACKET_STRING_READ_LENGTH);
 		minecraftClient.execute(() -> {
 			final Depot depot = ClientData.DATA_CACHE.depotIdMap.get(depotId);
 			if (depot != null) {
+				depot.clientPathGenerationReason = reason;
 				depot.clientPathGenerationSuccessfulSegments = successfulSegments;
+				depot.clientPathGenerationTotalSegments = totalSegments;
+				depot.clientPathGenerationSiding = sidingName;
 			}
 		});
 	}

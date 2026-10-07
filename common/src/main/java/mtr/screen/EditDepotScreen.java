@@ -6,6 +6,7 @@ import mtr.data.DataConverter;
 import mtr.data.Depot;
 import mtr.data.IGui;
 import mtr.data.NameColorDataBase;
+import mtr.data.Platform;
 import mtr.data.RailwayData;
 import mtr.data.Route;
 import mtr.data.Siding;
@@ -363,61 +364,146 @@ public class EditDepotScreen extends EditNameColorScreenBase<Depot> {
         return false;
     }
 
+    /**
+     * The path status shown under the depot buttons. Every entity is labelled (route / depot / station /
+     * platform) and the failing legs are described with coordinates and a short checklist, because a bare
+     * "path not found between A and B" is unreadable when the depot shares a name with a station.
+     */
     private Component getSuccessfulSegmentsText() {
         final int successfulSegments = data.clientPathGenerationSuccessfulSegments;
 
         if (successfulSegments < 0) {
             return Text.translatable("gui.mtr.generating_path");
-        } else if (successfulSegments == 0) {
-            return Text.translatable("gui.mtr.path_not_generated");
+        } else if (data.clientPathGenerationReason == Depot.PATH_REASON_NO_SIDING) {
+            // No siding of this depot lies inside its region, so no search happened at all. Naming that case
+            // beats either an endless "generating" or a result invented from the sentinel.
+            return Text.translatable("gui.mtr.path_no_siding_in_depot", depotName(), sidingsInDepot.size());
+        } else if (data.clientPathGenerationReason == Depot.PATH_REASON_NOT_GENERATED || successfulSegments == 0) {
+            return Text.translatable("gui.mtr.path_not_generated", routeNames());
+        } else if (data.clientPathGenerationReason == Depot.PATH_REASON_LEGACY) {
+            // Result pushed through the previous API, which cannot carry the server's platform count:
+            // decide it exactly the way it was decided before this change.
+            return getSuccessfulSegmentsTextLegacy(successfulSegments);
         } else {
-            final List<String> stationNames = new ArrayList<>();
-            final List<String> routeNames = new ArrayList<>();
-            final String depotName = IGui.textOrUntitled(IGui.formatStationName(data.name));
+            // The platform count is the one the server used, not one recomputed from the client's caches.
+            // Recomputing it here is how a half-generated path used to be shown as a full success: a route
+            // the client has not received (or a depot whose route list is stale) contributes zero platforms,
+            // and the comparison below then finds every segment accounted for.
+            final int sum = data.clientPathGenerationTotalSegments;
+            if (sum < 2) {
+                return Text.translatable("gui.mtr.path_not_enough_platforms", routeNames(), sum);
+            } else if (successfulSegments == 1) {
+                return Text.translatable("gui.mtr.path_not_found_depot_to_platform", routeNames(), depotName(), describePlatform(0));
+            } else if (successfulSegments >= sum + 2) {
+                return Text.translatable("gui.mtr.path_found");
+            } else if (successfulSegments >= sum + 1) {
+                // Every platform-to-platform leg was found; only the way back to the depot is missing.
+                return Text.translatable("gui.mtr.path_not_found_platform_to_depot", routeNames(), describePlatform(sum - 1), depotName(), sum);
+            } else {
+                // The chain broke at pair (successfulSegments - 2); everything before it is known to be fine.
+                final int breakIndex = successfulSegments - 2;
+                return Text.translatable("gui.mtr.path_not_found_between_platforms", routeNames(), describePlatform(breakIndex), describePlatform(breakIndex + 1), breakIndex + 1);
+            }
+        }
+    }
 
-            if (successfulSegments == 1) {
-                RailwayData.useRoutesAndStationsFromIndex(0, data.routeIds, ClientData.DATA_CACHE, (currentStationIndex, thisRoute, nextRoute, thisStation, nextStation, lastStation) -> {
+    private String depotName() {
+        return IGui.textOrUntitled(IGui.formatStationName(data.name));
+    }
+
+    /**
+     * The route names of this depot, plus the siding the server blamed when it reported a failure - with
+     * several sidings in one depot the depot-wide result is only the worst one, so naming it saves a hunt.
+     */
+    private String routeNames() {
+        final List<String> names = new ArrayList<>();
+        data.routeIds.forEach(routeId -> {
+            final Route route = ClientData.DATA_CACHE.routeIdMap.get(routeId);
+            names.add(route == null ? Text.translatable("gui.mtr.path_unknown_route").getString() : IGui.textOrUntitled(IGui.formatStationName(route.name)));
+        });
+        String text = names.isEmpty() ? Text.translatable("gui.mtr.path_no_route").getString() : String.join(" / ", names);
+
+        final String siding = data.clientPathGenerationSiding;
+        if (siding != null && !siding.isEmpty()) {
+            text = text + " · " + Text.translatable("gui.mtr.path_line_siding", IGui.formatStationName(siding)).getString();
+        }
+
+        return text;
+    }
+
+    /**
+     * "甲站 1站台 (-45, -60)" for the platform the server counted at this index. A name the client has not
+     * received is reported as unknown together with its id, so a stale cache is visible instead of a bare "-".
+     */
+    private String describePlatform(int index) {
+        final List<String> descriptions = new ArrayList<>();
+        RailwayData.useRoutesAndStationsFromIndex(index, data.routeIds, ClientData.DATA_CACHE, (currentStationIndex, thisRoute, nextRoute, thisStation, nextStation, lastStation) -> {
+            if (thisRoute == null || currentStationIndex < 0 || currentStationIndex >= thisRoute.platformIds.size()) {
+                return;
+            }
+
+            final long platformId = thisRoute.platformIds.get(currentStationIndex).platformId;
+            final Platform platform = ClientData.DATA_CACHE.platformIdMap.get(platformId);
+            final String stationName = thisStation == null ? Text.translatable("gui.mtr.path_unknown_station").getString() : IGui.textOrUntitled(IGui.formatStationName(thisStation.name));
+            final String platformName = platform == null ? Text.translatable("gui.mtr.path_unknown_platform", platformId).getString() : Text.translatable("gui.mtr.platform", platform.name).getString();
+            final String position = platform == null ? "" : String.format(" (%d, %d)", platform.getMidPos().getX(), platform.getMidPos().getZ());
+            descriptions.add(String.format("%s %s%s", stationName, platformName, position));
+        });
+        return descriptions.isEmpty() ? Text.translatable("gui.mtr.path_unknown_platform", index + 1).getString() : descriptions.get(0);
+    }
+
+    /**
+     * The decision as it stood before the server started sending the reason and the platform count.
+     * It is reached only through {@link Depot#PATH_REASON_LEGACY}, so an addon that still calls the old
+     * {@code generatePathS2C} entry point keeps the behaviour it was compiled against.
+     */
+    private Component getSuccessfulSegmentsTextLegacy(int successfulSegments) {
+        final List<String> stationNames = new ArrayList<>();
+        final List<String> routeNames = new ArrayList<>();
+        final String depotName = IGui.textOrUntitled(IGui.formatStationName(data.name));
+
+        if (successfulSegments == 1) {
+            RailwayData.useRoutesAndStationsFromIndex(0, data.routeIds, ClientData.DATA_CACHE, (currentStationIndex, thisRoute, nextRoute, thisStation, nextStation, lastStation) -> {
+                stationNames.add(IGui.textOrUntitled(thisStation == null ? "" : IGui.formatStationName(thisStation.name)));
+                routeNames.add(IGui.textOrUntitled(thisRoute == null ? "" : IGui.formatStationName(thisRoute.name)));
+            });
+            stationNames.add("-");
+            routeNames.add("-");
+
+            return Text.translatable("gui.mtr.path_not_found_between", routeNames.get(0), depotName, stationNames.get(0));
+        } else {
+            int sum = 0;
+            for (int i = 0; i < data.routeIds.size(); i++) {
+                final Route thisRoute = ClientData.DATA_CACHE.routeIdMap.get(data.routeIds.get(i));
+                final Route nextRoute = i < data.routeIds.size() - 1 ? ClientData.DATA_CACHE.routeIdMap.get(data.routeIds.get(i + 1)) : null;
+                if (thisRoute != null) {
+                    sum += thisRoute.platformIds.size();
+                    if (!thisRoute.platformIds.isEmpty() && nextRoute != null && !nextRoute.platformIds.isEmpty() && thisRoute.getLastPlatformId() == nextRoute.getFirstPlatformId()) {
+                        sum--;
+                    }
+                }
+            }
+
+            if (successfulSegments >= sum + 2) {
+                return Text.translatable("gui.mtr.path_found");
+            } else {
+                RailwayData.useRoutesAndStationsFromIndex(successfulSegments - 2, data.routeIds, ClientData.DATA_CACHE, (currentStationIndex, thisRoute, nextRoute, thisStation, nextStation, lastStation) -> {
                     stationNames.add(IGui.textOrUntitled(thisStation == null ? "" : IGui.formatStationName(thisStation.name)));
-                    routeNames.add(IGui.textOrUntitled(thisRoute == null ? "" : IGui.formatStationName(thisRoute.name)));
+                    if (nextStation == null) {
+                        RailwayData.useRoutesAndStationsFromIndex(successfulSegments - 1, data.routeIds, ClientData.DATA_CACHE, (currentStationIndex1, thisRoute1, nextRoute1, thisStation1, nextStation1, lastStation1) -> stationNames.add(IGui.textOrUntitled(thisStation1 == null ? "" : IGui.formatStationName(thisStation1.name))));
+                    } else {
+                        stationNames.add(IGui.textOrUntitled(IGui.formatStationName(nextStation.name)));
+                    }
+                    routeNames.add(IGui.textOrUntitled(IGui.formatStationName(thisRoute.name)));
                 });
+                stationNames.add("-");
                 stationNames.add("-");
                 routeNames.add("-");
 
-                return Text.translatable("gui.mtr.path_not_found_between", routeNames.get(0), depotName, stationNames.get(0));
-            } else {
-                int sum = 0;
-                for (int i = 0; i < data.routeIds.size(); i++) {
-                    final Route thisRoute = ClientData.DATA_CACHE.routeIdMap.get(data.routeIds.get(i));
-                    final Route nextRoute = i < data.routeIds.size() - 1 ? ClientData.DATA_CACHE.routeIdMap.get(data.routeIds.get(i + 1)) : null;
-                    if (thisRoute != null) {
-                        sum += thisRoute.platformIds.size();
-                        if (!thisRoute.platformIds.isEmpty() && nextRoute != null && !nextRoute.platformIds.isEmpty() && thisRoute.getLastPlatformId() == nextRoute.getFirstPlatformId()) {
-                            sum--;
-                        }
-                    }
-                }
-
-                if (successfulSegments >= sum + 2) {
-                    return Text.translatable("gui.mtr.path_found");
+                if (successfulSegments < sum + 1) {
+                    return Text.translatable("gui.mtr.path_not_found_between", routeNames.get(0), stationNames.get(0), stationNames.get(1));
                 } else {
-                    RailwayData.useRoutesAndStationsFromIndex(successfulSegments - 2, data.routeIds, ClientData.DATA_CACHE, (currentStationIndex, thisRoute, nextRoute, thisStation, nextStation, lastStation) -> {
-                        stationNames.add(IGui.textOrUntitled(thisStation == null ? "" : IGui.formatStationName(thisStation.name)));
-                        if (nextStation == null) {
-                            RailwayData.useRoutesAndStationsFromIndex(successfulSegments - 1, data.routeIds, ClientData.DATA_CACHE, (currentStationIndex1, thisRoute1, nextRoute1, thisStation1, nextStation1, lastStation1) -> stationNames.add(IGui.textOrUntitled(thisStation1 == null ? "" : IGui.formatStationName(thisStation1.name))));
-                        } else {
-                            stationNames.add(IGui.textOrUntitled(IGui.formatStationName(nextStation.name)));
-                        }
-                        routeNames.add(IGui.textOrUntitled(IGui.formatStationName(thisRoute.name)));
-                    });
-                    stationNames.add("-");
-                    stationNames.add("-");
-                    routeNames.add("-");
-
-                    if (successfulSegments < sum + 1) {
-                        return Text.translatable("gui.mtr.path_not_found_between", routeNames.get(0), stationNames.get(0), stationNames.get(1));
-                    } else {
-                        return Text.translatable("gui.mtr.path_not_found_between", routeNames.get(0), stationNames.get(0), depotName);
-                    }
+                    return Text.translatable("gui.mtr.path_not_found_between", routeNames.get(0), stationNames.get(0), depotName);
                 }
             }
         }

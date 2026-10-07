@@ -25,6 +25,45 @@ import java.util.stream.Collectors;
 public class Depot extends AreaBase implements IReducedSaveData {
 
 	public int clientPathGenerationSuccessfulSegments;
+	/**
+	 * How many platforms the server actually used for the last path generation. It is sent with the
+	 * result because the depot screen must not recompute that number from its own caches: a route the
+	 * client has not received yet would be counted as zero platforms, and a half-generated path would
+	 * then be displayed as "path created successfully".
+	 */
+	public int clientPathGenerationTotalSegments;
+	/** One of the PATH_REASON_* constants, sent with the last path generation result. */
+	public int clientPathGenerationReason;
+	/**
+	 * Name of the siding that produced the reported result, sent with it. With several sidings in one
+	 * depot the depot-wide result is the worst one, and without this the player cannot tell which siding
+	 * to look at. Empty when the generation succeeded or no siding was involved.
+	 */
+	public String clientPathGenerationSiding = "";
+
+	/** {@link #clientPathGenerationSuccessfulSegments} describes the result. */
+	public static final int PATH_REASON_SEGMENTS = 0;
+	/** No siding of this transport mode is inside the depot region, so nothing was generated at all. */
+	public static final int PATH_REASON_NO_SIDING = 1;
+	/** The generation could not run or threw; the server log holds the stack trace. */
+	public static final int PATH_REASON_NOT_GENERATED = 2;
+	/**
+	 * Result reported through the legacy {@code generatePathS2C} entry point, which only carries the
+	 * segment count. The client then falls back to the platform count it computes from its own caches,
+	 * exactly as every result did before this feature existed.
+	 */
+	public static final int PATH_REASON_LEGACY = 3;
+
+	/**
+	 * Bumped every time a path generation starts for this depot. Each generation remembers its own value
+	 * and only publishes its result while that value is still the current one: PathFinder never polls the
+	 * interrupt flag, so a restarted search runs to the end and would otherwise report a result computed
+	 * from the rails as they were before the restart.
+	 * <p>
+	 * Private, so it adds no API surface; volatile because the worker thread reads it.
+	 */
+	private volatile int pathGenerationId;
+
 	public long lastDeployedMillis;
 	public boolean useRealTime;
 	public boolean repeatInfinitely;
@@ -269,6 +308,9 @@ public class Depot extends AreaBase implements IReducedSaveData {
 	}
 
 	public void generateMainRoute(MinecraftServer minecraftServer, Level world, DataCache dataCache, Map<BlockPos, Map<BlockPos, Rail>> rails, Set<Siding> sidings, Consumer<Thread> callback) {
+		// Signature deliberately left as it always was: addons compiled against the previous build keep
+		// resolving this method, and the staleness guard below lives entirely inside this class.
+		final int generationId = ++pathGenerationId;
 		final List<SavedRailBase> platformsInRoute = new ArrayList<>();
 
 		routeIds.forEach(routeId -> {
@@ -299,30 +341,95 @@ public class Depot extends AreaBase implements IReducedSaveData {
 					}
 				}
 
+				final int totalSegments = platformsInRoute.size();
 				final int[] successfulSegments = new int[]{Integer.MAX_VALUE};
+				final int[] sidingsProcessed = new int[]{0};
+				final List<String> sidingResults = new ArrayList<>();
+				final String[] reportedSiding = new String[]{""};
 
 				sidings.forEach(siding -> {
 					final BlockPos sidingMidPos = siding.getMidPos();
 					if (siding.isTransportMode(transportMode) && inArea(sidingMidPos.getX(), sidingMidPos.getZ())) {
+						sidingsProcessed[0]++;
 						final SavedRailBase firstPlatform = platformsInRoute.isEmpty() ? null : platformsInRoute.get(0);
 						final SavedRailBase lastPlatform = platformsInRoute.isEmpty() ? null : platformsInRoute.get(platformsInRoute.size() - 1);
 						final int result = siding.generateRoute(minecraftServer, tempPath, successfulSegmentsMain, rails, firstPlatform, lastPlatform, repeatInfinitely, cruisingAltitude, useFastSpeed);
+						sidingResults.add(String.format("%s (siding id %d): %s", siding.name, siding.id, describeResult(dataCache, platformsInRoute, result)));
 						if (result < successfulSegments[0]) {
 							successfulSegments[0] = result;
+							reportedSiding[0] = siding.name;
 						}
 					}
 				});
 
-				PacketTrainDataGuiServer.generatePathS2C(world, id, successfulSegments[0]);
-				System.out.println("Finished path generation" + (name.isEmpty() ? "" : " for " + name));
+				// A depot that owns no siding used to keep the Integer.MAX_VALUE sentinel above and ship it
+				// to the client, which compares it against its own segment count and prints "path created
+				// successfully" although nothing was generated. Report that case as its own reason instead.
+				final int reason = sidingsProcessed[0] == 0 ? PATH_REASON_NO_SIDING : PATH_REASON_SEGMENTS;
+				final int segments = reason == PATH_REASON_SEGMENTS ? successfulSegments[0] : 0;
+
+				if (generationId != pathGenerationId) {
+					// A newer generation for this depot is already running; its result is the one the player
+					// asked for, so this stale one must not reach the client.
+					System.out.println("Discarding superseded path generation" + (name.isEmpty() ? "" : " for " + name));
+					return;
+				}
+
+				logPathGenerationResult(dataCache, platformsInRoute, reason, segments, sidingsProcessed[0], sidingResults);
+				PacketTrainDataGuiServer.generatePathS2C(world, id, reason, segments, totalSegments, reason == PATH_REASON_SEGMENTS && segments < totalSegments + 2 ? reportedSiding[0] : "");
 			} catch (Exception e) {
 				e.printStackTrace();
-				PacketTrainDataGuiServer.generatePathS2C(world, id, 0);
 				System.out.println("Failed to generate path" + (name.isEmpty() ? "" : " for " + name));
+				if (generationId == pathGenerationId) {
+					PacketTrainDataGuiServer.generatePathS2C(world, id, PATH_REASON_NOT_GENERATED, 0, platformsInRoute.size(), "");
+				}
 			}
 		});
 		callback.accept(thread);
 		thread.start();
+	}
+
+	/**
+	 * Explains a finished path generation in the server log. The depot screen can only name one leg, so on a
+	 * long route (or a depot with several sidings) the console is where the whole picture is written down:
+	 * the depot-level result plus one line per siding, because the depot-wide result is only the worst one.
+	 */
+	private void logPathGenerationResult(DataCache dataCache, List<SavedRailBase> platformsInRoute, int reason, int successfulSegments, int sidingsProcessed, List<String> sidingResults) {
+		final String depotName = name.isEmpty() ? "(unnamed depot)" : name;
+
+		if (reason == PATH_REASON_NO_SIDING) {
+			System.out.println(String.format("Path generation for %s failed: no siding of this transport mode inside the depot area (checked %d siding(s)), so no path was generated - check that the depot region covers the siding rail", depotName, sidingsProcessed));
+			return;
+		}
+
+		System.out.println(String.format("Path generation for %s: %s", depotName, describeResult(dataCache, platformsInRoute, successfulSegments)));
+
+		// Only worth listing when there is more than one siding: with one siding the line above says it all.
+		if (sidingResults.size() > 1) {
+			sidingResults.forEach(sidingResult -> System.out.println("    " + sidingResult));
+		}
+	}
+
+	/** The outcome of one generation result, in words, for the server log. */
+	private static String describeResult(DataCache dataCache, List<SavedRailBase> platformsInRoute, int successfulSegments) {
+		final int totalSegments = platformsInRoute.size();
+
+		if (successfulSegments >= totalSegments + 2) {
+			return String.format("all %d platform(s) connected", totalSegments);
+		} else if (successfulSegments == 0) {
+			return "no platform of the route still exists";
+		} else if (successfulSegments == 1) {
+			return String.format("no path from the depot to %s", totalSegments == 0 ? "the first platform" : describePlatform(dataCache, platformsInRoute.get(0)));
+		} else if (successfulSegments >= totalSegments + 1) {
+			return String.format("no path from %s back to the depot", describePlatform(dataCache, platformsInRoute.get(totalSegments - 1)));
+		} else {
+			return String.format("no path between %s and %s", describePlatform(dataCache, platformsInRoute.get(successfulSegments - 2)), describePlatform(dataCache, platformsInRoute.get(successfulSegments - 1)));
+		}
+	}
+
+	private static String describePlatform(DataCache dataCache, SavedRailBase platform) {
+		final Station station = dataCache.platformIdToStation.get(platform.id);
+		return String.format("%s%s (platform id %d)", platform.name, station == null ? "" : " at " + station.name, platform.id);
 	}
 
 	public void requestDeploy(long sidingId, TrainServer train) {

@@ -353,11 +353,33 @@ public class PacketTrainDataGuiServer extends PacketTrainDataBase {
 		}
 	}
 
-	public static void generatePathS2C(Level world, long depotId, int successfulSegments) {
+	/**
+	 * Ships a path generation result to every client.
+	 *
+	 * @param reason             one of {@link mtr.data.Depot#PATH_REASON_SEGMENTS}, {@link mtr.data.Depot#PATH_REASON_NO_SIDING},
+	 *                           {@link mtr.data.Depot#PATH_REASON_NOT_GENERATED} or {@link mtr.data.Depot#PATH_REASON_LEGACY}
+	 * @param successfulSegments how many platform-to-platform segments the generation reached
+	 * @param totalSegments      how many platforms the server used, so the client never has to recompute it
+	 * @param sidingName         the siding that produced this result, or "" when it is not a siding-specific failure
+	 */
+	public static void generatePathS2C(Level world, long depotId, int reason, int successfulSegments, int totalSegments, String sidingName) {
 		final FriendlyByteBuf packet = new FriendlyByteBuf(Unpooled.buffer());
 		packet.writeLong(depotId);
+		packet.writeInt(reason);
 		packet.writeInt(successfulSegments);
+		packet.writeInt(totalSegments);
+		packet.writeUtf(sidingName == null ? "" : sidingName);
 		world.players().forEach(player -> Registry.sendToPlayer((ServerPlayer) player, PACKET_GENERATE_PATH, packet));
+	}
+
+	/**
+	 * Kept so addons compiled against the previous build still resolve this method instead of failing with
+	 * {@code NoSuchMethodError}. It can only supply the segment count, so the result is tagged as legacy and
+	 * the client decides it the way it always did, from its own platform count.
+	 */
+	@Deprecated
+	public static void generatePathS2C(Level world, long depotId, int successfulSegments) {
+		generatePathS2C(world, depotId, mtr.data.Depot.PATH_REASON_LEGACY, successfulSegments, 0, "");
 	}
 
 	public static void generatePathC2S(MinecraftServer minecraftServer, ServerPlayer player, FriendlyByteBuf packet) {

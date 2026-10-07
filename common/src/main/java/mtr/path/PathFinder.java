@@ -119,7 +119,10 @@ public class PathFinder {
 									final int turnArc = Math.min(MAX_AIRPLANE_TURN_ARC, cruisingPos1.distManhattan(cruisingPos4) / 8);
 									final RailType dummyRailType = useFastSpeed ? RailType.AIRPLANE_DUMMY : RailType.RUNWAY;
 
-									new PathData(new Rail(pos1, pathPart1.direction, cruisingPos1, pathPart1.direction.getOpposite(), dummyRailType, TransportMode.AIRPLANE), 0, 0, 0, pos1, cruisingPos1, stopIndex);
+									// Restored: the official code adds this first climb segment to the path. A cleanup pass had
+									// left a bare constructor call here, so airplane paths jumped from the runway node straight
+									// into mid air (the harness in docs/path-generation-repro reports the gap as a break).
+									railPath.add(new PathData(new Rail(pos1, pathPart1.direction, cruisingPos1, pathPart1.direction.getOpposite(), dummyRailType, TransportMode.AIRPLANE), 0, 0, 0, pos1, cruisingPos1, stopIndex));
 
 									final RailAngle expectedAngle = RailAngle.fromAngle((float) Math.toDegrees(Math.atan2(cruisingPos4.getZ() - cruisingPos1.getZ(), cruisingPos4.getX() - cruisingPos1.getX())));
 									final BlockPos cruisingPos2 = addAirplanePath(pathPart1.direction, cruisingPos1, expectedAngle, turnArc, railPath, dummyRailType, stopIndex, false);
