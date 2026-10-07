@@ -192,11 +192,26 @@ final class WebDashboardFields {
 
 		JsonObject effects = null;
 		if (has(body, "corners")) {
+			/*
+			 * The selection arrives as ONE nested object - {"corners":{"corner1":{...},"corner2":{...}}} -
+			 * so it has to be unwrapped before the corners can be read.
+			 *
+			 * Reading them straight off the request body was the bug: the body has no "corner1" key, so every
+			 * attempt to save a selection was refused with "expected an object with x and z" while name,
+			 * colour and zone kept saving normally. The nesting is deliberate - it makes a request that sets
+			 * only one corner structurally impossible - but the unwrapping step was missing.
+			 */
+			final JsonElement cornersElement = body.get("corners");
+			if (!cornersElement.isJsonObject()) {
+				throw new FieldException("corners", "expected an object with corner1 and corner2");
+			}
+			final JsonObject corners = cornersElement.getAsJsonObject();
+
 			final AreaBase area = (AreaBase) object;
 			// Both corners are read before either is written, so a malformed second one cannot leave the
 			// selection half-updated in memory while the request is reported as failed.
-			final Tuple<Integer, Integer> corner1 = readCorner(body, "corner1");
-			final Tuple<Integer, Integer> corner2 = readCorner(body, "corner2");
+			final Tuple<Integer, Integer> corner1 = readCorner(corners, "corner1");
+			final Tuple<Integer, Integer> corner2 = readCorner(corners, "corner2");
 
 			// Captured before the change: moving a selection changes which saved rails belong to it, and that
 			// is the consequence worth reporting. See calculateAreaEffects.
