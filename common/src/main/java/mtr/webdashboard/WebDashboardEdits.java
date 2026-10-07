@@ -139,9 +139,9 @@ public final class WebDashboardEdits {
 		final List<String> before = describe(object);
 
 		final List<String> warnings = new ArrayList<>();
-		final List<String> changed;
+		final WebDashboardFields.Applied applied;
 		try {
-			changed = WebDashboardFields.apply(kind, object, body, packet -> DataUpdateBroadcast.broadcastDataUpdate(world, packetId, packet, null), warnings);
+			applied = WebDashboardFields.apply(kind, railwayData, object, body, packet -> DataUpdateBroadcast.broadcastDataUpdate(world, packetId, packet, null), warnings);
 		} catch (FieldException e) {
 			throw new EditFailure(400, "invalid_field", e.getMessage(), e.getField(), WebDashboardFields.acceptedFields(kind));
 		} catch (Exception e) {
@@ -150,7 +150,7 @@ public final class WebDashboardEdits {
 			throw new EditFailure(500, "edit_failed", "The server could not apply that change");
 		}
 
-		if (changed.isEmpty()) {
+		if (applied.changed.isEmpty()) {
 			throw new EditFailure(400, "bad_request", "None of the accepted fields were present: " + String.join(", ", WebDashboardFields.acceptedFields(kind)));
 		}
 
@@ -164,7 +164,7 @@ public final class WebDashboardEdits {
 			warnings.add("the change was applied but could not be written to the audit log");
 		}
 
-		return buildResponse(kind, object, changed, warnings);
+		return buildResponse(kind, object, applied, warnings);
 	}
 
 	/**
@@ -174,12 +174,16 @@ public final class WebDashboardEdits {
 	 * No {@code dataRevision}: that is a fingerprint of every world's data, computed by {@code /api/data}
 	 * while it builds its payload. Producing it here would mean re-hashing the whole model on every rename,
 	 * or inventing a second differently-scoped revision for the page to confuse with the first.
+	 *
+	 * {@code effects} is present only when the edit moved something the visitor did not name - a selection
+	 * change that orphaned saved rails. It is omitted rather than sent empty, so the page can treat its
+	 * presence as the signal that there is something to say.
 	 */
-	private static JsonObject buildResponse(String kind, NameColorDataBase object, List<String> changed, List<String> warnings) {
+	private static JsonObject buildResponse(String kind, NameColorDataBase object, WebDashboardFields.Applied applied, List<String> warnings) {
 		final JsonObject json = new JsonObject();
 
 		final JsonArray changedArray = new JsonArray();
-		changed.forEach(changedArray::add);
+		applied.changed.forEach(changedArray::add);
 		json.add("changed", changedArray);
 
 		final JsonArray warningArray = new JsonArray();
@@ -188,6 +192,10 @@ public final class WebDashboardEdits {
 
 		// Re-serialised from the live object, so the page sees the server's post-clamp values.
 		json.add("object", describeJson(kind, object));
+
+		if (applied.effects != null) {
+			json.add("effects", applied.effects);
+		}
 		return json;
 	}
 

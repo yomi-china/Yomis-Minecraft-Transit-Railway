@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 	<meta charset="UTF-8">
@@ -10,8 +10,8 @@
 	     Sub-imports inside app.js and views.js carry the same number, because a module is cached under
 	     its own URL and bumping only this line would leave a stale lists.js or views.js in play.
 	     Bump all of them together. -->
-	<link rel="stylesheet" href="index.css?v=16">
-	<script type="module" src="app.js?v=16"></script>
+	<link rel="stylesheet" href="index.css?v=20">
+	<script type="module" src="app.js?v=20"></script>
 </head>
 <body data-view="checking">
 <noscript>
@@ -91,17 +91,6 @@
 				</button>
 			</div>
 
-			<!-- Offered only when the selected object has a selection to redraw. Hidden otherwise, so it
-			     cannot be pressed for a route, platform or siding, none of which have one. -->
-			<div class="sidebar__edit-bar" id="sidebar-edit-bar" hidden>
-				<button class="button button--tonal button--full" id="sidebar-edit-area" type="button" data-i18n="editAreaButton">
-					<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
-						<path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>
-					</svg>
-					<span data-i18n="editAreaButton">Redraw area on the map</span>
-				</button>
-			</div>
-
 			<div class="sidebar__list" id="list" role="listbox" data-i18n-aria-label="listLabel" aria-label="Railway data list"></div>
 
 			<div class="empty" id="list-empty" hidden>
@@ -142,7 +131,10 @@
 			<div class="map-editing-bar" id="map-editing-bar" hidden>
 				<span class="map-editing-bar__hint" data-i18n="mapEditingHint">Drag on the map to draw the new area</span>
 				<span class="map-editing-bar__size" id="map-editing-size"></span>
-				<button class="button button--text button--small" id="map-cancel-edit" type="button" data-i18n="mapCancelEdit">Cancel</button>
+				<span class="map-editing-bar__actions">
+					<button class="button button--text button--small" id="map-cancel-edit" type="button" data-i18n="mapCancelEdit">Cancel</button>
+					<button class="button button--filled button--small" id="map-save-edit" type="button" data-i18n="mapSaveEdit">Save</button>
+				</span>
 			</div>
 
 			<!-- Pinned to the map's top-right corner, so it sits directly under the top bar and against the

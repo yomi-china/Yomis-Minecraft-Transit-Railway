@@ -1,6 +1,7 @@
-﻿import { PALETTE, buildPayload, createForm, describeResult, formatHexColor, markClean, parseHexColor } from './editor.js?v=16';
-import { placePopover } from './focus.js?v=16';
-import { f, t } from './i18n.js?v=16';
+import { buildPayload, createForm, markClean } from './editor.js?v=20';
+import { createColorPicker } from './colorpicker.js?v=20';
+import { placePopover } from './focus.js?v=20';
+import { t } from './i18n.js?v=20';
 
 /*
  * The editing card: a non-modal MD3 popover anchored to the object being edited on the map.
@@ -29,6 +30,9 @@ const el = {
 /** The open editor, or null. Holds the form, the anchor and the callbacks. */
 let session = null;
 
+/** The mounted colour picker, or null. Held so its queued animation frame can be cancelled on close. */
+let colorPicker = null;
+
 /** Whether a save is in flight, so the buttons can be locked and double submits cannot happen. */
 let saving = false;
 
@@ -41,7 +45,7 @@ let saving = false;
  * @param {{x: number, y: number}} options.anchor where to point, in map-area coordinates.
  * @param {HTMLElement} options.container the map area, which the card is positioned inside.
  * @param {() => void} options.onSave   called after a successful save, to refresh the page's data.
- * @param {(reason: string) => boolean} options.confirmDiscard asked before dropping unsaved changes.
+ * @param {() => void} options.onRedrawArea called when the selection button is pressed, to start drawing.
  * @param {() => void} options.onClose  called when the card closes, whatever the reason.
  */
 export function open(options) {
@@ -59,7 +63,7 @@ export function open(options) {
 		container: options.container,
 		onSubmit: options.onSubmit,
 		onSave: options.onSave,
-		confirmDiscard: options.confirmDiscard,
+		onRedrawArea: options.onRedrawArea,
 		onClose: options.onClose
 	};
 
@@ -76,21 +80,27 @@ export function isOpen() {
 /**
  * Closes the card.
  *
- * @param {{silent?: boolean, force?: boolean}} [options] `force` skips the unsaved-changes question, for the
- *        cases where the change is already gone (a successful save, or the page reloading).
- * @returns {boolean} whether it closed. False means the visitor chose to keep editing.
+ * Dismissing always discards, without asking. The form holds three small values, and a dialog standing in
+ * front of "I changed my mind" costs more than retyping a name - so `options.force` exists only for the
+ * internal paths that are rebuilding the card anyway, and there is no confirmation anywhere.
+ *
+ * @param {{silent?: boolean, force?: boolean}} [options] `silent` skips the onClose callback.
+ * @returns {boolean} whether it closed, which is always true.
  */
 export function close(options) {
 	const opts = options || {};
 	if (session == null) {
 		return true;
 	}
-	if (!opts.force && !opts.silent && hasChanges() && session.confirmDiscard && !session.confirmDiscard('unsaved')) {
-		return false;
-	}
 
 	if (el.card && el.card.parentNode) {
 		el.card.parentNode.removeChild(el.card);
+	}
+	// Before the reference is dropped: a picker left mid-drag holds a queued animation frame that would run
+	// against a detached element.
+	if (colorPicker) {
+		colorPicker.dispose();
+		colorPicker = null;
 	}
 	const onClose = session.onClose;
 	session = null;
@@ -119,10 +129,6 @@ export function setAnchor(anchor) {
 		session.anchor = anchor;
 		position();
 	}
-}
-
-function hasChanges() {
-	return session != null && Object.keys(buildPayload(session.form).fields).length > 0;
 }
 
 // ---- structure ----------------------------------------------------------
@@ -208,6 +214,11 @@ function render() {
 	el.cancel.textContent = t('editCancel');
 	el.save.textContent = saving ? t('editSaving') : t('editSave');
 
+	// The picker is rebuilt along with the rest of the body, so the old one's queued frame is dropped first.
+	if (colorPicker) {
+		colorPicker.dispose();
+		colorPicker = null;
+	}
 	el.body.textContent = '';
 	form.fields.forEach(field => {
 		el.body.appendChild(renderField(field, form.values[field.key]));
@@ -220,10 +231,72 @@ function titleKeyFor(kind) {
 	return kind === 'station' ? 'editStationTitle' : kind === 'route' ? 'editRouteTitle' : 'editDepotTitle';
 }
 
+/**
+ * Replaces the form's selection and re-renders just that field.
+ *
+ * Called when a rectangle has been drawn on the map. Only the one field is rebuilt: re-rendering the whole
+ * card would throw away the colour picker's state, including the hue the visitor had chosen, which has no
+ * other home.
+ */
+export function setSelection(value) {
+	if (session == null) {
+		return;
+	}
+	const field = session.form.fields.find(candidate => candidate.type === 'corners');
+	if (!field) {
+		return;
+	}
+
+	session.form.values[field.key] = value;
+	const existing = el.body.querySelector('.edit-field[data-key="' + field.key + '"]');
+	if (existing) {
+		existing.parentNode.replaceChild(renderField(field, value), existing);
+	}
+	clearFieldError(field.key);
+	updateSaveState();
+}
+
+/** @returns {boolean} whether the open form holds a selection at all, so the caller knows to offer one. */
+export function hasSelectionField() {
+	return session != null && session.form.fields.some(field => field.type === 'corners');
+}
+
+/**
+ * Writes a line into the card's status area.
+ *
+ * Exported so a caller that finishes something after the card has been rebuilt can still report the outcome.
+ * Saving a selection is exactly that case: the world is reloaded first, so the card the visitor was looking at
+ * is gone by the time the server's answer arrives, and a message set on the old one would go with it.
+ */
+export function setStatus(text, level) {
+	applyStatus(text, level);
+}
+
 function renderField(field, value) {
 	const wrapper = document.createElement('div');
 	wrapper.className = 'edit-field';
 	wrapper.dataset.key = field.key;
+
+	// A selection is drawn on the map rather than typed, so this field renders as an action instead of an
+	// input. It still takes part in the form, which is what lets the drawn rectangle go through the same
+	// dirty check and patch path as everything else.
+	if (field.type === 'corners') {
+		const button = document.createElement('button');
+		button.type = 'button';
+		button.className = 'button button--tonal button--full';
+		button.dataset.action = 'redraw-area';
+		// One label, not two. An earlier version switched to "draw" when there was no selection yet and added
+		// a line underneath saying so, which was both unwanted and redundant - the map already shows whether
+		// an area exists.
+		button.textContent = t('editRedrawArea');
+		button.addEventListener('click', () => {
+			if (session && session.onRedrawArea) {
+				session.onRedrawArea();
+			}
+		});
+		wrapper.appendChild(button);
+		return wrapper;
+	}
 
 	const label = document.createElement('label');
 	label.className = 'edit-field__label';
@@ -259,74 +332,43 @@ function renderField(field, value) {
 	return wrapper;
 }
 
+/**
+ * Mounts the continuous picker.
+ *
+ * It owns its own display, so nothing here writes a swatch or a colour value back into it - the only job of
+ * the callback is to move the value into the form so the dirty check and the save button see it. Doing it
+ * the other way round is what makes a picker jump about while it is being dragged.
+ */
 function renderColorInput(field, value, inputId) {
 	const container = document.createElement('div');
 	container.className = 'edit-color';
 
-	const swatches = document.createElement('div');
-	swatches.className = 'edit-color__swatches';
-	PALETTE.forEach(color => {
-		const button = document.createElement('button');
-		button.type = 'button';
-		button.className = 'edit-color__swatch';
-		button.style.backgroundColor = '#' + formatHexColor(color);
-		button.dataset.color = String(color);
-		button.title = '#' + formatHexColor(color);
-		button.setAttribute('aria-label', '#' + formatHexColor(color));
-		if (color === value) {
-			button.dataset.selected = 'true';
+	colorPicker = createColorPicker({
+		color: value,
+		onChange: next => {
+			if (session == null) {
+				return;
+			}
+			const changed = session.form.values.color !== next;
+			session.form.values.color = next;
+			clearFieldError('color');
+			// The save state is only recomputed when the value actually differs, so dragging within one
+			// colour step does not rebuild the payload on every frame.
+			if (changed) {
+				updateSaveState();
+			}
 		}
-		button.addEventListener('click', () => setColor(color));
-		swatches.appendChild(button);
 	});
-	container.appendChild(swatches);
 
-	const row = document.createElement('div');
-	row.className = 'edit-color__row';
-
-	const preview = document.createElement('span');
-	preview.className = 'edit-color__preview';
-	preview.id = 'edit-color-preview';
-	preview.style.backgroundColor = '#' + formatHexColor(value);
-	row.appendChild(preview);
-
-	const hex = document.createElement('input');
-	hex.id = inputId;
-	hex.className = 'edit-field__input edit-color__hex';
-	hex.type = 'text';
-	hex.inputMode = 'text';
-	hex.spellcheck = false;
-	hex.maxLength = 7;
-	hex.value = formatHexColor(value);
-	hex.setAttribute('aria-label', field.label);
-	row.appendChild(hex);
-
-	container.appendChild(row);
-	return container;
-}
-
-function setColor(color) {
-	if (session == null) {
-		return;
-	}
-	session.form.values.color = color;
-	const hex = el.body.querySelector('.edit-color__hex');
+	// The picker's own hex field must carry the form's field id, so the label written by renderField points
+	// at it and clicking the label focuses the input.
+	const hex = colorPicker.root.querySelector('.color-picker__hex');
 	if (hex) {
-		hex.value = formatHexColor(color);
+		hex.id = inputId;
 	}
-	const preview = el.body.querySelector('.edit-color__preview');
-	if (preview) {
-		preview.style.backgroundColor = '#' + formatHexColor(color);
-	}
-	el.body.querySelectorAll('.edit-color__swatch').forEach(button => {
-		if (Number(button.dataset.color) === color) {
-			button.dataset.selected = 'true';
-		} else {
-			delete button.dataset.selected;
-		}
-	});
-	clearFieldError('color');
-	updateSaveState();
+
+	container.appendChild(colorPicker.root);
+	return container;
 }
 
 // ---- input --------------------------------------------------------------
@@ -345,13 +387,9 @@ function onFieldInput(event) {
 		return;
 	}
 
+	// A colour field is driven by the picker, which reports through its own callback rather than through a
+	// bubbling input event. Falling through here would write the hex field's raw text into the form.
 	if (field.type === 'color') {
-		// The hex box is parsed as it is typed, but only applied when it is a complete colour - otherwise
-		// every intermediate keystroke would reset the swatch highlight.
-		const parsed = parseHexColor(event.target.value);
-		if (parsed != null) {
-			setColor(parsed);
-		}
 		return;
 	}
 
@@ -397,7 +435,7 @@ function showFieldError(key, message) {
 	}
 }
 
-function setStatus(text, level) {
+function applyStatus(text, level) {
 	if (!el.status) {
 		return;
 	}
@@ -423,7 +461,7 @@ async function submit() {
 		errors.forEach(error => showFieldError(error.key, error.message));
 		// The save button is already disabled for client-side errors, so reaching here means a field changed
 		// between the check and the click. Saying so beats a silently dead button.
-		setStatus(t('editFixFields'), 'error');
+		applyStatus(t('editFixFields'), 'error');
 		return;
 	}
 	if (Object.keys(fields).length === 0) {
@@ -433,7 +471,7 @@ async function submit() {
 	saving = true;
 	el.save.disabled = true;
 	el.save.textContent = t('editSaving');
-	setStatus(t('editSaving'), 'info');
+	applyStatus(t('editSaving'), 'info');
 
 	let result;
 	try {
@@ -463,47 +501,47 @@ async function submit() {
 	markClean(session.form);
 	render();
 
-	const summary = describeResult(result);
-	setStatus(f(summary.key, ...summary.values), summary.level);
-
+	// The card closes on success. The status line was being written and then immediately hidden behind a
+	// card the visitor had to dismiss by hand, which made every save feel like it had not finished.
 	if (session.onSave) {
 		session.onSave();
 	}
+	close({ force: true, silent: true });
 }
 
 function handleSaveFailure(error) {
 	const kind = error && error.kind;
 	if (kind === 'editor_offline') {
-		setStatus(t('editEditorOffline'), 'error');
+		applyStatus(t('editEditorOffline'), 'error');
 		return;
 	}
 	if (kind === 'not_found') {
-		setStatus(t('editObjectGone'), 'error');
+		applyStatus(t('editObjectGone'), 'error');
 		return;
 	}
 	if (kind === 'forbidden') {
-		setStatus(t('editNotPermitted'), 'error');
+		applyStatus(t('editNotPermitted'), 'error');
 		return;
 	}
 	if (kind === 'auth') {
-		setStatus(t('editSessionExpired'), 'error');
+		applyStatus(t('editSessionExpired'), 'error');
 		return;
 	}
 	if (kind === 'invalid_field') {
 		// The server named the field, so the message goes next to it rather than in the status line.
 		if (error.field) {
 			showFieldError(error.field, error.message || t('editInvalidField'));
-			setStatus(t('editFixFields'), 'error');
+			applyStatus(t('editFixFields'), 'error');
 		} else {
-			setStatus(error.message || t('editSaveFailed'), 'error');
+			applyStatus(error.message || t('editSaveFailed'), 'error');
 		}
 		return;
 	}
 	if (kind === 'no_server') {
-		setStatus(t('editNoServer'), 'error');
+		applyStatus(t('editNoServer'), 'error');
 		return;
 	}
-	setStatus(t('editSaveFailed'), 'error');
+	applyStatus(t('editSaveFailed'), 'error');
 	console.error('[MTR-WebDashboard] save failed', error);
 }
 

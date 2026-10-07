@@ -1,4 +1,4 @@
-﻿import {
+import {
 	COLOR_BACKGROUND,
 	COLOR_PLAYER_MARKER,
 	argbToRgba,
@@ -27,9 +27,9 @@
 	snapAreaCorners,
 	FLY_DURATION_MS,
 	interpolateView
-} from './mapview.js?v=16';
-import { beginEdit, cancelEdit, dragToEdit, endEditDrag, getDraftBounds, hasDraft, isEditing } from './mapedit.js?v=16';
-import { planFocus, sameView } from './focus.js?v=16';
+} from './mapview.js?v=20';
+import { beginEdit, cancelEdit, dragToEdit, endEditDrag, getDraftBounds, hasDraft, isEditing } from './mapedit.js?v=20';
+import { planFocus, sameView } from './focus.js?v=20';
 
 /*
  * The dashboard map: a canvas that draws selections and saved rails on a flat top-down grid.

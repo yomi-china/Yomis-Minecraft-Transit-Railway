@@ -1,4 +1,4 @@
-﻿/*
+/*
  * What can be edited, and how. Pure logic: no DOM, no fetch, no state.
  *
  * Stage 3.4.1 covers a name and a colour, on stations, routes and depots. Later sub-stages add groups of
@@ -11,21 +11,8 @@
  * of the same code, and the fourth would drift from the others.
  */
 
-import { t } from './i18n.js?v=16';
-
-/**
- * The colour palette.
- *
- * The same sixteen values the in-game colour selector offers, so a colour picked here is one a player
- * could have picked there - which matters because a station's colour is how it appears on both maps, and
- * an arbitrary hex would look out of place next to the built rail network.
- */
-export const PALETTE = [
-	0x000000, 0x555555, 0xAAAAAA, 0xFFFFFF,
-	0xFF5555, 0xFF8800, 0xFFFF55, 0x55FF55,
-	0x00AA00, 0x55FFFF, 0x00AAAA, 0x5555FF,
-	0xAA00AA, 0xFF55FF, 0xFFAAFF, 0x8B4513
-];
+import { t } from './i18n.js?v=20';
+import { hasOriginCorner, isValidCorner } from './areafit.js?v=20';
 
 /** The longest name a packet can carry, matching the server's own limit. */
 export const MAX_NAME_LENGTH = 32767;
@@ -47,7 +34,10 @@ export const DESCRIPTORS = {
 		fields: [
 			{ key: 'name', type: 'text', labelKey: 'fieldName', maxLength: MAX_NAME_LENGTH },
 			{ key: 'color', type: 'color', labelKey: 'fieldColor' },
-			{ key: 'zone', type: 'integer', labelKey: 'fieldZone' }
+			{ key: 'zone', type: 'integer', labelKey: 'fieldZone' },
+			// Not rendered as an input. A selection is drawn on the map, not typed, so this field exists only
+			// so the patch payload and the dirty check treat it like any other value. See readFieldValue.
+			{ key: 'corners', type: 'corners', labelKey: 'fieldCorners' }
 		]
 	},
 	route: {
@@ -65,7 +55,8 @@ export const DESCRIPTORS = {
 		titleKey: 'editDepotTitle',
 		fields: [
 			{ key: 'name', type: 'text', labelKey: 'fieldName', maxLength: MAX_NAME_LENGTH },
-			{ key: 'color', type: 'color', labelKey: 'fieldColor' }
+			{ key: 'color', type: 'color', labelKey: 'fieldColor' },
+			{ key: 'corners', type: 'corners', labelKey: 'fieldCorners' }
 		]
 	}
 };
@@ -89,11 +80,17 @@ export function editableKinds() {
  */
 export function readFieldValue(field, object) {
 	if (!object) {
-		return '';
+		return field.type === 'corners' ? null : '';
 	}
 	const raw = object[field.key];
 	if (field.type === 'color') {
 		return typeof raw === 'number' && Number.isFinite(raw) ? raw & MAX_COLOR : 0;
+	}
+	if (field.type === 'corners') {
+		// Held as an object, and null when the object has no selection - which is a legal state, not a zero.
+		return raw && raw.corner1 && raw.corner2
+			? { corner1: { x: raw.corner1.x, z: raw.corner1.z }, corner2: { x: raw.corner2.x, z: raw.corner2.z } }
+			: null;
 	}
 	return raw == null ? '' : String(raw);
 }
@@ -122,12 +119,33 @@ export function createForm(kind, object) {
 	return markClean({ kind, id: String(object.id), fields, values });
 }
 
-/** @returns {string[]} the keys whose current value differs from the baseline, in field order. */
+/**
+ * @returns {string[]} the keys whose current value differs from the baseline, in field order.
+ *
+ * A selection is an object, so it is compared by value rather than by identity - `!==` on two corners
+ * objects is always true and would report every open form as dirty.
+ */
 export function dirtyKeys(form) {
 	if (!form || !form.initial) {
 		return [];
 	}
-	return form.fields.filter(field => form.values[field.key] !== form.initial[field.key]).map(field => field.key);
+	return form.fields.filter(field => !sameValue(form.values[field.key], form.initial[field.key])).map(field => field.key);
+}
+
+function sameValue(a, b) {
+	if (a === b) {
+		return true;
+	}
+	if (a == null || b == null) {
+		return false;
+	}
+	if (typeof a === 'number' || typeof b === 'number') {
+		return a === b;
+	}
+	if (typeof a === 'object' && typeof b === 'object') {
+		return JSON.stringify(a) === JSON.stringify(b);
+	}
+	return false;
 }
 
 /**
@@ -201,6 +219,19 @@ export function buildPayload(form) {
 				fields[field.key] = Math.round(value);
 				return;
 			}
+			case 'corners': {
+				if (value == null) {
+					// Clearing a selection is not offered: a station with no area is a state the game can hold,
+					// but getting there by accident would orphan every platform it had. Left unset and unreported.
+					return;
+				}
+				if (!isStorableSelection(value)) {
+					errors.push({ key: field.key, message: t('errorSelectionNotStorable') });
+					return;
+				}
+				fields[field.key] = { corner1: { x: value.corner1.x, z: value.corner1.z }, corner2: { x: value.corner2.x, z: value.corner2.z } };
+				return;
+			}
 			default:
 				// A field type with no case here is a bug in the descriptor, not user input. Reported as an
 				// error rather than skipped, because silently dropping it would make Save look like it worked.
@@ -233,43 +264,16 @@ export function parseInteger(value) {
 }
 
 /**
- * Parses a hex colour from a text input.
+ * Whether a selection can be stored at all.
  *
- * @returns {number|null} the colour, or null for anything that is not 1 to 6 hex digits, optionally with a
- *          leading '#'.
+ * Two ways it cannot, and both are refusals rather than corrections: a corner that is not a whole block
+ * (nothing the mod can act on), and a corner on the world origin. `AreaBase.setCorners` reads a corner of
+ * (0, 0) as "no selection set" and nulls it, so storing one would clear the selection while reporting
+ * success. The page keeps the visitor away from both while they drag, so this is a backstop.
  */
-export function parseHexColor(value) {
-	if (typeof value !== 'string') {
-		return null;
-	}
-	const trimmed = value.trim().replace(/^#/, '');
-	if (!/^[0-9a-fA-F]{1,6}$/.test(trimmed)) {
-		return null;
-	}
-	return parseInt(trimmed, 16);
-}
-
-/** @returns {string} a colour as a six-digit lowercase hex string with no leading '#'. */
-export function formatHexColor(color) {
-	const bounded = Math.max(0, Math.min(MAX_COLOR, Number(color) || 0));
-	return bounded.toString(16).padStart(6, '0');
-}
-
-/**
- * A summary of what the server did, for the card's status line.
- *
- * The server reports values it had to adjust in `warnings`, and the fields it wrote in `changed`. Both are
- * surfaced: "Saved" alone would hide that a colour was clamped, which is exactly the case where the page
- * and the server could otherwise disagree about what was stored.
- */
-export function describeResult(result) {
-	const changed = result && Array.isArray(result.changed) ? result.changed : [];
-	const warnings = result && Array.isArray(result.warnings) ? result.warnings : [];
-	if (warnings.length > 0) {
-		return { key: 'editSavedWithWarnings', values: [warnings.join(' ')], level: 'warning' };
-	}
-	if (changed.length === 0) {
-		return { key: 'editSavedNothing', values: [], level: 'warning' };
-	}
-	return { key: 'editSaved', values: [], level: 'success' };
+export function isStorableSelection(value) {
+	return Boolean(value)
+		&& isValidCorner(value.corner1)
+		&& isValidCorner(value.corner2)
+		&& !hasOriginCorner(value.corner1, value.corner2);
 }

@@ -1,5 +1,5 @@
-import { f, t } from './i18n.js?v=16';
-import { MODE_ALL, MODES, countForMode } from './lists.js?v=16';
+import { f, t } from './i18n.js?v=20';
+import { MODE_ALL, MODES, countForMode } from './lists.js?v=20';
 
 /*
  * DOM rendering for the sidebar.
@@ -31,12 +31,11 @@ const el = {
 	mapReadout: document.getElementById('map-readout'),
 	mapEditingBar: document.getElementById('map-editing-bar'),
 	mapEditingSize: document.getElementById('map-editing-size'),
+	mapSaveEdit: document.getElementById('map-save-edit'),
 	mapZoomIn: document.getElementById('map-zoom-in'),
 	mapZoomOut: document.getElementById('map-zoom-out'),
 	mapFocusPlayer: document.getElementById('map-focus-player'),
 	mapCancelEdit: document.getElementById('map-cancel-edit'),
-	editBar: document.getElementById('sidebar-edit-bar'),
-	editAreaButton: document.getElementById('sidebar-edit-area')
 };
 
 /**
@@ -114,18 +113,45 @@ export function setMapReadout(point) {
  *
  * @param {{minX: number, minZ: number, maxX: number, maxZ: number}|null} draft
  */
+/**
+ * Shows the drawn selection's size, what it would move, and whether it can be saved.
+ *
+ * Reported because without it a drag that failed to register looks exactly like one that succeeded.
+ *
+ * @param {{minX: number, minZ: number, maxX: number, maxZ: number, invalid: boolean}|null} draft
+ */
 export function setMapDraftSize(draft) {
 	if (!el.mapEditingSize) {
 		return;
 	}
+
 	if (!draft) {
 		el.mapEditingSize.textContent = '';
+		el.mapEditingSize.dataset.invalid = 'false';
+		setMapSaveEnabled(false);
 		return;
 	}
-	// Widths are inclusive of both end blocks, so a 1-block selection reads as 1 rather than 0.
+
+	// Widths include both end blocks, so a 1-block selection reads as 1 rather than 0.
 	const width = Math.abs(draft.maxX - draft.minX) + 1;
 	const height = Math.abs(draft.maxZ - draft.minZ) + 1;
 	el.mapEditingSize.textContent = f('mapDraftSize', width, height);
+	el.mapEditingSize.dataset.invalid = draft.invalid ? 'true' : 'false';
+
+	// A selection whose corner sits on the world origin cannot be stored at all, so the button is disabled
+	// rather than left to fail on the server. See areafit.js for why (0, 0) is special.
+	setMapSaveEnabled(!draft.invalid);
+}
+
+/**
+ * Enables or disables the save button in the editing bar.
+ *
+ * Also used to reflect a save in flight, which is why it takes a plain boolean rather than deriving one.
+ */
+export function setMapSaveEnabled(enabled) {
+	if (el.mapSaveEdit) {
+		el.mapSaveEdit.disabled = !enabled;
+	}
 }
 
 /** @returns the map overlay buttons, for app.js to wire up. */
@@ -134,7 +160,8 @@ export function getMapButtons() {
 		zoomIn: el.mapZoomIn,
 		zoomOut: el.mapZoomOut,
 		focusPlayer: el.mapFocusPlayer,
-		cancelEdit: el.mapCancelEdit
+		cancelEdit: el.mapCancelEdit,
+		saveEdit: el.mapSaveEdit
 	};
 }
 
@@ -320,7 +347,9 @@ function renderRow(row, position, context) {
 		// Two shapes are possible: a translation key plus its argument, or a literal string that is
 		// already display-ready (a depot's name, for instance). Joining happens here rather than in
 		// lists.js so the derivation layer stays free of presentation decisions.
-		summary.textContent = row.summary.map(part => (part.key ? f(part.key, part.value) : part.literal)).join(' · ');
+		// A space rather than a separator character: the parts are already self-describing ("1 platform",
+		// "zone 15"), so a dot between them is visual noise.
+		summary.textContent = row.summary.map(part => (part.key ? f(part.key, part.value) : part.literal)).join(' ');
 		text.appendChild(summary);
 	}
 
@@ -378,7 +407,6 @@ export function renderSidebar(state, derived, chrome = {}) {
 	renderTabs(state.tab);
 	renderModes(state.mode, state.tab, state.index);
 	syncSearchInput(state.search);
-	renderEditBar(chrome);
 	renderList(derived.rows, derived.listState, {
 		search: state.search,
 		emptyKey: derived.emptyKey,
@@ -406,18 +434,6 @@ export function renderSidebar(state, derived, chrome = {}) {
  * but a web row has no room for a seventh icon without becoming a toolbar, and a mistaken click there would
  * redefine a station. One button for the selected item is harder to hit by accident.
  */
-function renderEditBar(chrome) {
-	if (!el.editBar) {
-		return;
-	}
-	// Offered only for objects whose kind has a selection, which excludes routes, platforms and sidings.
-	const available = Boolean(chrome.canEdit && chrome.editAreaId && !chrome.editingArea);
-	el.editBar.hidden = !available;
-	if (el.editAreaButton) {
-		el.editAreaButton.dataset.id = chrome.editAreaId || '';
-	}
-}
-
 /**
  * Wires the sidebar's interactions. Registered once; every handler reads the current state through
  * the callbacks rather than closing over a snapshot, so nothing goes stale after a re-render.
@@ -482,10 +498,6 @@ export function bindSidebar(handlers) {
 
 	if (el.refresh) {
 		el.refresh.addEventListener('click', () => handlers.onRefresh());
-	}
-
-	if (el.editAreaButton) {
-		el.editAreaButton.addEventListener('click', () => handlers.onEditArea());
 	}
 
 	// No arrow-key paging: the list scrolls, so the browser's own PageUp/PageDown, Home/End and arrow

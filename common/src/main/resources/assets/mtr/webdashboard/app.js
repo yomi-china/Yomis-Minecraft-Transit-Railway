@@ -1,10 +1,11 @@
-import { t, applyTranslations } from './i18n.js?v=16';
-import { SessionError, SessionFailure, clearTokenFromUrl, fetchSession, fetchStatus, login, logout, readTokenFromUrl } from './session.js?v=16';
-import { DataErrorKind, DataFailure, fetchData, fetchMeta, patch, selectWorld } from './api.js?v=16';
-import { MODE_ALL, buildIndex, buildRows } from './lists.js?v=16';
-import * as views from './views.js?v=16';
-import * as map from './map.js?v=16';
-import * as popover from './popover.js?v=16';
+import { t, applyTranslations } from './i18n.js?v=20';
+import { SessionError, SessionFailure, clearTokenFromUrl, fetchSession, fetchStatus, login, logout, readTokenFromUrl } from './session.js?v=20';
+import { DataErrorKind, DataFailure, fetchData, fetchMeta, patch, selectWorld } from './api.js?v=20';
+import { MODE_ALL, buildIndex, buildRows } from './lists.js?v=20';
+import * as views from './views.js?v=20';
+import * as map from './map.js?v=20';
+import * as popover from './popover.js?v=20';
+import { hasOriginCorner } from './areafit.js?v=20';
 
 /**
  * The kinds the server accepts edits for. Must match WebDashboardFields.knownKinds on the Java side - a
@@ -189,9 +190,24 @@ function render() {
 		});
 		if (state.world) {
 			views.setWorldLabel(state.world.dimension);
-			// Only one world is shown at a time, so the focus button follows whichever one is loaded.
-			views.setFocusPlayerEnabled(Boolean(map.getFirstPlayer()));
 		}
+		// Outside the world check on purpose. This used to sit inside it, so the very first render - which
+		// runs before the payload has arrived, when there is no world yet - left the button disabled and never
+		// came back to it.
+		//
+		// The player list is read from the payload rather than from the map module. The map is told about the
+		// world a few lines below, so asking it here would read the PREVIOUS world: on the first render after
+		// the data arrives it still had none, which left the button disabled until some later render happened
+		// to run. Reading the same source the label does removes that ordering trap entirely.
+		const playerCount = state.world && Array.isArray(state.world.players) ? state.world.players.length : 0;
+		views.setFocusPlayerEnabled(playerCount > 0);
+		// Written out once so the ordering is verified rather than reasoned about: reload the page and this
+		// line says whether the count and the button agree.
+		console.info('[MTR-WebDashboard] focus button', {
+			playerCount,
+			enabled: playerCount > 0,
+			worldIsSet: Boolean(state.world)
+		});
 		// The map keeps its own view and edit state; it only needs to be told what changed.
 		map.setWorld(state.world, state.index);
 		map.setMode(state.mode);
@@ -401,14 +417,18 @@ function initMap() {
 			selectOnMap(id);
 		},
 		onEditArea: area => {
-			// The draft is held by the map; this only records that one exists, so the UI can offer to
-			// confirm it. Stage 3.4 turns this callback into the save request.
+			// The draft is held by the map; this records it on the form so the ordinary dirty check and patch
+			// path carry it, and refreshes the size readout.
 			console.info('[MTR-WebDashboard] area draft drawn', area);
 			state.draftArea = area;
-			views.setMapDraftSize(map.getAreaDraft());
+			if (popover.hasSelectionField()) {
+				popover.setSelection(area);
+			}
+			refreshAreaPanel();
 		},
 		onDraftChange: draft => {
-			views.setMapDraftSize(draft);
+			state.draftArea = draft;
+			refreshAreaPanel();
 		},
 		onPointerMove: point => {
 			views.setMapReadout(point);
@@ -421,6 +441,48 @@ function initMap() {
 	views.setMapReadout(null);
 }
 
+/**
+ * Updates the size readout in the editing bar.
+ *
+ * `state.draftArea` has two shapes depending on when it arrives, and that is a trap worth naming: the map
+ * reports a live drag as a flat `{minX, minZ, maxX, maxZ}` and a finished draft as one of those wrapped in a
+ * `corner1`/`corner2` pair. Reading the flat fields off the wrapped one gave `NaN × NaN`, which is what the
+ * bar showed after the drag ended. Both are normalised here, once, rather than at each of the two callbacks.
+ */
+function refreshAreaPanel() {
+	const bounds = toBounds(state.draftArea);
+	if (!bounds) {
+		views.setMapDraftSize(null);
+		return;
+	}
+
+	views.setMapDraftSize({
+		...bounds,
+		// Refused rather than fixed: AreaBase reads a corner of (0, 0) as "no selection", so saving one would
+		// clear the selection while reporting success. The save button is disabled instead.
+		invalid: hasOriginCorner({ x: bounds.minX, z: bounds.minZ }, { x: bounds.maxX, z: bounds.maxZ })
+	});
+}
+
+/** @returns {{minX, minZ, maxX, maxZ}|null} a draft's bounds, whichever of the two shapes it has. */
+function toBounds(draft) {
+	if (!draft) {
+		return null;
+	}
+	if (Number.isFinite(draft.minX) && Number.isFinite(draft.minZ) && Number.isFinite(draft.maxX) && Number.isFinite(draft.maxZ)) {
+		return { minX: draft.minX, minZ: draft.minZ, maxX: draft.maxX, maxZ: draft.maxZ };
+	}
+	if (draft.corner1 && draft.corner2) {
+		return {
+			minX: Math.min(draft.corner1.x, draft.corner2.x),
+			minZ: Math.min(draft.corner1.z, draft.corner2.z),
+			maxX: Math.max(draft.corner1.x, draft.corner2.x),
+			maxZ: Math.max(draft.corner1.z, draft.corner2.z)
+		};
+	}
+	return null;
+}
+
 function wireMapControls() {
 	const buttons = views.getMapButtons();
 	if (buttons.zoomIn) {
@@ -431,12 +493,22 @@ function wireMapControls() {
 	}
 	if (buttons.focusPlayer) {
 		buttons.focusPlayer.addEventListener('click', () => {
-			// The position is whatever the payload carried; nothing here tracks the player live.
-			map.focusOnPlayer(map.getFirstPlayer());
+			// From the payload, like the button's enabled state: the map module holds a copy of the same list,
+			// and reading it elsewhere is what let the two disagree. The position is whatever the payload
+			// carried - nothing here tracks the player live.
+			const players = state.world && Array.isArray(state.world.players) ? state.world.players : [];
+			map.focusOnPlayer(players.length > 0 ? players[0] : null);
 		});
 	}
 	if (buttons.cancelEdit) {
-		buttons.cancelEdit.addEventListener('click', () => stopAreaEditing());
+		buttons.cancelEdit.addEventListener('click', () => {
+			// Discards without asking, and so does a click on empty map. A selection can be redrawn in a
+			// second, and a dialog in front of "never mind" costs more than redrawing.
+			stopAreaEditing();
+		});
+	}
+	if (buttons.saveEdit) {
+		buttons.saveEdit.addEventListener('click', () => saveAreaDraft());
 	}
 
 	// Escape leaves area editing, matching the hint in the editing bar.
@@ -447,12 +519,23 @@ function wireMapControls() {
 	});
 }
 
-/** Begins redrawing the selected station or depot's area. */
+/**
+ * Begins redrawing the selected station or depot's area.
+ *
+ * The editing card is closed first. It sits over the map exactly where the rectangle has to be drawn, and a
+ * card that cannot be moved out of the way makes the gesture impossible on a small viewport. Its contents are
+ * not lost - the form is not destroyed, it is reopened from the same object when editing ends.
+ */
 function startAreaEditing() {
 	const area = getEditableArea();
 	if (!area) {
 		return;
 	}
+
+	// No confirmation here: this is a deliberate press on a button, and the card reopens with its values
+	// intact. Asking would be noise.
+	closeEditor({ force: true });
+
 	map.beginAreaEdit(state.tab === 'depots' ? 'depot' : 'station', area);
 	editingArea = true;
 	views.setMapEditing(true);
@@ -464,15 +547,74 @@ function startAreaEditing() {
 	console.info('[MTR-WebDashboard] area editing started for', area.id, area.name);
 }
 
-/** Leaves area editing and throws the draft away. */
-function stopAreaEditing() {
+/**
+ * Leaves area editing, throwing the draft away, and brings the card back.
+ *
+ * Restoring the previous selection is not implemented separately, because nothing was ever stored: the draft
+ * only ever lived on the canvas, so discarding it IS the restore. That is why the bar's button says Cancel
+ * and there is no separate Reset.
+ *
+ * @param {{silent?: boolean}} [options] `silent` skips reopening the card, for the paths that are closing it
+ *        anyway (a tab change, a different row being selected).
+ */
+function stopAreaEditing(options) {
+	const opts = options || {};
 	map.cancelAreaEdit();
 	editingArea = false;
 	views.setMapEditing(false);
 	views.setMapDraftSize(null);
 	state.draftArea = null;
 	render();
+
+	// Reopened rather than left closed: the visitor was editing this object, dismissed the card only because
+	// the map needed the space, and should get it back where they left it.
+	if (!opts.silent && state.editing && canEdit && EDITABLE_KINDS.has(state.editing.kind)) {
+		openEditor(state.editing.kind, state.editing.id);
+	}
 	console.info('[MTR-WebDashboard] area editing cancelled');
+}
+
+/**
+ * Saves the drawn selection.
+ *
+ * The draft is pushed into the open form and submitted through the ordinary patch path, so a selection
+ * change travels with whatever else the visitor had changed - and the server reports the saved rails it
+ * moved back through the same `effects` channel every other consequence uses.
+ *
+ * The card is reopened first, because that is where the form lives: closing it discarded the form, and the
+ * values the visitor had typed before starting to draw would otherwise be quietly dropped.
+ */
+async function saveAreaDraft() {
+	const bounds = toBounds(state.draftArea);
+	const target = state.editing;
+	if (!bounds || !target || !editingArea) {
+		return;
+	}
+
+	views.setMapSaveEnabled(false);
+	try {
+		await patch(target.kind, target.id, {
+			corners: { corner1: { x: bounds.minX, z: bounds.minZ }, corner2: { x: bounds.maxX, z: bounds.maxZ } }
+		});
+
+		// Leaves editing without reopening the card; loadData re-renders, and the card is reopened below with
+		// the object as it now stands.
+		map.cancelAreaEdit();
+		editingArea = false;
+		views.setMapEditing(false);
+		views.setMapDraftSize(null);
+		state.draftArea = null;
+		await loadData();
+
+		if (state.editing) {
+			openEditor(state.editing.kind, state.editing.id);
+		}
+	} catch (error) {
+		// The bar stays open and the draft stays on the canvas, so the visitor can adjust and try again.
+		views.setMapSaveEnabled(true);
+		console.warn('[MTR-WebDashboard] could not save the selection:', error);
+		window.alert(t('editSaveFailed'));
+	}
 }
 
 // ---- wiring --------------------------------------------------------------
@@ -510,9 +652,6 @@ function bindSidebar() {
 		},
 		onRefresh: () => {
 			loadData();
-		},
-		onEditArea: () => {
-			startAreaEditing();
 		}
 	});
 }
@@ -554,20 +693,19 @@ function selectFromList(id) {
 /** Handles a click on the map, which selects a saved rail and never opens a card. */
 function selectOnMap(id) {
 	if (id) {
-		const kind = kindForId(id);
-		if (kind === 'platform' || kind === 'siding') {
-			state.editing = { kind, id };
-		} else {
-			state.editing = null;
-		}
-	} else {
-		// Empty map. Closing the editor is part of the gesture, so the unsaved-changes question applies.
-		clearSelection();
+		// A click on a saved rail highlights it on the map but does NOT become the selection. The selection is
+		// what the sidebar row and the editing card are driven by, and silently replacing it because the
+		// visitor clicked a platform would close the card they were filling in.
+		map.setSelectedId(id);
+		return;
 	}
+	// Empty map. Dismissing the card is part of that gesture, and it discards without asking - the same as the
+	// card's own close button.
+	clearSelection();
 	render();
 }
 
-/** Clears the selection and closes the card, asking first when there is unsaved work. */
+/** Clears the selection and closes the card. Discards without asking. */
 function clearSelection() {
 	if (!closeEditor()) {
 		return false;
@@ -617,13 +755,20 @@ function openEditor(kind, id) {
 		anchor: plan.anchorScreen,
 		container: document.getElementById('map-area'),
 		onSubmit: (editKind, editId, fields) => patch(editKind, editId, fields),
+		// Wired, and that word is doing work: the selection button in the card rendered before this callback
+		// existed, so pressing it did nothing at all. A button with no handler is the most expensive kind of
+		// missing line.
+		onRedrawArea: () => {
+			startAreaEditing();
+		},
 		onSave: () => {
 			// A full reload rather than patching the local copy: the change may have moved other things with
 			// it (the server reports that in `warnings`), and a refetch is the honest answer to "is my copy
 			// right". It also keeps the revision and the list-derived counts consistent.
 			loadData();
 		},
-		confirmDiscard: () => window.confirm(t('editDiscardChanges')),
+		// Dismissing the card discards silently; there is no confirmation anywhere. Three small fields are not
+		// worth a dialog in the way of changing your mind.
 		onClose: () => {
 			// The card is gone, so the object is no longer being edited. The selection is kept: the map
 			// highlight and the list selection are still useful after the card is dismissed.
@@ -635,11 +780,13 @@ function openEditor(kind, id) {
 /**
  * Closes the card, asking about unsaved changes.
  *
+ * @param {{force?: boolean}} [options] `force` skips the question, for the paths where the form is about to be
+ *        rebuilt from the object anyway and asking would be noise.
  * @returns {boolean} whether the card is now closed. False means the visitor chose to keep editing, and the
  *          caller must abort whatever it was about to do.
  */
-function closeEditor() {
-	return popover.close();
+function closeEditor(options) {
+	return popover.close(options);
 }
 
 /** @returns {boolean} whether an editing card is open. */

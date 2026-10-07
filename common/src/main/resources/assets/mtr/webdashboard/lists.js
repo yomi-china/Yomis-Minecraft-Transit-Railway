@@ -206,10 +206,14 @@ function buildStationRows(world, index) {
 		name: formatName(station.name),
 		color: station.color,
 		mode: null,
-		// Counts and the zone; rendered as separate chips and translated by the view.
+		// Counts and the zone; translated by the view.
+		//
+		// The zone is always listed, including when it is 0. Hiding it looked like a tidy-up and was wrong:
+		// zero is a real zone - the game stores it and the in-game dashboard shows it - so omitting it made a
+		// station's zone look unset rather than set to zero.
 		summary: [
 			{ key: 'summaryPlatforms', value: index.platformCountByStationId.get(station.id) || 0 },
-			...(station.zone ? [{ key: 'summaryZone', value: station.zone }] : [])
+			{ key: 'summaryZone', value: station.zone || 0 }
 		],
 		raw: station
 	}));

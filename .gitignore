@@ -52,3 +52,4 @@ fabric/server
 forge/server
 
 .architectury-transformer/
+/common/src/main/resources/assets/mtr/webdashboard/

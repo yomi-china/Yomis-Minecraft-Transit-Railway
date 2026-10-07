@@ -1,29 +1,16 @@
 /*
  * Where to fly the map, and where to put the editing card. Pure logic: no DOM, no canvas, no state.
- *
- * Split out for the same reason as mapview.js and mapedit.js - this is arithmetic that is easy to get
- * subtly wrong and impossible to eyeball, so it is asserted in Node by test-focus.mjs.
- *
- * The interaction it serves, decided in spilt-3.4.md: one edit entry per list row, the map flies to
- * the object, and a non-modal MD3 card appears next to it.
  */
 
 import { fitBounds, isSanePoint, worldToScreen } from './mapview.js';
 
-/**
- * The arrow's length along the axis it crosses, which is also the width of the box it occupies.
- *
- * Positioned so that its midpoint lands on the anchor, the box covers `anchor +- ARROW_SIZE / 2`, and the
- * card then starts `ARROW_SIZE / 2 + CARD_MARGIN` from the anchor. Deriving the card's offset from that
- * rather than picking both numbers by eye is the difference between an arrow that points at the object and
- * one that points near it - an earlier attempt looked plausible and was 42 pixels off.
- */
+/** The arrow's length along the axis it crosses, and the width of the box it occupies. */
 export const ARROW_SIZE = 20;
 
 /** Clear space between the arrow's base and the card's edge. */
 export const CARD_MARGIN = 12;
 
-/** The offset from the anchor to the card's near edge. Derived, not chosen. */
+/** The offset from the anchor to the card's near edge. Derived so the arrow's midpoint lands on the anchor. */
 export const CARD_OFFSET = ARROW_SIZE / 2 + CARD_MARGIN;
 
 /** Clear space between the card and the edge of the map area. */
@@ -32,31 +19,19 @@ export const CARD_EDGE_MARGIN = 8;
 /** The card's corner radius, matching the MD3 shape token used in index.css. */
 export const CARD_CORNER_RADIUS = 16;
 
-/**
- * How far the arrow must stay from the card's rounded corners for it to look attached.
- *
- * Must be at least the corner radius, or the arrow lands on the curve. And the arrow only reaches the
- * anchor when the card is not pushed off its preferred offset, which the test asserts directly.
- */
+/** How far the arrow must stay from the card's rounded corners, so it does not land on the curve. */
 const ARROW_CORNER_INSET = CARD_CORNER_RADIUS;
 
 /** Scale raised to at least this when focusing a single saved rail, matching the game's find(BlockPos). */
 export const SAVED_RAIL_FOCUS_SCALE = 8;
 
-/** Scale raised to at least this when focusing an area. */
-export const AREA_FOCUS_SCALE = 2;
-
 /**
- * The bounding box of a route, from the positions of the platforms it stops at.
+ * @returns {{minX: number, minZ: number, maxX: number, maxZ: number}|null} the bounding box of a route,
+ *          from the positions of the platforms it stops at - the route payload carries platform ids, not
+ *          coordinates. Null when the route has no stops, which is a legal state.
  *
- * The route payload carries platform *ids*, not coordinates, so the positions have to come from the
- * platform list - which is what `index` (lists.js buildIndex) is for.
- *
- * Each platform occupies one block, so the box is grown by one on the far edges: without that, fitBounds
- * frames the platform's near corner and clips the rest of the last block.
- *
- * @returns {{minX: number, minZ: number, maxX: number, maxZ: number}|null} null when the route has no
- *          stops at all, which is a legal state - an empty route is allowed, so this must not throw.
+ * The far edges are grown by one block because a platform occupies [x, x + 1): without that, fitBounds
+ * frames the near corner and clips the rest of the last block.
  */
 export function routeBounds(route, index) {
 	if (!route || !index || !index.platformById) {
@@ -181,21 +156,19 @@ export function sameView(a, b) {
 /**
  * Places the editing card next to the point it describes.
  *
- * The approach is "compute then clamp" rather than "flip to the other side when it does not fit".
- * Flipping looks appealing but misbehaves on a card that is centred, where the two placements are
- * almost equally bad and the card jumps sides as the view moves; it also has to be re-decided every
- * time the card's height changes, which is every time a different object is edited.
+ * Computed and then clamped, rather than flipped to the other side when it does not fit: flipping has to be
+ * re-decided whenever the card's height changes, and on a centred card the two placements are equally bad
+ * so it jumps sides as the view moves.
  *
- * The one rule that matters more than the rest: <b>if the arrow cannot reach the anchor, do not draw
- * an arrow.</b> An arrow pointing at empty map is worse than no arrow, because it tells the user the
- * card belongs to something it does not.
+ * When the arrow cannot reach the anchor it is not drawn. An arrow pointing at empty map is worse than no
+ * arrow, because it claims the card belongs to something it does not.
  *
  * @param {{x: number, y: number}} anchor   where the card should point, in map-area coordinates.
  * @param {{width: number, height: number}} card the card's measured size.
  * @param {{width: number, height: number}} area the map area's size.
  * @returns {{left, top, arrowX, arrowY, arrowVisible, arrowSide, docked, outside}}
- *          `docked` true means the card could not be placed beside the anchor at all and is pinned to
- *          the bottom edge, full width; `outside` true means the anchor is off screen entirely.
+ *          `docked` means the card could not be placed beside the anchor and is pinned along the bottom;
+ *          `outside` means the anchor is off screen.
  */
 export function placePopover(anchor, card, area) {
 	const areaWidth = Math.max(1, area.width);
@@ -271,15 +244,4 @@ function clamp(value, min, max) {
 		return min;
 	}
 	return Math.min(max, Math.max(min, value));
-}
-
-/**
- * Where a saved rail's centre sits in map-area coordinates, so the map and the focus code agree on what
- * "the block" means.
- */
-export function savedRailCentre(platform, view) {
-	if (!platform || !isSanePoint(platform.midX, platform.midZ)) {
-		return null;
-	}
-	return worldToScreen(view, platform.midX + 0.5, platform.midZ + 0.5);
 }

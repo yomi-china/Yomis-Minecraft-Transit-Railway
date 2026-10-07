@@ -333,6 +333,38 @@ body[data-view="expired"] .view[data-view="expired"] {
 	background-color: color-mix(in srgb, var(--md-sys-color-primary) 12%, transparent);
 }
 
+/*
+ * MD3 filled button: the affirmative action.
+ *
+ * This class was referenced long before it was defined - the editing card's Save used it and silently fell
+ * back to the bare `.button` rule, which has no background, so it rendered as an unfilled pill and read as
+ * disabled even when it was not. A class name that looks plausible and does nothing is worse than a missing
+ * one, because nothing complains.
+ */
+.button--filled {
+	padding: 10px 24px;
+	background-color: var(--md-sys-color-primary);
+	color: var(--md-sys-color-on-primary);
+	font-size: var(--md-sys-typescale-label-large-size);
+	line-height: var(--md-sys-typescale-label-large-line-height);
+}
+
+.button--filled:hover:not(:disabled) {
+	background-color: color-mix(in srgb, var(--md-sys-color-on-primary) 8%, var(--md-sys-color-primary));
+}
+
+.button--filled:active:not(:disabled) {
+	background-color: color-mix(in srgb, var(--md-sys-color-on-primary) 12%, var(--md-sys-color-primary));
+}
+
+.button--filled:disabled {
+	/* The container stays but loses its fill, which is MD3's disabled treatment and reads as unavailable
+	   rather than as missing. */
+	background-color: color-mix(in srgb, var(--md-sys-color-on-surface) 12%, transparent);
+	color: color-mix(in srgb, var(--md-sys-color-on-surface) 38%, transparent);
+	opacity: 1;
+}
+
 .button:focus-visible {
 	outline: 3px solid var(--md-sys-color-primary);
 	outline-offset: 2px;
@@ -684,6 +716,11 @@ body:not([data-view="dashboard"]) .stage {
 	display: none;
 }
 
+.map-editing-bar__size[data-invalid='true'] {
+	background-color: rgba(242, 184, 181, 0.18);
+	color: var(--md-sys-color-error, #f2b8b5);
+}
+
 .map-editing-bar .button {
 	background-color: transparent;
 	color: #a8c7fa;
@@ -691,6 +728,23 @@ body:not([data-view="dashboard"]) .stage {
 
 .map-editing-bar .button:hover:not(:disabled) {
 	background-color: rgba(168, 199, 250, 0.12);
+}
+
+/* The save button is the one affirmative action in the bar, so it carries the filled treatment. */
+.map-editing-bar .button--filled {
+	background-color: #a8c7fa;
+	color: #062e6f;
+}
+
+.map-editing-bar .button--filled:hover:not(:disabled) {
+	background-color: #c2d7fb;
+}
+
+.map-editing-bar .button:disabled {
+	opacity: 0.38;
+	cursor: not-allowed;
+	background-color: transparent;
+	color: #8f9291;
 }
 
 /*
@@ -921,12 +975,6 @@ body:not([data-view="dashboard"]) .stage {
 	color: var(--md-sys-color-on-surface-variant);
 	font-size: var(--md-sys-typescale-body-small-size);
 	line-height: var(--md-sys-typescale-body-small-line-height);
-}
-
-/* The redraw action for the selected object. Sits between the search box and the list so it is next to
-   the thing it acts on without crowding the rows. */
-.sidebar__edit-bar {
-	padding: 4px 12px 8px;
 }
 
 /*
@@ -1279,40 +1327,114 @@ body:not([data-view="dashboard"]) .stage {
 	font-size: var(--md-sys-typescale-body-small-size);
 }
 
-.edit-color {
+/* ---- colour picker ------------------------------------------------------- */
+
+/*
+ * A continuous HSV picker: a saturation/value square with a hue bar beside it.
+ *
+ * The square is composed from three stacked backgrounds rather than drawn on a canvas - the pure hue
+ * underneath, white faded in from the left, black faded in from the bottom. That composition IS the SV
+ * plane, so dragging never repaints a gradient: only the cursors move, and the hue layer is touched only
+ * when the hue itself changes.
+ */
+.color-picker {
 	display: flex;
 	flex-direction: column;
 	gap: 10px;
 }
 
-.edit-color__swatches {
-	display: grid;
-	grid-template-columns: repeat(8, 1fr);
-	gap: 6px;
+.color-picker__top {
+	display: flex;
+	gap: 10px;
+	align-items: stretch;
 }
 
-.edit-color__swatch {
-	width: 100%;
-	aspect-ratio: 1;
-	padding: 0;
-	border: 1px solid var(--md-sys-color-outline-variant);
+.color-picker__panel {
+	position: relative;
+	/* Fills the row rather than being a fixed width, so the square and the hue bar together span the card
+	   instead of leaving a strip of empty space to their right. The row is given an explicit height because
+	   a percentage height has no definite parent here. */
+	flex: 1 1 auto;
+	min-width: 0;
+	height: 150px;
 	border-radius: var(--md-sys-shape-corner-extra-small);
-	cursor: pointer;
+	/* Without this the browser treats a drag as a scroll on touch devices and the panel never sees it. */
+	touch-action: none;
+	cursor: crosshair;
+	overflow: hidden;
 }
 
-/* A ring rather than a border, so selecting a swatch does not change its size and shuffle the grid. */
-.edit-color__swatch[data-selected='true'] {
+.color-picker__panel:focus-visible,
+.color-picker__hue-bar:focus-visible {
 	outline: 2px solid var(--md-sys-color-primary);
-	outline-offset: 1px;
+	outline-offset: 2px;
 }
 
-.edit-color__row {
+/* The base layer. Its backgroundColor is set inline from the hue. */
+.color-picker__hue-layer,
+.color-picker__white-layer,
+.color-picker__black-layer {
+	position: absolute;
+	inset: 0;
+}
+
+/* White across the saturation axis, black up the value axis. Together they are the SV plane. */
+.color-picker__white-layer {
+	background: linear-gradient(to right, #FFFFFF, rgba(255, 255, 255, 0));
+}
+
+.color-picker__black-layer {
+	background: linear-gradient(to top, #000000, rgba(0, 0, 0, 0));
+}
+
+.color-picker__cursor,
+.color-picker__hue-cursor {
+	position: absolute;
+	width: 12px;
+	height: 12px;
+	border-radius: 50%;
+	/* Two rings, one light and one dark: a single ring vanishes against either the black corner or the white
+	   one, and the cursor has to be findable at both ends of both axes. */
+	box-shadow: inset 0 0 0 2px #FFFFFF, 0 0 0 1px rgba(0, 0, 0, 0.6), 0 0 2px 2px rgba(0, 0, 0, 0.25);
+	transform: translate(-50%, -50%);
+	/* The cursors must never swallow the drag that is moving them. */
+	pointer-events: none;
+}
+
+.color-picker__hue-bar {
+	position: relative;
+	flex: 0 0 20px;
+	width: 20px;
+	border-radius: var(--md-sys-shape-corner-extra-small);
+	/* Seven stops at 60 degree intervals: red, yellow, green, cyan, blue, magenta and back to red. */
+	background: linear-gradient(
+		to bottom,
+		#FF0000 0%,
+		#FFFF00 16.67%,
+		#00FF00 33.33%,
+		#00FFFF 50%,
+		#0000FF 66.67%,
+		#FF00FF 83.33%,
+		#FF0000 100%
+	);
+	touch-action: none;
+	cursor: ns-resize;
+}
+
+.color-picker__hue-cursor {
+	left: 50%;
+	width: 24px;
+	height: 12px;
+	border-radius: var(--md-sys-shape-corner-extra-small);
+}
+
+.color-picker__bottom {
 	display: flex;
 	align-items: center;
 	gap: 10px;
 }
 
-.edit-color__preview {
+.color-picker__preview {
 	flex: 0 0 auto;
 	width: 24px;
 	height: 24px;
@@ -1320,9 +1442,16 @@ body:not([data-view="dashboard"]) .stage {
 	border-radius: var(--md-sys-shape-corner-extra-small);
 }
 
-.edit-color__hex {
+.color-picker__hex {
 	font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 	text-transform: lowercase;
+}
+
+/* A value the picker could not read. Marked rather than replaced, so the visitor can see and fix what they
+   typed; blur rolls it back to the real colour. */
+.color-picker__hex[data-invalid='true'] {
+	border-color: var(--md-sys-color-error, #f2b8b5);
+	box-shadow: inset 0 0 0 1px var(--md-sys-color-error, #f2b8b5);
 }
 
 .edit-card__status {
