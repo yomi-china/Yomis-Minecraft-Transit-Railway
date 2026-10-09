@@ -623,6 +623,17 @@ public class Siding extends SavedRailBase implements IPacket, IReducedSaveData {
 
 			time += (pathData.dwellTime + pathData.adcTime) * 5;
 
+			// The train came to a stand at a platform here, so it leaves the stop like any other departure:
+			// TrainServer.startUp() puts the speed back to ACCELERATION_DEFAULT. Keeping the residual braking
+			// speed instead made every following inter-station run faster in this pre-simulation than in the
+			// live simulation, which is what made the platform countdowns run early - and the error grew with
+			// every stop of the route, because the leftover speed was carried on to the next leg.
+			// The stop has to be recognised exactly like the one that marks the time segment above, otherwise
+			// a segment the train merely rolls through would be treated as a departure.
+			if (pathData.dwellTime > 0 && railProgress == distanceSum2 && nextStoppingDistance == distanceSum2) {
+				speed = Train.ACCELERATION_DEFAULT;
+			}
+
 			if (pathData.savedRailBaseId != 0) {
 				if (savedRailBaseIdOld != 0) {
 					if (!platformTimes.containsKey(savedRailBaseIdOld)) {

@@ -43,6 +43,9 @@ public class TrainServer extends Train {
 	private static final int DEBUG_PERIODIC_TICKS = 200;
 	private int debugPeriodicCounter;
 
+	private static final int DWELL_SUSPENSION_TICKS = DOOR_MOVE_TIME + DOOR_DELAY + 1;
+	private static final int MAX_HOLD_DELAY_MILLIS = 120000;
+
 	public TrainServer(long id, long sidingId, float railLength, String trainId, String baseTrainType, int trainCars, List<PathData> path, List<Double> distances, int repeatIndex1, int repeatIndex2, float accelerationConstant, List<Siding.TimeSegment> timeSegments, boolean isManual, int maxManualSpeed, int manualToAutomaticTime) {
 		super(id, sidingId, railLength, trainId, baseTrainType, trainCars, path, distances, repeatIndex1, repeatIndex2, accelerationConstant, isManual, maxManualSpeed, manualToAutomaticTime);
 		this.timeSegments = timeSegments;
@@ -266,6 +269,8 @@ public class TrainServer extends Train {
 
 		final int nextDepartureTicks = isOnRoute ? 0 : depot.getNextDepartureMillis();
 		final long currentMillis = System.currentTimeMillis() - (long) (elapsedDwellTicks * Depot.MILLIS_PER_TICK) + (long) Math.max(0, nextDepartureTicks);
+		final long holdMillis = (long) Math.max(0, elapsedDwellTicks - suspendedDwellTicks()) * Depot.MILLIS_PER_TICK;
+		final long delayMillis = Math.min(MAX_HOLD_DELAY_MILLIS, holdMillis);
 
 		double currentTime = -1;
 		int startingIndex = 0;
@@ -307,7 +312,7 @@ public class TrainServer extends Train {
 					}
 
 					if (isOnRoute || nextDepartureTicks >= 0) {
-						final long arrivalMillis = currentMillis + (long) ((timeSegment.endTime + offsetTime - currentTime) * Depot.MILLIS_PER_TICK);
+						final long arrivalMillis = currentMillis + delayMillis + (long) ((timeSegment.endTime + offsetTime - currentTime) * Depot.MILLIS_PER_TICK);
 						addSchedule = () -> schedulesForPlatform.get(platformId).add(new ScheduleEntry(arrivalMillis, trainCars, timeSegment.routeId, timeSegment.currentStationIndex));
 						if (!isRepeat()) {
 							addSchedule.run();
@@ -415,6 +420,16 @@ public class TrainServer extends Train {
 			}
 		}
 		return path.size() - 1;
+	}
+
+	private float suspendedDwellTicks() {
+		if (nextStoppingIndex >= path.size()) {
+			return 0;
+		}
+
+		final PathData pathData = path.get(nextStoppingIndex);
+		final int adcTimeTicks = isCurrentlyManual ? 0 : pathData.adcTime * 10;
+		return Math.max(0, pathData.dwellTime * 10 - DWELL_SUSPENSION_TICKS) + Math.max(0, adcTimeTicks);
 	}
 
 	private void checkBlock(BlockPos pos, Consumer<BlockPos> callback) {
