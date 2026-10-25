@@ -39,6 +39,7 @@ public abstract class Train extends NameColorDataBase implements IPacket {
 	protected boolean doorTarget;
 	protected float doorValue;
 	protected float elapsedDwellTicks;
+	protected float heldTicks;
 	protected int nextStoppingIndex;
 	protected int nextPlatformIndex;
 	protected boolean reversed;
@@ -567,6 +568,7 @@ public abstract class Train extends NameColorDataBase implements IPacket {
 				tempDoorValue = 0;
 				speed = 0;
 				nextStoppingIndex = 0;
+				heldTicks = 0;
 				if (!world.isClientSide()) {
 					if (!isCurrentlyManual && canDeploy(depot) || isCurrentlyManual && manualNotch > 0) {
 						startUp(world, trainCars, spacing, isOppositeRail());
@@ -599,6 +601,9 @@ public abstract class Train extends NameColorDataBase implements IPacket {
 
 						if (totalDwellTicks == 0) {
 							tempDoorOpen = false;
+							if (railBlocked && !isCurrentlyManual) {
+								heldTicks += ticksElapsed;
+							}
 						} else {
 							if (elapsedDwellTicks == 0 && isRepeat() && getIndex(railProgress, false) >= repeatIndex2 && distances.size() > repeatIndex1) {
 								if (path.get(repeatIndex2).isOppositeRail(path.get(repeatIndex1))) {
@@ -611,6 +616,8 @@ public abstract class Train extends NameColorDataBase implements IPacket {
 
 							if (elapsedDwellTicks < totalDwellTicks - DOOR_MOVE_TIME - DOOR_DELAY - ticksElapsed || !railBlocked) {
 								elapsedDwellTicks += ticksElapsed;
+							} else {
+								heldTicks += ticksElapsed;
 							}
 
 							tempDoorOpen = openDoors();
@@ -873,6 +880,9 @@ public abstract class Train extends NameColorDataBase implements IPacket {
 		doorTarget = false;
 		doorValue = 0;
 		nextPlatformIndex = nextStoppingIndex;
+		// The wait is over: from here on the train moves again, and the schedule anchors itself on the
+		// current moment, so the measured hold must not be carried into the next leg.
+		heldTicks = 0;
 	}
 
 	protected boolean openDoors() {

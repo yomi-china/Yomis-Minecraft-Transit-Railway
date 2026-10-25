@@ -6,10 +6,25 @@
 	<meta name="color-scheme" content="light dark">
 	<meta name="robots" content="noindex">
 	<title>MTR Web Dashboard</title>
-	<link rel="stylesheet" href="index.css?v=20">
-	<script type="module" src="app.js?v=20"></script>
+	<link rel="stylesheet" href="index.css?v=35">
+	<link rel="stylesheet" href="welcome.css?v=35">
+	<script type="module" src="app.js?v=35"></script>
 </head>
-<body data-view="checking">
+<body data-view="checking" data-theme="dark">
+<script>
+	try {
+		const saved = JSON.parse(localStorage.getItem('mtr-webdashboard-theme') || 'null');
+		if (saved && (saved.mode === 'dark' || saved.mode === 'light')) {
+			document.body.dataset.theme = saved.mode;
+		}
+		if (saved && saved.accent) {
+			document.body.style.setProperty('--ui-accent', saved.accent);
+			document.body.style.setProperty('--welcome-primary', saved.accent);
+		}
+	} catch (error) {
+		// localStorage may be unavailable in a locked-down WebView.
+	}
+</script>
 <noscript>
 	<p class="noscript-notice">This dashboard requires JavaScript.</p>
 </noscript>
@@ -17,18 +32,23 @@
 <div class="shell">
 	<header class="topbar">
 		<div class="topbar__brand">
-			<span class="topbar__icon" aria-hidden="true">
-				<svg viewBox="0 0 24 24" width="20" height="20" focusable="false">
-					<path d="M12 2 4 6v6c0 5 3.4 8.6 8 10 4.6-1.4 8-5 8-10V6l-8-4zm0 2.2 6 3v4.8c0 4-2.6 7-6 8.2-3.4-1.2-6-4.2-6-8.2V7.2l6-3z"/>
-					<path d="M11 7h2v3.6l2.7 2.7-1.4 1.4L11 11.4V7z"/>
-				</svg>
-			</span>
 			<h1 class="topbar__title" data-i18n="title">Web Dashboard</h1>
 			<span class="badge badge--muted" id="readonly-badge" hidden data-i18n="readOnlyBadge">Read-only</span>
 			<span class="topbar__world" id="world-label" hidden></span>
 		</div>
 
 		<div class="topbar__actions">
+			<button class="welcome-help topbar-home" id="home" type="button" data-i18n-title="home" data-i18n-aria-label="home" aria-label="Home">
+				<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+					<path d="M15.41 7.41 14 6l-6 6 6 6 1.41-1.41L10.83 12z"/>
+				</svg>
+				<span class="topbar-home__label" data-i18n="home">Home</span>
+			</button>
+			<button class="icon-button" id="settings" type="button" data-i18n-title="settings" data-i18n-aria-label="settings" aria-label="Settings">
+				<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false">
+					<path d="M19.14 12.94c.04-.3.06-.61.06-.94s-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.49.49 0 0 0-.59-.22l-2.39.96a7.03 7.03 0 0 0-1.62-.94L14.4 2.81a.48.48 0 0 0-.48-.41h-3.84a.48.48 0 0 0-.48.41L9.25 5.35c-.59.24-1.13.55-1.62.94l-2.39-.96a.49.49 0 0 0-.59.22L2.73 8.87a.48.48 0 0 0 .12.61l2.03 1.58c-.05.3-.07.63-.07.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.3.59.22l2.39-.96c.5.39 1.03.7 1.62.94l.36 2.54c.04.24.25.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32a.48.48 0 0 0-.12-.61l-2.01-1.58zM12 15.6A3.6 3.6 0 1 1 12 8.4a3.6 3.6 0 0 1 0 7.2z"/>
+				</svg>
+			</button>
 			<button class="icon-button" id="refresh" type="button" data-i18n-title="refresh" data-i18n-aria-label="refreshAriaLabel" aria-label="Refresh">
 				<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false">
 					<path d="M12 5V2L7 6l5 4V7a5 5 0 1 1-5 5H5a7 7 0 1 0 7-7z"/>
@@ -39,6 +59,11 @@
 				<span data-i18n="statusLoading">Checking service…</span>
 			</span>
 			<span class="badge badge--account" id="account-badge" hidden>
+				<span class="badge__avatar" aria-hidden="true">
+					<svg viewBox="0 0 24 24" width="12" height="12" focusable="false">
+						<path d="M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4zm0 2c-3.3 0-6 1.7-6 3.8V20h12v-2.2c0-2.1-2.7-3.8-6-3.8z"/>
+					</svg>
+				</span>
 				<span id="account-name"></span>
 			</span>
 			<button class="button button--text" id="sign-out" type="button" data-i18n="signOut">Sign out</button>
@@ -47,12 +72,12 @@
 
 	<div class="content">
 		<aside class="sidebar" data-i18n-aria-label="sidebarLabel" aria-label="Railway data">
-			<div class="sidebar__filters" id="sidebar-filters">
-				<div class="chips" id="modes" role="group"></div>
-			</div>
-
 			<div class="sidebar__tabs">
 				<div class="tabs" id="tabs" role="tablist"></div>
+			</div>
+
+			<div class="sidebar__filters" id="sidebar-filters">
+				<div class="chips" id="modes" role="group"></div>
 			</div>
 
 			<div class="sidebar__search">
@@ -115,51 +140,102 @@
 	</div>
 </div>
 
-<main class="stage">
-	<section class="card" id="dashboard-card" aria-labelledby="dashboard-title">
-		<header class="card__header">
-			<div class="card__icon" aria-hidden="true">
-				<svg viewBox="0 0 24 24" width="28" height="28" focusable="false">
-					<path d="M12 2 4 6v6c0 5 3.4 8.6 8 10 4.6-1.4 8-5 8-10V6l-8-4zm0 2.2 6 3v4.8c0 4-2.6 7-6 8.2-3.4-1.2-6-4.2-6-8.2V7.2l6-3z"/>
-					<path d="M11 7h2v3.6l2.7 2.7-1.4 1.4L11 11.4V7z"/>
+<canvas id="welcome-canvas" class="welcome-canvas" aria-hidden="true"></canvas>
+<div class="welcome-atmosphere" aria-hidden="true"></div>
+
+<header class="welcome-appbar">
+	<div class="welcome-appbar__inner">
+		<span class="welcome-appbar__brand">YMTR</span>
+		<nav class="welcome-tabs">
+			<span class="welcome-tab" aria-current="page" data-i18n="title">Web Dashboard</span>
+		</nav>
+		<span class="welcome-state" id="welcome-state" data-state="checking">
+			<span class="welcome-state__dot" aria-hidden="true"></span>
+			<span id="welcome-state-label" data-i18n="statusLoading">Checking service…</span>
+		</span>
+	</div>
+</header>
+
+<p class="welcome-notice" id="lan-warning" hidden data-i18n="lanWarning">This service is open to the local network over plain HTTP, so sign-in tokens can be read by anyone on the same network. Restart with allowLanAccess turned off to avoid that.</p>
+
+<main class="welcome-sheet" id="welcome-sheet" aria-labelledby="welcome-title">
+	<div class="welcome-sheet__inner">
+		<div class="welcome-copy">
+			<h1 class="welcome-title" id="welcome-title"><span id="welcome-title-text"></span></h1>
+			<p class="welcome-subtitle" id="welcome-subtitle"></p>
+		</div>
+
+		<div class="welcome-actions">
+			<div class="welcome-help-wrap" id="welcome-help-wrap">
+				<button class="welcome-help" id="welcome-help" type="button" aria-expanded="false" aria-controls="welcome-help-bubble">
+					<span data-i18n="welcomeHelp">How do I get edit access?</span>
+					<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false">
+						<path d="M7.41 8.59 12 13.17l4.59-4.58L18 10l-6 6-6-6z"/>
+					</svg>
+				</button>
+				<div class="welcome-bubble" id="welcome-help-bubble" role="dialog" aria-modal="false" aria-labelledby="welcome-help" data-open="false" aria-hidden="true">
+					<p data-i18n="readOnlyBody">Open this dashboard from the in-game Web Dashboard button to sign in, or ask an operator to grant you access.</p>
+					<button class="welcome-bubble__close" id="welcome-help-close" type="button" data-i18n-aria-label="editClose" data-i18n-title="editClose" aria-label="Close">×</button>
+				</div>
+			</div>
+
+			<button class="welcome-help welcome-enter" id="welcome-enter" type="button" hidden>
+				<span data-i18n="enterDashboard">Enter dashboard</span>
+				<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false">
+					<path d="M8.59 16.59 13.17 12 8.59 7.41 10 6l6 6-6 6z"/>
 				</svg>
-			</div>
-			<div class="card__heading">
-				<h1 class="card__title" id="dashboard-title" data-i18n="title">Web Dashboard</h1>
-				<p class="card__subtitle" data-i18n="subtitle">Minecraft Transit Railway</p>
-			</div>
-		</header>
+			</button>
 
-		<section class="view" data-view="readonly">
-			<h2 class="view__headline" data-i18n="readOnlyHeadline">You cannot edit</h2>
-			<p class="view__text" data-i18n="readOnlyBody">Open this dashboard from the in-game Web Dashboard button to sign in, or ask an operator to grant you access.</p>
-		</section>
-
-		<section class="view" data-view="offline">
-			<h2 class="view__headline" data-i18n="offlineHeadline">Service unreachable</h2>
-			<p class="view__text" data-i18n="offlineBody">Could not reach the web dashboard service. Make sure the game is running and the port is right.</p>
-		</section>
-
-		<section class="view" data-view="expired">
-			<h2 class="view__headline" data-i18n="expiredHeadline">Sign-in expired</h2>
-			<p class="view__text" data-i18n="expiredBody">Press the Web Dashboard button in the game again to get a fresh link.</p>
-		</section>
-
-		<dl class="card__meta" id="meta" hidden>
-			<div>
-				<dt data-i18n="versionLabel">Mod version</dt>
-				<dd id="meta-version">—</dd>
-			</div>
-			<div>
-				<dt data-i18n="portLabel">Port</dt>
-				<dd id="meta-port">—</dd>
-			</div>
-		</dl>
-
-		<p class="card__warning" id="lan-warning" hidden data-i18n="lanWarning">This service is open to the local network over plain HTTP, so sign-in tokens can be read by anyone on the same network. Restart with allowLanAccess turned off to avoid that.</p>
-
-		<p class="card__footnote" data-i18n="stageFootnote">Stage 3.3: map and area drawing.</p>
-	</section>
+			<dl class="welcome-meta" id="meta" hidden>
+				<div>
+					<dt data-i18n="versionLabel">YMTR version</dt>
+					<dd id="meta-version">—</dd>
+				</div>
+				<div>
+					<dt data-i18n="portLabel">Port</dt>
+					<dd id="meta-port">—</dd>
+				</div>
+			</dl>
+		</div>
+	</div>
 </main>
+
+<div class="settings-backdrop" id="settings-backdrop" hidden>
+	<section class="settings" id="settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+		<header class="settings__header">
+			<h2 class="settings__title" id="settings-title" data-i18n="settings">Settings</h2>
+			<button class="settings__close" id="settings-close" type="button" data-i18n-title="editClose" data-i18n-aria-label="editClose" aria-label="Close">×</button>
+		</header>
+		<div class="settings__body">
+			<nav class="settings__nav" aria-label="Settings categories" data-i18n-aria-label="settingsCategories">
+				<button class="settings__nav-item is-active" type="button" data-category="personalization" aria-current="page">
+					<span data-i18n="personalization">Personalization</span>
+				</button>
+			</nav>
+			<div class="settings__panel">
+				<h3 class="settings__heading" data-i18n="personalization">Personalization</h3>
+
+				<div class="settings__row">
+					<div class="settings__label"><span data-i18n="appearanceMode">Appearance mode</span></div>
+					<div class="settings__mode" id="settings-mode" role="radiogroup" aria-label="Appearance mode" data-i18n-aria-label="appearanceMode">
+						<button type="button" data-mode="dark" role="radio" aria-checked="false">
+							<span data-i18n="darkMode">Dark</span>
+						</button>
+						<button type="button" data-mode="light" role="radio" aria-checked="false">
+							<span data-i18n="lightMode">Light</span>
+						</button>
+					</div>
+				</div>
+
+				<div class="settings__row settings__row--stack">
+					<div class="settings__label"><span data-i18n="accentColor">Accent color</span></div>
+					<div class="theme-grid" id="theme-grid" role="radiogroup" aria-label="Accent color" data-i18n-aria-label="accentColor"></div>
+				</div>
+
+				<p class="settings__footnote" data-i18n="settingsSaved">Changes are saved in this browser automatically.</p>
+			</div>
+		</div>
+	</section>
+</div>
 </body>
 </html>

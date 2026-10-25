@@ -1,5 +1,5 @@
-import { t } from './i18n.js?v=20';
-import { hasOriginCorner, isValidCorner } from './areafit.js?v=20';
+import { t } from './i18n.js?v=35';
+import { hasOriginCorner, isValidCorner } from './areafit.js?v=35';
 
 /** The longest name a packet can carry, matching the server's own limit. */
 export const MAX_NAME_LENGTH = 32767;

@@ -6,8 +6,8 @@ import {
 	rgbCss,
 	rgbToHsv,
 	wrapHue
-} from './color.js?v=20';
-import { t } from './i18n.js?v=20';
+} from './color.js?v=35';
+import { t } from './i18n.js?v=35';
 
 const CURSOR_SIZE = 12;
 
@@ -242,6 +242,7 @@ export function createColorPicker(options) {
 
 	function renderAll() {
 		hueLayer.style.backgroundColor = hueCss(hue);
+		panel.style.backgroundColor = hueCss(hue);
 		preview.style.backgroundColor = rgbCss(color);
 
 		panelCursor.style.left = (saturation * 100) + '%';

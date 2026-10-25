@@ -11,7 +11,7 @@ export const SAVED_RAIL_LABEL_MIN_SCALE = 8;
 
 export const ZOOM_ANIMATION_DURATION_MS = 250;
 
-export const COLOR_BACKGROUND = 0xFF121212;
+export const COLOR_BACKGROUND = 0xFF181818;
 export const COLOR_AREA_FILL = 0x40000000;
 export const COLOR_DRAFT_AREA = 0x7FFFFFFF;
 export const COLOR_SAVED_RAIL = 0xFFFFFFFF;
@@ -295,8 +295,8 @@ export function snapAreaCorners(corner1, corner2) {
 	};
 }
 
-export const AREA_CORNER_RADIUS_PX = 4;
-export const SAVED_RAIL_CORNER_RADIUS_PX = 3;
+export const AREA_CORNER_RADIUS_PX = 2;
+export const SAVED_RAIL_CORNER_RADIUS_PX = 2;
 
 export function clampCornerRadius(radius, width, height) {
 	const limit = Math.min(Math.abs(width), Math.abs(height)) / 2;

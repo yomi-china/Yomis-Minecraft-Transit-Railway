@@ -1,5 +1,5 @@
-import { f, t } from './i18n.js?v=20';
-import { MODE_ALL, MODES, countForMode } from './lists.js?v=20';
+import { f, t } from './i18n.js?v=35';
+import { MODE_ALL, MODES, countForMode } from './lists.js?v=35';
 
 const el = {
 	body: document.body,
@@ -117,6 +117,37 @@ export function syncSearchInput(search) {
 	}
 }
 
+let tabsResizeObserver = null;
+
+function updateTabsIndicator() {
+	if (!el.tabs || !el.tabs.style || typeof el.tabs.querySelector !== 'function') {
+		return;
+	}
+	const active = el.tabs.querySelector('.tab[aria-selected="true"]');
+	if (!active || typeof active.offsetLeft !== 'number') {
+		return;
+	}
+	el.tabs.style.setProperty('--tabs-indicator-x', `${active.offsetLeft}px`);
+	el.tabs.style.setProperty('--tabs-indicator-w', `${active.offsetWidth}px`);
+	if (el.tabs.dataset && !el.tabs.dataset.indicatorReady) {
+		el.tabs.dataset.indicatorReady = 'false';
+		const ready = () => {
+			if (el.tabs.dataset) {
+				el.tabs.dataset.indicatorReady = 'true';
+			}
+		};
+		if (typeof requestAnimationFrame === 'function') {
+			requestAnimationFrame(ready);
+		} else {
+			ready();
+		}
+	}
+	if (!tabsResizeObserver && typeof ResizeObserver === 'function') {
+		tabsResizeObserver = new ResizeObserver(() => updateTabsIndicator());
+		tabsResizeObserver.observe(el.tabs);
+	}
+}
+
 function renderTabs(activeTab) {
 	if (!el.tabs) {
 		return;
@@ -131,6 +162,7 @@ function renderTabs(activeTab) {
 		button.textContent = t(key);
 		return button;
 	}));
+	updateTabsIndicator();
 }
 
 function renderModes(activeMode, activeTab, index) {

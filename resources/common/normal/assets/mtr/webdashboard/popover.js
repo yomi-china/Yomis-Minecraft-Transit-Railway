@@ -1,7 +1,7 @@
-import { buildPayload, createForm, markClean } from './editor.js?v=20';
-import { createColorPicker } from './colorpicker.js?v=20';
-import { placePopover } from './focus.js?v=20';
-import { t } from './i18n.js?v=20';
+import { buildPayload, createForm, markClean } from './editor.js?v=35';
+import { createColorPicker } from './colorpicker.js?v=35';
+import { placePopover } from './focus.js?v=35';
+import { t } from './i18n.js?v=35';
 
 const BODY_PADDING = 20;
 const ARROW_SIZE = 20;
@@ -211,9 +211,19 @@ function renderField(field, value) {
 	if (field.type === 'corners') {
 		const button = document.createElement('button');
 		button.type = 'button';
-		button.className = 'button button--tonal button--full';
+		button.className = 'button button--ghost';
 		button.dataset.action = 'redraw-area';
-		button.textContent = t('editRedrawArea');
+		const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+		icon.setAttribute('viewBox', '0 0 24 24');
+		icon.setAttribute('width', '15');
+		icon.setAttribute('height', '15');
+		icon.setAttribute('aria-hidden', 'true');
+		icon.setAttribute('focusable', 'false');
+		const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+		path.setAttribute('d', 'M12 2a7 7 0 0 0-7 7c0 5.2 7 13 7 13s7-7.8 7-13a7 7 0 0 0-7-7zm0 9.5A2.5 2.5 0 1 1 14.5 9 2.5 2.5 0 0 1 12 11.5z');
+		icon.appendChild(path);
+		button.appendChild(icon);
+		button.appendChild(document.createTextNode(t('editRedrawArea')));
 		button.addEventListener('click', () => {
 			if (session && session.onRedrawArea) {
 				session.onRedrawArea();

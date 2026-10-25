@@ -26,11 +26,12 @@ import {
 	snapAreaCorners,
 	FLY_DURATION_MS,
 	interpolateView
-} from './mapview.js?v=20';
-import { beginEdit, cancelEdit, dragToEdit, endEditDrag, getDraftBounds, isEditing } from './mapedit.js?v=20';
-import { planFocus, sameView } from './focus.js?v=20';
+} from './mapview.js?v=35';
+import { beginEdit, cancelEdit, dragToEdit, endEditDrag, getDraftBounds, isEditing } from './mapedit.js?v=35';
+import { planFocus, sameView } from './focus.js?v=35';
 
 const DRAG_THRESHOLD_PX = 4;
+const THEME_EVENT = 'mtr-themechange';
 
 export const ZOOM_STEP = 1.5;
 
@@ -38,6 +39,67 @@ const ZOOM_EASING_FACTOR = 0.14;
 const ZOOM_SETTLE_RATIO = 0.002;
 const SELECTION_RING_COLOUR = argbToRgba(COLOR_PLAYER_MARKER);
 const FOCUS_PLAYER_SCALE = 8;
+
+function cssColor(name, fallback) {
+	if (typeof document === 'undefined' || typeof getComputedStyle !== 'function') {
+		return fallback;
+	}
+	const node = document.body || document.documentElement;
+	if (!node) {
+		return fallback;
+	}
+	const value = getComputedStyle(node).getPropertyValue(name).trim();
+	return value || fallback;
+}
+
+function parseCssColor(value) {
+	if (typeof value !== 'string') {
+		return null;
+	}
+	const text = value.trim().replace(/^#/, '');
+	if (/^[0-9a-f]{6}$/i.test(text)) {
+		return {
+			r: parseInt(text.slice(0, 2), 16),
+			g: parseInt(text.slice(2, 4), 16),
+			b: parseInt(text.slice(4, 6), 16)
+		};
+	}
+	const rgb = value.match(/^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)/i);
+	return rgb ? { r: Number(rgb[1]), g: Number(rgb[2]), b: Number(rgb[3]) } : null;
+}
+
+function accentRgba(value, alpha) {
+	const parsed = parseCssColor(value);
+	return parsed ? `rgba(${Math.round(parsed.r)}, ${Math.round(parsed.g)}, ${Math.round(parsed.b)}, ${alpha})` : value;
+}
+
+function readMapTheme() {
+	const light = typeof document !== 'undefined' && document.body?.dataset.theme === 'light';
+	const accent = cssColor('--ui-accent', '#90caf9');
+	const accentText = cssColor('--ui-accent-text', accent);
+	return {
+		light,
+		background: light ? '#eef1f4' : argbToRgba(COLOR_BACKGROUND),
+		grid: light ? 'rgba(35, 58, 86, 0.10)' : 'rgba(255, 255, 255, 0.06)',
+		editingOutline: light ? 'rgba(28, 28, 28, 0.35)' : 'rgba(255, 255, 255, 0.35)',
+		editingFill: light ? 'rgba(28, 28, 28, 0.06)' : 'rgba(255, 255, 255, 0.06)',
+		areaFill: accentRgba(accentText, 0.08),
+		areaFillSelected: accentRgba(accentText, 0.14),
+		areaOutlineFallback: accentRgba(accentText, 0.55),
+		areaOutlineSelected: accentRgba(accentText, 0.9),
+		savedRail: light ? 'rgba(28, 28, 28, 0.62)' : 'rgba(255, 255, 255, 0.6)',
+		savedRailSelected: light ? 'rgba(28, 28, 28, 1)' : 'rgba(255, 255, 255, 1)',
+		draftFill: accentRgba(accentText, 0.10),
+		draftStroke: light ? 'rgba(28, 28, 28, 0.9)' : 'rgba(255, 255, 255, 0.9)',
+		labelStroke: light ? 'rgba(255, 255, 255, 0.85)' : 'rgba(0, 0, 0, 0.75)',
+		labelFill: light ? 'rgba(28, 28, 28, 0.95)' : 'rgba(255, 255, 255, 0.95)',
+		playerHalo: light ? 'rgba(28, 28, 28, 0.9)' : argbToRgba(0xFFFFFFFF),
+		accent
+	};
+}
+
+let mapTheme = readMapTheme();
+
 
 const el = {
 	canvas: null,
@@ -92,6 +154,9 @@ export function init(canvas, callbacks) {
 	});
 	canvas.addEventListener('wheel', onWheel, { passive: false });
 	canvas.addEventListener('contextmenu', event => event.preventDefault());
+	if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+		window.addEventListener(THEME_EVENT, onThemeChange);
+	}
 
 	needsResize = true;
 	redraw();
@@ -99,10 +164,17 @@ export function init(canvas, callbacks) {
 
 export function dispose() {
 	cancelFlight();
+	if (typeof window !== 'undefined' && typeof window.removeEventListener === 'function') {
+		window.removeEventListener(THEME_EVENT, onThemeChange);
+	}
 	if (animation != null) {
 		cancelAnimationFrame(animation);
 		animation = null;
 	}
+}
+
+function onThemeChange() {
+	redraw();
 }
 
 export function setWorld(world, index) {
@@ -274,6 +346,7 @@ export function redraw() {
 	if (!context || !el.canvas) {
 		return;
 	}
+	mapTheme = readMapTheme();
 	resizeIfNeeded();
 
 	context.setTransform(1, 0, 0, 1, 0, 0);
@@ -311,9 +384,6 @@ function resizeIfNeeded() {
 }
 
 function drawTerrain() {
-	context.fillStyle = argbToRgba(COLOR_BACKGROUND);
-	context.fillRect(0, 0, view.width, view.height);
-
 	const spacing = gridSpacing(view.scale);
 	if (spacing === 0) {
 		return;
@@ -323,7 +393,7 @@ function drawTerrain() {
 	const startX = Math.floor(bounds.minX / spacing) * spacing;
 	const startZ = Math.floor(bounds.minZ / spacing) * spacing;
 
-	context.strokeStyle = 'rgba(255, 255, 255, 0.06)';
+	context.strokeStyle = mapTheme.grid;
 	context.lineWidth = 1;
 	context.beginPath();
 	for (let x = startX; x <= bounds.maxX; x += spacing) {
@@ -361,12 +431,12 @@ function drawAreas() {
 		const editing = isEditing(mapState.edit) && area.id === mapState.edit.id;
 
 		if (editing) {
-			drawAreaShape(area, 'rgba(255, 255, 255, 0.35)', 'rgba(255, 255, 255, 0.06)');
+			drawAreaShape(area, mapTheme.editingOutline, mapTheme.editingFill);
 			return;
 		}
 
-		const fill = selected ? 'rgba(255, 255, 255, 0.18)' : argbToRgba(0x40000000);
-		const outline = rgbToCss(area.color) || 'rgba(255, 255, 255, 0.65)';
+		const fill = selected ? mapTheme.areaFillSelected : mapTheme.areaFill;
+		const outline = selected ? mapTheme.areaOutlineSelected : (rgbToCss(area.color) || mapTheme.areaOutlineFallback);
 		drawAreaShape(area, outline, fill);
 	});
 }
@@ -405,7 +475,7 @@ function drawAreaShape(area, outlineColor, fillColor) {
 		context.fillStyle = fillColor;
 		context.fill();
 	}
-	context.lineWidth = Math.max(1, width * view.scale);
+	context.lineWidth = 1;
 	context.strokeStyle = outlineColor;
 	context.stroke();
 }
@@ -426,7 +496,7 @@ function drawSavedRails() {
 			fillWorldRoundedRect(
 				group.pos.x, group.pos.z + slot.zFrom,
 				group.pos.x + 1, group.pos.z + slot.zTo,
-				selected ? 'rgba(255, 255, 255, 1)' : 'rgba(255, 255, 255, 0.6)',
+				selected ? mapTheme.savedRailSelected : mapTheme.savedRail,
 				SAVED_RAIL_CORNER_RADIUS_PX
 			);
 		});
@@ -452,14 +522,14 @@ function drawDraft() {
 		return;
 	}
 
-	fillWorldRect(draft.minX, draft.minZ, draft.maxX, draft.maxZ, argbToRgba(0x7FFFFFFF));
+	fillWorldRect(draft.minX, draft.minZ, draft.maxX, draft.maxZ, mapTheme.draftFill);
 
 	const topLeft = worldToScreen(view, draft.minX, draft.minZ);
 	const bottomRight = worldToScreen(view, draft.maxX, draft.maxZ);
 	const rect = snapRect(topLeft.x, topLeft.y, bottomRight.x, bottomRight.y);
 	context.save();
 	context.setLineDash([6, 4]);
-	context.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+	context.strokeStyle = mapTheme.draftStroke;
 	context.lineWidth = 1;
 	context.strokeRect(rect.x + 0.5, rect.y + 0.5, rect.width - 1, rect.height - 1);
 	context.restore();
@@ -471,7 +541,7 @@ function drawLabels() {
 	}
 	context.textAlign = 'center';
 	context.textBaseline = 'middle';
-	context.font = '12px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+	context.font = '600 12px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
 
 	const drawText = (text, worldX, worldZ) => {
 		const screen = worldToScreen(view, worldX, worldZ);
@@ -479,9 +549,9 @@ function drawLabels() {
 			return;
 		}
 		context.lineWidth = 3;
-		context.strokeStyle = 'rgba(0, 0, 0, 0.75)';
+		context.strokeStyle = mapTheme.labelStroke;
 		context.strokeText(text, screen.x, screen.y);
-		context.fillStyle = 'rgba(255, 255, 255, 0.95)';
+		context.fillStyle = mapTheme.labelFill;
 		context.fillText(text, screen.x, screen.y);
 	};
 
@@ -527,7 +597,7 @@ function drawPlayers() {
 		const x = Math.round(screen.x);
 		const y = Math.round(screen.y);
 
-		context.fillStyle = argbToRgba(0xFFFFFFFF);
+		context.fillStyle = mapTheme.playerHalo;
 		context.fillRect(x - 2, y - 3, 4, 6);
 		context.fillRect(x - 3, y - 2, 6, 4);
 

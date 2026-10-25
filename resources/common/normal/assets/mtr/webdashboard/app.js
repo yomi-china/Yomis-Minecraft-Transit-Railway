@@ -1,11 +1,14 @@
-import { t, applyTranslations } from './i18n.js?v=20';
-import { SessionError, SessionFailure, clearTokenFromUrl, fetchSession, fetchStatus, login, logout, readTokenFromUrl } from './session.js?v=20';
-import { DataErrorKind, DataFailure, fetchData, fetchMeta, patch, selectWorld } from './api.js?v=20';
-import { MODE_ALL, buildIndex, buildRows } from './lists.js?v=20';
-import * as views from './views.js?v=20';
-import * as map from './map.js?v=20';
-import * as popover from './popover.js?v=20';
-import { hasOriginCorner } from './areafit.js?v=20';
+import { t, applyTranslations } from './i18n.js?v=35';
+import { SessionError, SessionFailure, clearTokenFromUrl, fetchSession, fetchStatus, login, logout, readTokenFromUrl } from './session.js?v=35';
+import { DataErrorKind, DataFailure, fetchData, fetchMeta, patch, selectWorld } from './api.js?v=35';
+import { MODE_ALL, buildIndex, buildRows } from './lists.js?v=35';
+import * as views from './views.js?v=35';
+import * as map from './map.js?v=35';
+import * as popover from './popover.js?v=35';
+import { hasOriginCorner } from './areafit.js?v=35';
+import * as welcome from './welcome.js?v=35';
+import { initSettings } from './settings.js?v=35';
+import './theme.js?v=35';
 
 const EDITABLE_KINDS = new Set(['station', 'route', 'depot']);
 
@@ -45,6 +48,11 @@ function selectedKind() {
 
 let canEdit = false;
 let editingArea = false;
+
+function setView(view) {
+	views.setView(view);
+	welcome.setView(view);
+}
 
 function setStatus(stateName, labelKey) {
 	if (elements.statusBadge) {
@@ -105,6 +113,7 @@ function render() {
 
 		views.renderSidebar(state, derived, {
 			canEdit,
+			rowKind: kindForTab(state.tab),
 			editableKinds: EDITABLE_KINDS
 		});
 		if (state.world) {
@@ -201,7 +210,7 @@ function keepSelectionIfStillPresent() {
 
 function renderReadOnly() {
 	setStatus('readonly', 'statusReadOnly');
-	views.setView('readonly');
+	setView('readonly');
 }
 
 function exposeDiagnostics(session) {
@@ -238,7 +247,7 @@ async function showDashboard(session) {
 	setStatus('ready', 'statusReady');
 	canEdit = Boolean(session.canEdit);
 	views.setCanEdit(canEdit);
-	views.setView('dashboard');
+	setView('dashboard');
 	exposeDiagnostics(session);
 	initMap();
 	await loadData();
@@ -515,6 +524,37 @@ function cancelAreaEditingIfNeeded() {
 	}
 }
 
+function returnHome() {
+	if (document.body.dataset.view !== 'dashboard') {
+		return;
+	}
+	cancelAreaEditingIfNeeded();
+	popover.close();
+	setView('home');
+}
+
+function enterDashboard() {
+	if (document.body.dataset.view !== 'home') {
+		return;
+	}
+	setView('dashboard');
+	render();
+	requestAnimationFrame(() => {
+		map.redraw();
+	});
+}
+
+function bindViewSwitch() {
+	const homeButton = document.getElementById('home');
+	if (homeButton) {
+		homeButton.addEventListener('click', returnHome);
+	}
+	const enterButton = document.getElementById('welcome-enter');
+	if (enterButton) {
+		enterButton.addEventListener('click', enterDashboard);
+	}
+}
+
 async function bindSignOut() {
 	if (!elements.signOut) {
 		return;
@@ -532,8 +572,11 @@ async function bindSignOut() {
 
 async function main() {
 	applyTranslations(document);
+	welcome.init();
+	initSettings();
 	setStatus('loading', 'statusLoading');
 	bindSidebar();
+	bindViewSwitch();
 	await bindSignOut();
 
 	const token = readTokenFromUrl();
@@ -549,7 +592,7 @@ async function main() {
 			if (error instanceof SessionFailure && error.kind === SessionError.REJECTED) {
 				console.warn('[MTR-WebDashboard] the server refused the sign-in token:', error.message);
 				setStatus('offline', 'statusOffline');
-				views.setView('expired');
+				setView('expired');
 				await refreshServiceMeta();
 				return;
 			}
@@ -577,7 +620,7 @@ async function enter(session) {
 
 function renderOffline() {
 	setStatus('offline', 'statusOffline');
-	views.setView('offline');
+	setView('offline');
 }
 
 main();
