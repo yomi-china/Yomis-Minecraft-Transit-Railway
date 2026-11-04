@@ -26,9 +26,9 @@ import {
 	snapAreaCorners,
 	FLY_DURATION_MS,
 	interpolateView
-} from './mapview.js?v=35';
-import { beginEdit, cancelEdit, dragToEdit, endEditDrag, getDraftBounds, isEditing } from './mapedit.js?v=35';
-import { planFocus, sameView } from './focus.js?v=35';
+} from './mapview.js?v=43';
+import { beginEdit, cancelEdit, dragToEdit, endEditDrag, getDraftBounds, isEditing } from './mapedit.js?v=43';
+import { planFocus, sameView } from './focus.js?v=43';
 
 const DRAG_THRESHOLD_PX = 4;
 const THEME_EVENT = 'mtr-themechange';
@@ -112,6 +112,7 @@ const mapState = {
 	mode: 'all',
 	tab: 'stations',
 	selectedId: null,
+	childFocusId: null,
 	edit: null
 };
 
@@ -130,6 +131,10 @@ let zoomTargetScale = null;
 let zoomAnchorScreenX = 0;
 let zoomAnchorScreenY = 0;
 let flightAnimation = null;
+let focusPulseFrame = 0;
+let focusPulseStart = 0;
+let focusPulseValue = 0;
+let focusPulseLastPaint = 0;
 
 export function init(canvas, callbacks) {
 	el.canvas = canvas;
@@ -164,6 +169,7 @@ export function init(canvas, callbacks) {
 
 export function dispose() {
 	cancelFlight();
+	stopFocusPulse();
 	if (typeof window !== 'undefined' && typeof window.removeEventListener === 'function') {
 		window.removeEventListener(THEME_EVENT, onThemeChange);
 	}
@@ -210,6 +216,71 @@ export function setTab(tab) {
 
 export function setSelectedId(id) {
 	mapState.selectedId = id;
+	redraw();
+}
+
+/**
+ * Marks the platform/siding whose row is open. Its slot and ring pulse so the map keeps saying "this is the
+ * one you are editing" for as long as the row stays expanded, instead of showing the same static ring as a
+ * plain map selection.
+ */
+export function setChildFocusId(id) {
+	const next = id == null ? null : String(id);
+	if (mapState.childFocusId === next) {
+		return;
+	}
+	mapState.childFocusId = next;
+	if (next == null) {
+		stopFocusPulse();
+		focusPulseValue = 0;
+		redraw();
+		return;
+	}
+	startFocusPulse();
+}
+
+function startFocusPulse() {
+	if (focusPulseFrame) {
+		return;
+	}
+	const reducedMotion = typeof window !== 'undefined'
+		&& typeof window.matchMedia === 'function'
+		&& window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+	if (reducedMotion || typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
+		focusPulseValue = 1;
+		redraw();
+		return;
+	}
+	focusPulseStart = performance.now();
+	focusPulseLastPaint = 0;
+	const step = now => {
+		focusPulseFrame = 0;
+		if (mapState.childFocusId == null) {
+			focusPulseValue = 0;
+			redraw();
+			return;
+		}
+		focusPulseValue = 0.5 + 0.5 * Math.sin((now - focusPulseStart) / 240);
+		// ~30fps is enough for a breathing ring and halves the canvas work while the row is open.
+		if (now - focusPulseLastPaint >= 30) {
+			focusPulseLastPaint = now;
+			redraw();
+		}
+		focusPulseFrame = requestAnimationFrame(step);
+	};
+	focusPulseFrame = requestAnimationFrame(step);
+}
+
+function stopFocusPulse() {
+	if (focusPulseFrame) {
+		cancelAnimationFrame(focusPulseFrame);
+		focusPulseFrame = 0;
+	}
+}
+
+/** Rebuilds the derived groups and redraws, for an edit that replaced a cached object in place. */
+export function refresh() {
+	rebuildGroups();
 	redraw();
 }
 
@@ -359,6 +430,7 @@ export function redraw() {
 	drawDraft();
 	drawLabels();
 	drawPlayers();
+	drawFocusMarker();
 }
 
 function devicePixelRatio() {
@@ -485,6 +557,8 @@ function drawSavedRails() {
 		return;
 	}
 	const bounds = visibleWorldBounds(view, 2);
+	const focusedId = mapState.childFocusId;
+	const pulse = focusPulseValue;
 
 	savedRailGroups.forEach(group => {
 		if (!isAreaVisible(bounds, group.pos.x, group.pos.z, group.pos.x + 1, group.pos.z + 1)) {
@@ -492,7 +566,23 @@ function drawSavedRails() {
 		}
 		const slots = savedRailSlots(group.items.length);
 		slots.forEach((slot, index) => {
-			const selected = group.items[index].id === mapState.selectedId;
+			const item = group.items[index];
+			const selected = item.id === mapState.selectedId;
+			const focused = focusedId != null && String(item.id) === focusedId;
+			if (focused) {
+				context.save();
+				context.globalAlpha = 0.7 + 0.3 * pulse;
+				context.shadowColor = SELECTION_RING_COLOUR;
+				context.shadowBlur = 4 + 8 * pulse;
+				fillWorldRoundedRect(
+					group.pos.x, group.pos.z + slot.zFrom,
+					group.pos.x + 1, group.pos.z + slot.zTo,
+					SELECTION_RING_COLOUR,
+					SAVED_RAIL_CORNER_RADIUS_PX
+				);
+				context.restore();
+				return;
+			}
 			fillWorldRoundedRect(
 				group.pos.x, group.pos.z + slot.zFrom,
 				group.pos.x + 1, group.pos.z + slot.zTo,
@@ -502,8 +592,9 @@ function drawSavedRails() {
 		});
 	});
 
+	const focused = focusTarget();
 	const selectedGroup = savedRailGroups.find(group => group.items.some(item => item.id === mapState.selectedId));
-	if (selectedGroup) {
+	if (selectedGroup && (!focused || selectedGroup !== focused.group)) {
 		const topLeft = worldToScreen(view, selectedGroup.pos.x, selectedGroup.pos.z);
 		const bottomRight = worldToScreen(view, selectedGroup.pos.x + 1, selectedGroup.pos.z + 1);
 		const rect = snapRect(topLeft.x, topLeft.y, bottomRight.x, bottomRight.y);
@@ -514,6 +605,70 @@ function drawSavedRails() {
 		context.lineWidth = 2;
 		context.stroke();
 	}
+}
+
+/** @returns {{group: object, index: number, slot: object}|null} the platform/siding whose row is open. */
+function focusTarget() {
+	const id = mapState.childFocusId;
+	if (id == null) {
+		return null;
+	}
+	for (const group of savedRailGroups) {
+		const index = group.items.findIndex(item => String(item.id) === id);
+		if (index >= 0) {
+			const slot = savedRailSlots(group.items.length)[index];
+			if (slot) {
+				return { group, index, slot };
+			}
+		}
+	}
+	return null;
+}
+
+/**
+ * Drawn after labels and players. The saved-rail cell is only one block, so at the station zoom its natural
+ * rect is a few pixels - invisible under the station label. This overlay keeps a screen-space minimum size
+ * and a breathing glow, and the labels that would collide with it are skipped while the row is open.
+ */
+function drawFocusMarker() {
+	const focus = focusTarget();
+	if (!focus) {
+		return;
+	}
+	const topLeft = worldToScreen(view, focus.group.pos.x, focus.group.pos.z + focus.slot.zFrom);
+	const bottomRight = worldToScreen(view, focus.group.pos.x + 1, focus.group.pos.z + focus.slot.zTo);
+	const rect = snapRect(topLeft.x, topLeft.y, bottomRight.x, bottomRight.y);
+	const centerX = rect.x + rect.width / 2;
+	const centerY = rect.y + rect.height / 2;
+	const pulse = focusPulseValue;
+	const size = Math.max(28, rect.width + 10, rect.height + 10);
+
+	context.save();
+	context.beginPath();
+	context.roundRect(centerX - size / 2, centerY - size / 2, size, size, 6);
+	context.strokeStyle = SELECTION_RING_COLOUR;
+	context.lineWidth = 3;
+	context.globalAlpha = 0.7 + 0.3 * pulse;
+	context.shadowColor = SELECTION_RING_COLOUR;
+	context.shadowBlur = 8 + 14 * pulse;
+	context.stroke();
+
+	context.beginPath();
+	context.arc(centerX, centerY, 11 + 7 * pulse, 0, Math.PI * 2);
+	context.fillStyle = SELECTION_RING_COLOUR;
+	context.globalAlpha = 0.14 + 0.14 * pulse;
+	context.shadowBlur = 0;
+	context.fill();
+
+	context.beginPath();
+	context.arc(centerX, centerY, 4.5 + 1.5 * pulse, 0, Math.PI * 2);
+	context.fillStyle = SELECTION_RING_COLOUR;
+	context.globalAlpha = 1;
+	context.fill();
+	context.lineWidth = 1.5;
+	context.strokeStyle = mapTheme.savedRailSelected;
+	context.stroke();
+	context.restore();
 }
 
 function drawDraft() {
@@ -556,10 +711,14 @@ function drawLabels() {
 	};
 
 	if (shouldDrawSavedRailLabel(view.scale)) {
+		const focus = focusTarget();
 		savedRailGroups.forEach(group => {
 			const slots = savedRailSlots(group.items.length);
 			slots.forEach((slot, index) => {
 				const item = group.items[index];
+				if (focus && group === focus.group && index === focus.index) {
+					return;
+				}
 				if (item.name) {
 					drawText(formatLabel(item.name), group.pos.x + 0.5, group.pos.z + (slot.zFrom + slot.zTo) / 2);
 				}
@@ -571,8 +730,12 @@ function drawLabels() {
 	if (!key) {
 		return;
 	}
+	const focus = focusTarget();
 	(mapState.world[key] || []).forEach(area => {
 		if (!area.hasArea || !isSaneArea(area.corner1, area.corner2) || (key === 'depots' && !matchesMode(area))) {
+			return;
+		}
+		if (focus && areaContains(area, focus.group.pos.x + 0.5, focus.group.pos.z + 0.5)) {
 			return;
 		}
 		const spanX = area.corner2.x - area.corner1.x;
@@ -582,6 +745,14 @@ function drawLabels() {
 		}
 		drawText(formatLabel(area.name), (area.corner1.x + area.corner2.x) / 2, (area.corner1.z + area.corner2.z) / 2);
 	});
+}
+
+function areaContains(area, x, z) {
+	const minX = Math.min(area.corner1.x, area.corner2.x);
+	const maxX = Math.max(area.corner1.x, area.corner2.x);
+	const minZ = Math.min(area.corner1.z, area.corner2.z);
+	const maxZ = Math.max(area.corner1.z, area.corner2.z);
+	return x >= minX && x <= maxX && z >= minZ && z <= maxZ;
 }
 
 function drawPlayers() {
@@ -641,7 +812,9 @@ function rebuildGroups() {
 	const byBlock = new Map();
 
 	(source || []).forEach(savedRail => {
-		if (mapState.mode !== 'all' && savedRail.transportMode !== mapState.mode) {
+		// The selected platform/siding is always drawn, even when it does not match the mode filter. On the
+		// stations tab that filter is hidden, so hiding the very row the editor just focused would look broken.
+		if (mapState.mode !== 'all' && savedRail.transportMode !== mapState.mode && savedRail.id !== mapState.selectedId) {
 			return;
 		}
 		if (!isSanePoint(savedRail.midX, savedRail.midZ)) {

@@ -6,8 +6,8 @@ import {
 	rgbCss,
 	rgbToHsv,
 	wrapHue
-} from './color.js?v=35';
-import { t } from './i18n.js?v=35';
+} from './color.js?v=43';
+import { t } from './i18n.js?v=43';
 
 const CURSOR_SIZE = 12;
 

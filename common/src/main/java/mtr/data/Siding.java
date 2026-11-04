@@ -29,6 +29,7 @@ public class Siding extends SavedRailBase implements IPacket, IReducedSaveData {
 	private boolean isManual;
 	private int maxManualSpeed;
 	private boolean enablePredictiveBraking;
+	private boolean enableDelayedAcceleration;
 	private int repeatIndex1;
 	private int repeatIndex2;
 	private float accelerationConstant;
@@ -53,6 +54,7 @@ public class Siding extends SavedRailBase implements IPacket, IReducedSaveData {
 	private static final String KEY_TRAINS = "trains";
 	private static final String KEY_ACCELERATION_CONSTANT = "acceleration_constant";
 	private static final String KEY_ENABLE_PREDICTIVE_BRAKING = "enable_predictive_braking";
+	private static final String KEY_ENABLE_DELAYED_ACCELERATION = "enable_delayed_acceleration";
 	private static final String KEY_ADC_TIME = "adc_time";
 
 	public Siding(long id, TransportMode transportMode, BlockPos pos1, BlockPos pos2, float railLength) {
@@ -61,6 +63,7 @@ public class Siding extends SavedRailBase implements IPacket, IReducedSaveData {
 		setTrainDetails();
 		unlimitedTrains = transportMode.continuousMovement;
 		enablePredictiveBraking = false;
+		enableDelayedAcceleration = false;
 		accelerationConstant = transportMode.continuousMovement ? Train.MAX_ACCELERATION : Train.ACCELERATION_DEFAULT;
 	}
 
@@ -70,6 +73,7 @@ public class Siding extends SavedRailBase implements IPacket, IReducedSaveData {
 		setTrainDetails();
 		unlimitedTrains = transportMode.continuousMovement;
 		enablePredictiveBraking = false;
+		enableDelayedAcceleration = false;
 		accelerationConstant = transportMode.continuousMovement ? Train.MAX_ACCELERATION : Train.ACCELERATION_DEFAULT;
 	}
 
@@ -83,6 +87,7 @@ public class Siding extends SavedRailBase implements IPacket, IReducedSaveData {
 		isManual = messagePackHelper.getBoolean(KEY_IS_MANUAL);
 		maxManualSpeed = messagePackHelper.getInt(KEY_MAX_MANUAL_SPEED);
 		enablePredictiveBraking = messagePackHelper.getBoolean(KEY_ENABLE_PREDICTIVE_BRAKING);
+		enableDelayedAcceleration = messagePackHelper.getBoolean(KEY_ENABLE_DELAYED_ACCELERATION);
 		repeatIndex1 = messagePackHelper.getInt(KEY_REPEAT_INDEX_1);
 		repeatIndex2 = messagePackHelper.getInt(KEY_REPEAT_INDEX_2);
 		final float tempAccelerationConstant = RailwayData.round(messagePackHelper.getFloat(KEY_ACCELERATION_CONSTANT, Train.ACCELERATION_DEFAULT), Train.ACCELERATION_DECIMAL_PLACES);
@@ -95,6 +100,7 @@ public class Siding extends SavedRailBase implements IPacket, IReducedSaveData {
 		messagePackHelper.iterateArrayValue(KEY_TRAINS, value -> trains.add(new TrainServer(id, railLength, timeSegments, path, distances, repeatIndex1, repeatIndex2, accelerationConstant, isManual, maxManualSpeed, dwellTime, RailwayData.castMessagePackValueToSKMap(value))));
 		for (final TrainServer train : trains) {
 			train.enablePredictiveBraking = enablePredictiveBraking;
+			train.enableDelayedAcceleration = enableDelayedAcceleration;
 		}
 		generateDistances();
 	}
@@ -110,6 +116,7 @@ public class Siding extends SavedRailBase implements IPacket, IReducedSaveData {
 		isManual = compoundTag.getBoolean(KEY_IS_MANUAL);
 		maxManualSpeed = compoundTag.getInt(KEY_MAX_MANUAL_SPEED);
 		enablePredictiveBraking = compoundTag.getBoolean(KEY_ENABLE_PREDICTIVE_BRAKING);
+		enableDelayedAcceleration = compoundTag.getBoolean(KEY_ENABLE_DELAYED_ACCELERATION);
 		repeatIndex1 = compoundTag.getInt(KEY_REPEAT_INDEX_1);
 		repeatIndex2 = compoundTag.getInt(KEY_REPEAT_INDEX_2);
 		accelerationConstant = transportMode.continuousMovement ? Train.MAX_ACCELERATION : Train.ACCELERATION_DEFAULT;
@@ -126,6 +133,7 @@ public class Siding extends SavedRailBase implements IPacket, IReducedSaveData {
 		tagTrains.getAllKeys().forEach(key -> trains.add(new TrainServer(id, railLength, timeSegments, path, distances, repeatIndex1, repeatIndex2, accelerationConstant, isManual, maxManualSpeed, dwellTime, tagTrains.getCompound(key))));
 		for (final TrainServer train : trains) {
 			train.enablePredictiveBraking = enablePredictiveBraking;
+			train.enableDelayedAcceleration = enableDelayedAcceleration;
 		}
 		generateDistances();
 	}
@@ -141,6 +149,7 @@ public class Siding extends SavedRailBase implements IPacket, IReducedSaveData {
 		enablePredictiveBraking = packet.readBoolean();
 		final float tempAccelerationConstant = RailwayData.round(packet.readFloat(), Train.ACCELERATION_DECIMAL_PLACES);
 		accelerationConstant = transportMode.continuousMovement ? Train.MAX_ACCELERATION : tempAccelerationConstant < Train.MIN_ACCELERATION ? Train.ACCELERATION_DEFAULT : tempAccelerationConstant;
+		enableDelayedAcceleration = packet.readBoolean();
 	}
 
 	@Override
@@ -161,6 +170,7 @@ public class Siding extends SavedRailBase implements IPacket, IReducedSaveData {
 		messagePacker.packString(KEY_IS_MANUAL).packBoolean(isManual);
 		messagePacker.packString(KEY_MAX_MANUAL_SPEED).packInt(maxManualSpeed);
 		messagePacker.packString(KEY_ENABLE_PREDICTIVE_BRAKING).packBoolean(enablePredictiveBraking);
+		messagePacker.packString(KEY_ENABLE_DELAYED_ACCELERATION).packBoolean(enableDelayedAcceleration);
 		messagePacker.packString(KEY_REPEAT_INDEX_1).packInt(repeatIndex1);
 		messagePacker.packString(KEY_REPEAT_INDEX_2).packInt(repeatIndex2);
 		messagePacker.packString(KEY_ACCELERATION_CONSTANT).packFloat(accelerationConstant);
@@ -169,7 +179,7 @@ public class Siding extends SavedRailBase implements IPacket, IReducedSaveData {
 
 	@Override
 	public int messagePackLength() {
-		return super.messagePackLength() + 13;
+		return super.messagePackLength() + 14;
 	}
 
 	@Override
@@ -189,6 +199,7 @@ public class Siding extends SavedRailBase implements IPacket, IReducedSaveData {
 		packet.writeInt(maxManualSpeed);
 		packet.writeBoolean(enablePredictiveBraking);
 		packet.writeFloat(accelerationConstant);
+		packet.writeBoolean(enableDelayedAcceleration);
 	}
 
 	@Override
@@ -212,6 +223,9 @@ public class Siding extends SavedRailBase implements IPacket, IReducedSaveData {
 				accelerationConstant = transportMode.continuousMovement ? Train.MAX_ACCELERATION : newAccelerationConstant;
 				if (packet.readBoolean()) {
 					trains.clear();
+				}
+				if (packet.isReadable()) {
+					enableDelayedAcceleration = packet.readBoolean();
 				}
 				break;
 			case KEY_ADC_TIME:
@@ -251,6 +265,7 @@ public class Siding extends SavedRailBase implements IPacket, IReducedSaveData {
 		final float tempAccelerationConstant = RailwayData.round(accelerationConstant, Train.ACCELERATION_DECIMAL_PLACES);
 		packet.writeFloat(tempAccelerationConstant);
 		packet.writeBoolean(clearTrains);
+		packet.writeBoolean(enableDelayedAcceleration);
 		sendPacket.accept(packet);
 		this.unlimitedTrains = transportMode.continuousMovement || unlimitedTrains;
 		this.maxTrains = maxTrains;
@@ -430,7 +445,13 @@ public class Siding extends SavedRailBase implements IPacket, IReducedSaveData {
 
 		final Set<Long> railProgressSet = new HashSet<>();
 		final Set<TrainServer> trainsToRemove = new HashSet<>();
+		boolean delayedAccelerationChanged = false;
 		for (final TrainServer train : trains) {
+			if (train.enableDelayedAcceleration != enableDelayedAcceleration) {
+				train.enableDelayedAcceleration = enableDelayedAcceleration;
+				delayedAccelerationChanged = true;
+			}
+
 			if (train.isCurrentlyManual() && railwayDataDriveTrainModule.drive(train)) {
 				trainsToSync.add(train);
 			}
@@ -464,11 +485,16 @@ public class Siding extends SavedRailBase implements IPacket, IReducedSaveData {
 		if (trainCars > 0 && (trains.isEmpty() || spawnTrain && (unlimitedTrains || trains.size() <= maxTrains))) {
 			final TrainServer train = new TrainServer(unlimitedTrains || maxTrains > 0 ? new Random().nextLong() : id, id, railLength, trainId, baseTrainType, trainCars, path, distances, repeatIndex1, repeatIndex2, accelerationConstant, timeSegments, isManual, maxManualSpeed, dwellTime);
 			train.enablePredictiveBraking = enablePredictiveBraking;
+			train.enableDelayedAcceleration = enableDelayedAcceleration;
 			trains.add(train);
 		}
 
 		if (!trainsToRemove.isEmpty()) {
 			trainsToRemove.forEach(trains::remove);
+		}
+
+		if (delayedAccelerationChanged) {
+			trainsToSync.addAll(trains);
 		}
 	}
 
@@ -494,6 +520,14 @@ public class Siding extends SavedRailBase implements IPacket, IReducedSaveData {
 
 	public void setEnablePredictiveBraking(boolean enablePredictiveBraking) {
 		this.enablePredictiveBraking = enablePredictiveBraking;
+	}
+
+	public boolean getEnableDelayedAcceleration() {
+		return enableDelayedAcceleration;
+	}
+
+	public void setEnableDelayedAcceleration(boolean enableDelayedAcceleration) {
+		this.enableDelayedAcceleration = enableDelayedAcceleration;
 	}
 
 	public boolean getUnlimitedTrains() {
@@ -540,6 +574,7 @@ public class Siding extends SavedRailBase implements IPacket, IReducedSaveData {
 
 		final TrainServer defaultTrain = new TrainServer(id, id, railLength, trainId, baseTrainType, trainCars, path, distances, repeatIndex1, repeatIndex2, accelerationConstant, timeSegments, isManual, maxManualSpeed, dwellTime);
 		defaultTrain.enablePredictiveBraking = enablePredictiveBraking;
+		defaultTrain.enableDelayedAcceleration = enableDelayedAcceleration;
 		trains.add(defaultTrain);
 	}
 
@@ -570,6 +605,12 @@ public class Siding extends SavedRailBase implements IPacket, IReducedSaveData {
 		}
 
 		final int spacing = TrainType.getSpacing(baseTrainType);
+		final double[] segmentEnds = new double[path.size()];
+		double segmentEnd = 0;
+		for (int i = 0; i < path.size(); i++) {
+			segmentEnd += path.get(i).rail.getLength();
+			segmentEnds[i] = segmentEnd;
+		}
 		double railProgress = (railLength + trainCars * spacing) / 2;
 		double nextStoppingDistance = 0;
 		float speed = 0;
@@ -591,11 +632,17 @@ public class Siding extends SavedRailBase implements IPacket, IReducedSaveData {
 			distanceSum2 += pathData.rail.getLength();
 
 			while (railProgress < distanceSum2) {
-				final float railSpeed;
+				float railSpeed;
 				if (enablePredictiveBraking && !transportMode.continuousMovement) {
 					railSpeed = getPredictiveBrakingSpeedInPreSim(path, i, railProgress, distanceSum2, speed, currentRailSpeed, accelerationConstant);
 				} else {
 					railSpeed = currentRailSpeed;
+				}
+				if (enableDelayedAcceleration && !transportMode.continuousMovement) {
+					final float tailRailSpeed = getDelayedAccelerationSpeedInPreSim(path, segmentEnds, railProgress - (double) trainCars * spacing, i);
+					if (tailRailSpeed < railSpeed) {
+						railSpeed = tailRailSpeed;
+					}
 				}
 				final int speedChange;
 				if (speed > railSpeed || nextStoppingDistance - railProgress + 1 < 0.5 * speed * speed / accelerationConstant) {
@@ -681,6 +728,26 @@ public class Siding extends SavedRailBase implements IPacket, IReducedSaveData {
 		}
 
 		return effectiveSpeed;
+	}
+
+	private static float getDelayedAccelerationSpeedInPreSim(List<PathData> path, double[] segmentEnds, double tailRailProgress, int headIndex) {
+		int tailIndex = headIndex;
+		for (int i = 0; i <= headIndex; i++) {
+			if (tailRailProgress < segmentEnds[i]) {
+				tailIndex = i;
+				break;
+			}
+		}
+
+		float minRailSpeed = Float.MAX_VALUE;
+		for (int i = tailIndex; i < headIndex; i++) {
+			final RailType railType = path.get(i).rail.railType;
+			if (railType.canAccelerate) {
+				minRailSpeed = Math.min(minRailSpeed, railType.maxBlocksPerTick);
+			}
+		}
+
+		return minRailSpeed;
 	}
 
 	public static class TimeSegment {

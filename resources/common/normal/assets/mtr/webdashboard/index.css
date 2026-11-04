@@ -40,10 +40,10 @@
 
 	--ui-radius-xl: 24px;
 	--ui-radius-lg: 18px;
-	--ui-radius-md: 12px;
-	--ui-radius-sm: 12px;
+	--ui-radius-md: 10px;
+	--ui-radius-sm: 10px;
 	--ui-radius-pill: 999px;
-	--ui-panel-radius: 14px;
+	--ui-panel-radius: 12px;
 
 	--ui-shadow: 0 24px 60px rgba(0, 0, 0, 0.42);
 	--ui-shadow-soft: 0 10px 30px rgba(0, 0, 0, 0.28);
@@ -524,7 +524,7 @@ body[data-view="dashboard"] .shell {
 .button--small {
 	min-height: 32px;
 	padding: 0 16px;
-	border-radius: 10px;
+	border-radius: 8px;
 	font-size: 12px;
 	line-height: 16px;
 }
@@ -538,6 +538,50 @@ body[data-view="dashboard"] .shell {
 	height: 16px;
 	fill: currentColor;
 	flex: 0 0 auto;
+}
+
+/* ---------------------------------------------------------------- press ripple and magnetic drift */
+
+.button,
+.icon-button,
+.welcome-help {
+	position: relative;
+}
+
+.button,
+.icon-button,
+.row__edit,
+.welcome-help {
+	overflow: hidden;
+	-webkit-tap-highlight-color: transparent;
+	-webkit-user-select: none;
+	user-select: none;
+}
+
+/*
+ * One ripple per press, started at the pointer and clipped by the control's radius. `currentColor` keeps it
+ * on MD3's on-colour state layer in both filled and text buttons; the low alpha keeps it from reading as a
+ * second, louder control.
+ */
+.ui-ripple {
+	position: absolute;
+	pointer-events: none;
+	border-radius: 50%;
+	background-color: currentColor;
+	opacity: 0;
+	transform: scale(0.3);
+	animation: ui-ripple 560ms var(--ui-ease) forwards;
+}
+
+@keyframes ui-ripple {
+	from {
+		opacity: 0.12;
+		transform: scale(0.3);
+	}
+	to {
+		opacity: 0;
+		transform: scale(1);
+	}
 }
 
 .icon-button {
@@ -631,7 +675,7 @@ body[data-view="dashboard"] .shell {
 	display: flex;
 	align-items: center;
 	gap: 8px;
-	height: 40px;
+	height: 48px;
 	margin: 16px 16px 0;
 	padding: 0 8px 0 16px;
 	border: 1px solid var(--ui-line);
@@ -689,7 +733,7 @@ body[data-view="dashboard"] .shell {
 	overscroll-behavior: contain;
 	display: flex;
 	flex-direction: column;
-	gap: 4px;
+	gap: 8px;
 	margin-top: 8px;
 	padding: 0 8px 16px;
 	scrollbar-width: thin;
@@ -725,6 +769,8 @@ body[data-view="dashboard"] .shell {
 	border: 1px solid var(--ui-line);
 	border-radius: var(--ui-radius-pill);
 	background: color-mix(in srgb, var(--ui-text) 3.5%, transparent);
+	touch-action: none;
+	user-select: none;
 }
 
 .tab {
@@ -763,6 +809,15 @@ body[data-view="dashboard"] .shell {
 	color: var(--ui-accent-text);
 	font-weight: 700;
 	box-shadow: none;
+	cursor: grab;
+}
+
+.tabs.is-dragging::before {
+	transition: none;
+}
+
+.tabs.is-dragging .tab[aria-selected="true"] {
+	cursor: grabbing;
 }
 
 .tab[aria-selected="true"]::after {
@@ -860,7 +915,7 @@ body[data-view="dashboard"] .shell {
 	align-items: center;
 	gap: 8px;
 	width: 100%;
-	min-height: 48px;
+	min-height: 52px;
 	padding: 4px 8px;
 	border: 0;
 	border-radius: 8px;
@@ -897,17 +952,24 @@ body[data-view="dashboard"] .shell {
 }
 
 .row__swatch {
-	width: 10px;
-	height: 10px;
-	flex: 0 0 10px;
+	width: 12px;
+	height: 12px;
+	flex: 0 0 12px;
 	border-radius: 50%;
-	box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 6%, transparent);
+	box-shadow: 0 0 0 2px color-mix(in srgb, currentColor 5%, transparent);
 }
 
 .row__swatch--empty {
 	border: 1px solid var(--ui-line-strong);
 	background-color: transparent;
 	box-shadow: none;
+}
+
+.row__name-line {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	min-width: 0;
 }
 
 .row__text {
@@ -919,6 +981,8 @@ body[data-view="dashboard"] .shell {
 }
 
 .row__name {
+	flex: 1 1 auto;
+	min-width: 0;
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
@@ -929,6 +993,7 @@ body[data-view="dashboard"] .shell {
 }
 
 .row__summary {
+	margin-left: 20px;
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
@@ -1189,7 +1254,7 @@ body[data-view="dashboard"] .shell {
 .map-editing-bar .button {
 	min-height: 32px;
 	padding: 0 16px;
-	border-radius: 10px;
+	border-radius: 8px;
 	font-size: 12px;
 }
 
@@ -1221,13 +1286,76 @@ body[data-view="dashboard"] .shell {
 	width: 340px;
 	max-height: calc(100% - 16px);
 	border: 1px solid var(--ui-line);
-	border-radius: 10px;
-	background: var(--ui-card);
+	border-radius: 9px;
+	background: transparent;
 	color: var(--ui-text);
 	box-shadow: 0 24px 70px rgba(0, 0, 0, 0.46);
+	animation: edit-card-frame-enter var(--ui-medium) var(--ui-ease) backwards;
+}
+
+/*
+ * The frosted backdrop lives on a fixed-size layer inside a clipping box, instead of on the card itself.
+ * A backdrop-filter element that changes height re-samples and re-blurs every frame, and Chromium can paint
+ * that surface black for a frame while a child row animates the card open - the whole card then flashes
+ * black. The filtered layer is viewport-tall and only the unfiltered clipping box follows the card.
+ *
+ * The card itself must never animate opacity or transform: either one makes the card a backdrop root, and a
+ * descendant's backdrop-filter then samples the (empty) card instead of the map and the frost disappears.
+ * That is why the entrance animation runs on the frame border, the glass layer's own opacity, and the
+ * content blocks - never on .edit-card.
+ *
+ * The tint stays on this layer so a browser without backdrop-filter still gets an opaque-enough card.
+ */
+.edit-card > * {
+	position: relative;
+	z-index: 1;
+}
+
+.edit-card > .edit-card__glass {
+	position: absolute;
+	inset: 0;
+	z-index: 0;
+	overflow: hidden;
+	border-radius: inherit;
+	pointer-events: none;
+}
+
+.edit-card__blur {
+	position: absolute;
+	top: 0;
+	left: 0;
+	width: 100%;
+	height: 100vh;
+	background: var(--ui-card);
 	-webkit-backdrop-filter: blur(24px) saturate(140%);
 	backdrop-filter: blur(24px) saturate(140%);
-	animation: edit-card-enter var(--ui-medium) var(--ui-ease) both;
+	animation: edit-card-glass-enter var(--ui-medium) var(--ui-ease) backwards;
+}
+
+/* Border colour is safe to animate: it is not a backdrop root trigger. */
+@keyframes edit-card-frame-enter {
+	from {
+		border-color: transparent;
+	}
+	to {
+		border-color: var(--ui-line);
+	}
+}
+
+@keyframes edit-card-glass-enter {
+	from {
+		opacity: 0;
+	}
+	to {
+		opacity: 1;
+	}
+}
+
+.edit-card__header,
+.edit-card__body,
+.edit-card__status,
+.edit-card__actions {
+	animation: edit-card-enter var(--ui-medium) var(--ui-ease) backwards;
 }
 
 @keyframes edit-card-enter {
@@ -1289,6 +1417,26 @@ body[data-view="dashboard"] .shell {
 	gap: 24px;
 	padding: 0 16px;
 	overflow-y: auto;
+	overscroll-behavior: contain;
+	scrollbar-width: thin;
+	scrollbar-color: var(--ui-line-strong) transparent;
+}
+
+.edit-card__body::-webkit-scrollbar {
+	width: 6px;
+}
+
+.edit-card__body::-webkit-scrollbar-track {
+	background: transparent;
+}
+
+.edit-card__body::-webkit-scrollbar-thumb {
+	border-radius: var(--ui-radius-pill);
+	background-color: var(--ui-line-strong);
+}
+
+.edit-card__body::-webkit-scrollbar-thumb:hover {
+	background-color: var(--ui-muted);
 }
 
 .edit-field {
@@ -1517,6 +1665,436 @@ body[data-view="dashboard"] .shell {
 
 .edit-card__status[data-level="warning"] {
 	color: var(--ui-warning);
+}
+
+/* ---------------------------------------------------------------- saved rail rows */
+
+.edit-card__fields {
+	display: flex;
+	flex-direction: column;
+	gap: 24px;
+}
+
+.edit-field__inner {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	min-height: 0;
+}
+
+.edit-field--collapsible {
+	display: grid;
+	grid-template-rows: 1fr;
+	margin-top: 0;
+	margin-bottom: 0;
+	opacity: 1;
+	transition:
+		grid-template-rows 260ms var(--ui-ease),
+		opacity 180ms var(--ui-ease),
+		margin-top 260ms var(--ui-ease),
+		margin-bottom 260ms var(--ui-ease);
+}
+
+.edit-field--collapsible[data-collapsed="true"] {
+	grid-template-rows: 0fr;
+	/*
+	 * A collapsed field still counts as a flex item, so the parent's 16px gap would be charged twice around a
+	 * zero-height element. Pulling 8px in from each side leaves exactly one gap between the neighbours.
+	 */
+	margin-top: -8px;
+	margin-bottom: -8px;
+	opacity: 0;
+	pointer-events: none;
+}
+
+.edit-field--collapsible > .edit-field__inner {
+	overflow: hidden;
+	padding-bottom: 4px;
+	margin-bottom: -4px;
+}
+
+.edit-field--inline .edit-field__inner {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	align-items: center;
+	column-gap: 16px;
+	row-gap: 8px;
+}
+
+.edit-field--inline .edit-field__error {
+	grid-column: 1 / -1;
+}
+
+.select {
+	position: relative;
+	display: flex;
+	align-items: center;
+}
+
+.select__trigger {
+	appearance: none;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	width: 100%;
+	height: 40px;
+	padding: 0 12px 0 16px;
+	border: 1px solid var(--ui-line);
+	border-radius: var(--ui-radius-pill);
+	background-color: transparent;
+	color: var(--ui-text);
+	font: inherit;
+	font-size: 14px;
+	line-height: 21px;
+	text-align: left;
+	outline: none;
+	cursor: pointer;
+	transition:
+		background-color 180ms var(--ui-ease),
+		border-color 180ms var(--ui-ease),
+		box-shadow 180ms var(--ui-ease);
+}
+
+.select__trigger:hover {
+	background-color: var(--ui-surface-input);
+}
+
+.select__trigger:focus-visible {
+	outline: none;
+	border-color: var(--ui-focus-border);
+	box-shadow: 0 0 0 3px var(--ui-focus-ring);
+}
+
+.select__trigger[aria-expanded="true"] {
+	border-color: var(--ui-focus-border);
+	background-color: var(--ui-surface-input);
+}
+
+.select__label {
+	overflow: hidden;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+}
+
+.select__chevron {
+	width: 18px;
+	height: 18px;
+	flex: 0 0 18px;
+	fill: var(--ui-muted);
+	transition: transform 200ms var(--ui-ease);
+}
+
+.select__trigger[aria-expanded="true"] .select__chevron {
+	transform: rotate(180deg);
+}
+
+.select__menu {
+	position: fixed;
+	z-index: 40;
+	margin: 0;
+	padding: 6px;
+	max-height: 264px;
+	overflow-y: auto;
+	overscroll-behavior: contain;
+	scrollbar-width: thin;
+	scrollbar-color: var(--ui-line-strong) transparent;
+	list-style: none;
+	border: 1px solid var(--ui-line);
+	border-radius: var(--ui-radius-md);
+	background-color: var(--ui-surface-solid);
+	color: var(--ui-text);
+	box-shadow: var(--ui-shadow-soft);
+	animation: select-menu-enter 160ms var(--ui-ease) both;
+}
+
+.select__menu::-webkit-scrollbar {
+	width: 6px;
+}
+
+.select__menu::-webkit-scrollbar-track {
+	background: transparent;
+}
+
+.select__menu::-webkit-scrollbar-thumb {
+	border-radius: var(--ui-radius-pill);
+	background-color: var(--ui-line-strong);
+}
+
+@keyframes select-menu-enter {
+	from {
+		opacity: 0;
+		transform: translateY(-4px) scale(0.99);
+	}
+	to {
+		opacity: 1;
+		transform: none;
+	}
+}
+
+.select__option {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	min-height: 36px;
+	padding: 8px 10px;
+	border-radius: 8px;
+	color: var(--ui-text-2);
+	font-size: 13px;
+	line-height: 18px;
+	cursor: pointer;
+}
+
+.select__option[data-active="true"] {
+	background-color: var(--ui-surface-input);
+	color: var(--ui-text);
+}
+
+.select__option[aria-selected="true"] {
+	color: var(--ui-accent-text);
+	font-weight: 600;
+}
+
+.select__option-label {
+	overflow: hidden;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+}
+
+.select__check {
+	width: 16px;
+	height: 16px;
+	flex: 0 0 16px;
+	fill: currentColor;
+	opacity: 0;
+}
+
+.select__option[aria-selected="true"] .select__check {
+	opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.select__menu {
+		animation: none;
+	}
+}
+
+.switch {
+	position: relative;
+	display: inline-flex;
+	flex: 0 0 auto;
+}
+
+.switch__input {
+	position: absolute;
+	inset: 0;
+	z-index: 1;
+	margin: 0;
+	opacity: 0;
+	cursor: pointer;
+}
+
+.switch__track {
+	position: relative;
+	display: block;
+	width: 40px;	height: 24px;
+	border: 1px solid var(--ui-line-strong);
+	border-radius: 999px;
+	background-color: var(--ui-surface-input);
+	transition:
+		background-color 180ms var(--ui-ease),
+		border-color 180ms var(--ui-ease);
+}
+
+.switch__thumb {
+	position: absolute;
+	top: 50%;
+	left: 3px;
+	width: 16px;
+	height: 16px;
+	transform: translateY(-50%);
+	border-radius: 50%;
+	background-color: var(--ui-muted);
+	transition:
+		transform 200ms var(--ui-ease),
+		background-color 180ms var(--ui-ease);
+}
+
+.switch__input:checked + .switch__track {
+	border-color: var(--ui-accent-border);
+	background-color: var(--ui-accent-action);
+}
+
+.switch__input:checked + .switch__track .switch__thumb {
+	transform: translate(16px, -50%);
+	background-color: var(--ui-accent-ink);
+}
+
+.switch__input:focus-visible + .switch__track {
+	outline: 2px solid var(--ui-accent-text);
+	outline-offset: 2px;
+}
+
+.child-section {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+
+.child-section__head {
+	display: flex;
+	align-items: baseline;
+	gap: 8px;
+	padding-top: 16px;
+	border-top: 1px solid var(--ui-line);
+}
+
+.child-section__title {
+	margin: 0;
+	color: var(--ui-muted);
+	font-size: 12px;
+	line-height: 18px;
+	font-weight: 700;
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+}
+
+.child-section__count {
+	color: var(--ui-muted);
+	font-size: 12px;
+	line-height: 18px;
+}
+
+.child-section__empty {
+	margin: 0;
+	color: var(--ui-muted);
+	font-size: 12px;
+	line-height: 18px;
+}
+
+.child-list {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+}
+
+.child {
+	border: 1px solid var(--ui-line);
+	border-radius: 8px;
+	background: color-mix(in srgb, var(--ui-text) 3.5%, transparent);
+	overflow: hidden;
+	transition:
+		border-color 180ms var(--ui-ease),
+		background-color 180ms var(--ui-ease);
+}
+
+.child[data-open="true"] {
+	border-color: var(--ui-accent-border);
+	background: var(--ui-accent-softer);
+}
+
+.child__head {
+	display: grid;
+	grid-template-columns: auto minmax(0, 1fr) auto;
+	align-items: center;
+	gap: 8px;
+	width: 100%;
+	min-height: 40px;
+	padding: 0 8px 0 12px;
+	border: 0;
+	background: transparent;
+	color: var(--ui-text);
+	font: inherit;
+	text-align: left;
+	cursor: pointer;
+}
+
+.child__head:hover {
+	background: var(--ui-surface-input);
+}
+
+.child__title {
+	max-width: 96px;
+	overflow: hidden;
+	color: var(--ui-text);
+	font-size: 13px;
+	line-height: 18px;
+	font-weight: 700;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+}
+
+.child__summary {
+	overflow: hidden;
+	color: var(--ui-muted);
+	font-size: 12px;
+	line-height: 18px;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+}
+
+.child__chevron {
+	fill: var(--ui-muted);
+	transition: transform 200ms var(--ui-ease);
+}
+
+.child[data-open="true"] .child__chevron {
+	transform: rotate(180deg);
+}
+
+.child__body {
+	display: grid;
+	grid-template-rows: 0fr;
+	transition: grid-template-rows 260ms var(--ui-ease);
+}
+
+.child__body[data-open="true"] {
+	grid-template-rows: 1fr;
+}
+
+.child__body-inner {
+	min-height: 0;
+	overflow: hidden;
+}
+
+.child__fields {
+	display: flex;
+	flex-direction: column;
+	gap: 16px;
+	padding: 4px 12px 0;
+}
+
+.child__status {
+	margin: 8px 12px 0;
+	color: var(--ui-muted);
+	font-size: 11px;
+	line-height: 16px;
+}
+
+.child__status[data-level="error"] {
+	color: var(--ui-danger);
+}
+
+.child__status[data-level="success"] {
+	color: var(--ui-success);
+}
+
+.child__actions {
+	display: flex;
+	justify-content: flex-end;
+	gap: 8px;
+	padding: 8px 12px 12px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.edit-field--collapsible,
+	.child__body,
+	.child__chevron,
+	.switch__track,
+	.switch__thumb {
+		transition: none;
+	}
 }
 
 .edit-card__actions {
@@ -2051,7 +2629,7 @@ body[data-theme="light"] .button--filled {
 		left: 8px;
 		width: calc(100% - 16px);
 		max-height: 42vh;
-		border-radius: 16px;
+		border-radius: 14px;
 	}
 
 	.sidebar__tabs {
@@ -2064,7 +2642,7 @@ body[data-theme="light"] .button--filled {
 
 	.sidebar__search {
 		margin: 16px 16px 0;
-		height: 40px;
+		height: 48px;
 	}
 
 	.sidebar__list {

@@ -2,8 +2,8 @@
 // for the four non-dashboard views, and owns the small help bubble. The Canvas renderer lives in
 // welcome-bg.js so this file stays about text and interaction.
 
-import { t } from './i18n.js?v=35';
-import { mount } from './welcome-bg.js?v=35';
+import { t } from './i18n.js?v=43';
+import { mount } from './welcome-bg.js?v=43';
 
 export const SLOGAN_KEYS = [
 	'welcomeSlogan1',

@@ -40,3 +40,25 @@ afterEvaluate {
 		}
 	}
 }
+
+// Bundle the project's license and notice files in the mod jar. The common
+// jar is shaded into the Fabric and Forge jars, so these files end up in
+// META-INF/licenses/ in the final mod jar without duplicating the license
+// texts in the source tree.
+def bundledLicenseFiles = [
+		"LICENSE"                  : "YMTR-LICENSE",
+		"LICENSE-MIT"              : "YMTR-LICENSE-MIT",
+		"LICENSE-GPL-3.0-or-later" : "YMTR-LICENSE-GPL-3.0-or-later",
+		"NOTICE"                   : "YMTR-NOTICE",
+		"TRADEMARK.md"             : "YMTR-TRADEMARK.md",
+		"LICENSING.md"             : "YMTR-LICENSING.md"
+]
+
+processResources {
+	bundledLicenseFiles.each { source, target ->
+		from(rootProject.file(source)) {
+			into "META-INF/licenses"
+			rename { target }
+		}
+	}
+}

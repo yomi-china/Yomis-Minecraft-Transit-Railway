@@ -382,6 +382,7 @@
 	"gui.mtr.psd_display_mode_2": "当前车站+线路图",
 	"gui.mtr.platform_or_siding_exists": "每个铁轨节点只能连接到一个站台或侧线",
 	"gui.mtr.predictive_braking": "提前减速",
+	"gui.mtr.delayed_acceleration": "延后加速",
 	"gui.mtr.moving_block": "移动闭塞",
 	"gui.mtr.moving_block_stop_distance": "最小停车距离",
 	"gui.mtr.press_to_select_floor": "按%s选择楼层",

@@ -257,10 +257,7 @@ public final class WebDashboardDataService {
 		final JsonArray platforms = new JsonArray();
 		for (final Platform platform : railwayData.platforms) {
 			try {
-				final JsonObject object = buildSavedRail(platform, dataCache);
-				object.addProperty("stopWithoutOpeningDoors", platform.getStopWithoutOpeningDoors());
-				object.addProperty("psdDisplayMode", platform.getPsdDisplayMode());
-				platforms.add(object);
+				platforms.add(platformJson(platform, dataCache));
 			} catch (Exception e) {
 				System.out.println("[MTR-WebDashboard] Skipping platform " + platform.id + ": " + e);
 			}
@@ -268,7 +265,32 @@ public final class WebDashboardDataService {
 		return platforms;
 	}
 
-	private static JsonObject buildSavedRail(SavedRailBase savedRail, DataCache dataCache) {
+	static JsonObject platformJson(Platform platform, DataCache dataCache) {
+		final JsonObject object = savedRailJson(platform, dataCache);
+		object.addProperty("stopWithoutOpeningDoors", platform.getStopWithoutOpeningDoors());
+		object.addProperty("psdDisplayMode", platform.getPsdDisplayMode());
+		return object;
+	}
+
+	/** The siding shape, shared by {@code /api/data} and the PATCH response. See {@link #platformJson}. */
+	static JsonObject sidingJson(Siding siding, DataCache dataCache) {
+		final JsonObject object = savedRailJson(siding, dataCache);
+		object.addProperty("stopWithoutOpeningDoors", siding.getStopWithoutOpeningDoors());
+		object.addProperty("railLength", siding.railLength);
+		object.addProperty("unlimitedTrains", siding.getUnlimitedTrains());
+		object.addProperty("maxTrains", siding.getMaxTrains());
+		object.addProperty("isManual", siding.getIsManual());
+		object.addProperty("maxManualSpeed", siding.getMaxManualSpeed());
+		object.addProperty("enablePredictiveBraking", siding.getEnablePredictiveBraking());
+		object.addProperty("enableDelayedAcceleration", siding.getEnableDelayedAcceleration());
+		object.addProperty("accelerationConstant", siding.getAccelerationConstant());
+		object.addProperty("trainId", siding.getTrainId());
+		object.addProperty("baseTrainType", siding.getBaseTrainType());
+		object.addProperty("trainCars", siding.getTrainCars());
+		return object;
+	}
+
+	private static JsonObject savedRailJson(SavedRailBase savedRail, DataCache dataCache) {
 		final JsonObject object = new JsonObject();
 		object.addProperty("id", String.valueOf(savedRail.id));
 		object.addProperty("transportMode", savedRail.transportMode.toString());
@@ -406,19 +428,7 @@ public final class WebDashboardDataService {
 		final JsonArray sidings = new JsonArray();
 		for (final Siding siding : railwayData.sidings) {
 			try {
-				final JsonObject object = buildSavedRail(siding, railwayData.dataCache);
-				object.addProperty("stopWithoutOpeningDoors", siding.getStopWithoutOpeningDoors());
-				object.addProperty("railLength", siding.railLength);
-				object.addProperty("unlimitedTrains", siding.getUnlimitedTrains());
-				object.addProperty("maxTrains", siding.getMaxTrains());
-				object.addProperty("isManual", siding.getIsManual());
-				object.addProperty("maxManualSpeed", siding.getMaxManualSpeed());
-				object.addProperty("enablePredictiveBraking", siding.getEnablePredictiveBraking());
-				object.addProperty("accelerationConstant", siding.getAccelerationConstant());
-				object.addProperty("trainId", siding.getTrainId());
-				object.addProperty("baseTrainType", siding.getBaseTrainType());
-				object.addProperty("trainCars", siding.getTrainCars());
-				sidings.add(object);
+				sidings.add(sidingJson(siding, railwayData.dataCache));
 			} catch (Exception e) {
 				System.out.println("[MTR-WebDashboard] Skipping siding " + siding.id + ": " + e);
 			}
@@ -534,6 +544,7 @@ public final class WebDashboardDataService {
 					^ siding.getDwellTime() ^ siding.getAdcTime() ^ Objects.hashCode(siding.getStopWithoutOpeningDoors())
 					^ Objects.hashCode(siding.getUnlimitedTrains()) ^ siding.getMaxTrains() ^ Objects.hashCode(siding.getIsManual())
 					^ siding.getMaxManualSpeed() ^ Objects.hashCode(siding.getEnablePredictiveBraking())
+					^ Objects.hashCode(siding.getEnableDelayedAcceleration())
 					^ Objects.hashCode(siding.getAccelerationConstant()) ^ Objects.hashCode(siding.getTrainId())
 					^ Objects.hashCode(siding.getBaseTrainType()) ^ siding.getTrainCars() ^ Objects.hashCode(siding.railLength);
 		}

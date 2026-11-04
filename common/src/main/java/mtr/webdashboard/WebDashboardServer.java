@@ -93,6 +93,8 @@ public final class WebDashboardServer {
 		context.addServlet(new ServletHolder(new WebDashboardWriteServlet("station", IPacket.PACKET_UPDATE_STATION)), "/api/station/*");
 		context.addServlet(new ServletHolder(new WebDashboardWriteServlet("route", IPacket.PACKET_UPDATE_ROUTE)), "/api/route/*");
 		context.addServlet(new ServletHolder(new WebDashboardWriteServlet("depot", IPacket.PACKET_UPDATE_DEPOT)), "/api/depot/*");
+		context.addServlet(new ServletHolder(new WebDashboardWriteServlet("platform", IPacket.PACKET_UPDATE_PLATFORM)), "/api/platform/*");
+		context.addServlet(new ServletHolder(new WebDashboardWriteServlet("siding", IPacket.PACKET_UPDATE_SIDING)), "/api/siding/*");
 
 		context.addServlet(staticHolder, "/");
 		context.addFilter(new FilterHolder(new RootIndexFilter()), "/*", EnumSet.of(DispatcherType.REQUEST));
@@ -101,7 +103,7 @@ public final class WebDashboardServer {
 				+ StatusServletHandler.PATH + ", " + HealthServletHandler.PATH + ", " + SessionServletHandler.PATH
 				+ ", " + LoginServletHandler.PATH + ", " + LogoutServletHandler.PATH
 				+ ", /api/meta, /api/data"
-				+ "; writing: PATCH /api/station/<id>, /api/route/<id>, /api/depot/<id>"
+				+ "; writing: PATCH /api/station/<id>, /api/route/<id>, /api/depot/<id>, /api/platform/<id>, /api/siding/<id>"
 				+ "; everything else is served as a static file.");
 
 		try {

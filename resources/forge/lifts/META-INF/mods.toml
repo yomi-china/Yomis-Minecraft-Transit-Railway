@@ -1,12 +1,13 @@
 modLoader = "javafml"
 loaderVersion = "[36,)"
-license = "All Rights Reserved"
+license = "MIT AND GPL-3.0-or-later"
 
 [[mods]]
 modId = "mtr"
 version = "${version}"
 displayName = "Modern Elevators and Escalators"
 authors = "Jonathan Ho"
+credits = "YMTR modifications by Yomi_307"
 description = "Fully functional, realistic, and advanced elevators and escalators in Minecraft!"
 logoFile = "icon.png"
 

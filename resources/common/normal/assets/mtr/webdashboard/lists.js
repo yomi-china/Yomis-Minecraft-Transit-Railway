@@ -3,7 +3,8 @@ export const MODE_ALL = 'all';
 
 const nameCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
 
-function compareByNameThenColor(a, b) {
+/** The display order shared by the sidebar and the platform/siding rows inside an edit card. */
+export function compareByDisplayName(a, b) {
 	const nameA = a.name || '';
 	const nameB = b.name || '';
 
@@ -47,8 +48,7 @@ export function buildIndex(world) {
 		routeById: new Map(),
 		depotById: new Map(),
 		sidingById: new Map(),
-		modeCounts: { routes: new Map(), depots: new Map(), platforms: new Map(), sidings: new Map() },
-		platformCountByStationId: new Map()
+		modeCounts: { routes: new Map(), depots: new Map(), platforms: new Map(), sidings: new Map() }
 	};
 
 	if (!world) {
@@ -66,12 +66,6 @@ export function buildIndex(world) {
 	countByMode(index.modeCounts.platforms, world.platforms || []);
 	countByMode(index.modeCounts.sidings, world.sidings || []);
 
-	(world.platforms || []).forEach(platform => {
-		if (platform.stationId) {
-			index.platformCountByStationId.set(platform.stationId, (index.platformCountByStationId.get(platform.stationId) || 0) + 1);
-		}
-	});
-
 	return index;
 }
 
@@ -79,17 +73,13 @@ function countByMode(target, objects) {
 	objects.forEach(object => target.set(object.transportMode, (target.get(object.transportMode) || 0) + 1));
 }
 
-function buildSidingToDepotId(world) {
-	const map = new Map();
+function buildSidingCountByDepot(world) {
+	const counts = new Map();
 	const relations = (world && world.depotIdToSidingIds) || {};
 	Object.keys(relations).forEach(depotId => {
-		(relations[depotId] || []).forEach(sidingId => {
-			if (!map.has(sidingId)) {
-				map.set(sidingId, depotId);
-			}
-		});
+		counts.set(depotId, (relations[depotId] || []).length);
 	});
-	return map;
+	return counts;
 }
 
 /**
@@ -114,7 +104,7 @@ export function buildRows(world, index, tab, mode, search) {
 		rows = buildStationRows(world, index);
 	}
 
-	rows.sort(compareByNameThenColor);
+	rows.sort(compareByDisplayName);
 
 	const query = (search || '').trim().toLowerCase();
 	if (query === '') {
@@ -130,7 +120,7 @@ function buildStationRows(world, index) {
 		color: station.color,
 		mode: null,
 		summary: [
-			{ key: 'summaryPlatforms', value: index.platformCountByStationId.get(station.id) || 0 },
+			{ key: 'summaryPlatforms', value: (station.platformIds || []).length },
 			{ key: 'summaryZone', value: station.zone || 0 }
 		],
 		raw: station
@@ -163,11 +153,7 @@ function buildRouteRows(world, index, mode) {
 }
 
 function buildDepotRows(world, index, mode) {
-	const sidingToDepotId = buildSidingToDepotId(world);
-	const sidingCountByDepotId = new Map();
-	sidingToDepotId.forEach(depotId => {
-		sidingCountByDepotId.set(depotId, (sidingCountByDepotId.get(depotId) || 0) + 1);
-	});
+	const sidingCountByDepotId = buildSidingCountByDepot(world);
 
 	return (world.depots || [])
 		.filter(depot => mode === MODE_ALL || depot.transportMode === mode)

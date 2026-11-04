@@ -6,10 +6,13 @@ import com.google.gson.JsonObject;
 import mtr.data.AreaBase;
 import mtr.data.NameColorDataBase;
 import mtr.data.Platform;
+import mtr.data.RailType;
 import mtr.data.RailwayData;
 import mtr.data.Route;
+import mtr.data.SavedRailBase;
 import mtr.data.Siding;
 import mtr.data.Station;
+import mtr.data.Train;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.util.Tuple;
 
@@ -27,6 +30,21 @@ final class WebDashboardFields {
 	private static final List<String> NAME_COLOR_FIELDS = List.of("name", "color");
 	private static final List<String> AREA_FIELDS = List.of("name", "color", "corners");
 	private static final List<String> STATION_FIELDS = List.of("name", "color", "corners", "zone");
+	private static final List<String> PLATFORM_FIELDS = List.of("name", "dwellTimeSeconds", "adcTimeSeconds", "psdDisplayMode");
+	private static final List<String> SIDING_FIELDS = List.of("name", "dwellTimeSeconds", "unlimitedTrains", "maxTrains", "isManual",
+			"maxManualSpeed", "enablePredictiveBraking", "enableDelayedAcceleration", "accelerationMetersPerSecondSquared");
+
+	/**
+	 * The in-game saved rail editor only accepts a number this long, and a longer one cannot be read back
+	 * there, so the web editor keeps the same limit rather than writing a value the game would not produce.
+	 */
+	private static final int MAX_SAVED_RAIL_NAME_LENGTH = 10;
+	private static final int MAX_PSD_DISPLAY_MODE = 2;
+	/** The game's max-vehicles field is three digits, and its value already means "stored value plus one". */
+	private static final int MAX_TRAINS = 998;
+	private static final int MAX_MANUAL_SPEED = RailType.DIAMOND.ordinal();
+	/** Only guards the int conversion; the setter resets anything outside its own range anyway. */
+	private static final double MAX_SECONDS_INPUT = 1_000_000;
 
 	static boolean has(JsonObject body, String key) {
 		final JsonElement element = body.get(key);
@@ -57,6 +75,26 @@ final class WebDashboardFields {
 		return (int) raw;
 	}
 
+	static double readDouble(JsonObject body, String key) throws FieldException {
+		final JsonElement element = body.get(key);
+		if (!element.isJsonPrimitive() || !element.getAsJsonPrimitive().isNumber()) {
+			throw new FieldException(key, "expected a number");
+		}
+		final double value = element.getAsDouble();
+		if (Double.isNaN(value) || Double.isInfinite(value)) {
+			throw new FieldException(key, "expected a finite number");
+		}
+		return value;
+	}
+
+	static boolean readBoolean(JsonObject body, String key) throws FieldException {
+		final JsonElement element = body.get(key);
+		if (!element.isJsonPrimitive() || !element.getAsJsonPrimitive().isBoolean()) {
+			throw new FieldException(key, "expected true or false");
+		}
+		return element.getAsBoolean();
+	}
+
 	static NameColorDataBase resolve(String kind, RailwayData railwayData, long id) {
 		switch (kind) {
 			case "station":
@@ -65,6 +103,10 @@ final class WebDashboardFields {
 				return railwayData.dataCache.routeIdMap.get(id);
 			case "depot":
 				return railwayData.dataCache.depotIdMap.get(id);
+			case "platform":
+				return railwayData.dataCache.platformIdMap.get(id);
+			case "siding":
+				return railwayData.dataCache.sidingIdMap.get(id);
 			default:
 				return null;
 		}
@@ -76,13 +118,17 @@ final class WebDashboardFields {
 				return STATION_FIELDS;
 			case "depot":
 				return AREA_FIELDS;
+			case "platform":
+				return PLATFORM_FIELDS;
+			case "siding":
+				return SIDING_FIELDS;
 			default:
 				return NAME_COLOR_FIELDS;
 		}
 	}
 
 	static Set<String> knownKinds() {
-		return Set.of("station", "route", "depot");
+		return Set.of("station", "route", "depot", "platform", "siding");
 	}
 
 	static final class Applied {
@@ -97,43 +143,26 @@ final class WebDashboardFields {
 	}
 
 	static Applied apply(String kind, RailwayData railwayData, NameColorDataBase object, JsonObject body, Consumer<FriendlyByteBuf> sendPacket, List<String> warnings) throws FieldException {
-		final List<String> changed = new ArrayList<>();
-
 		for (final String key : body.keySet()) {
 			if (acceptedFields(kind).stream().noneMatch(key::equals)) {
 				throw new FieldException(key, "not a field of " + kind + "; this build accepts " + String.join(", ", acceptedFields(kind)));
 			}
 		}
 
-		final boolean setName = has(body, "name");
-		final boolean setColor = has(body, "color");
+		final List<String> changed = new ArrayList<>();
 
-		if (setName || setColor) {
-			final String name = setName ? readString(body, "name") : object.name;
-			int color = object.color;
-			if (setColor) {
-				final int raw = readInt(body, "color");
-				if (raw < 0 || raw > 0xFFFFFF) {
-					final int clamped = Math.max(0, Math.min(0xFFFFFF, raw));
-					warnings.add("color was outside 0..16777215 and was clamped to " + clamped);
-					color = clamped;
-				} else {
-					color = raw;
-				}
-			}
-			object.name = name;
-			object.color = color;
-			object.setNameColor(sendPacket);
-			if (setName) {
-				changed.add("name");
-			}
-			if (setColor) {
-				changed.add("color");
-			}
+		if (object instanceof Platform platform) {
+			applyPlatform(platform, body, sendPacket, warnings, changed);
+			return new Applied(changed, null);
+		}
+		if (object instanceof Siding siding) {
+			applySiding(siding, body, sendPacket, warnings, changed);
+			return new Applied(changed, null);
 		}
 
-		if ("station".equals(kind) && has(body, "zone")) {
-			final Station station = (Station) object;
+		applyNameColor(object, body, sendPacket, warnings, changed);
+
+		if (object instanceof Station station && has(body, "zone")) {
 			station.zone = readInt(body, "zone");
 			station.setZone(sendPacket);
 			changed.add("zone");
@@ -161,6 +190,193 @@ final class WebDashboardFields {
 		}
 
 		return new Applied(changed, effects);
+	}
+
+	private static void applyNameColor(NameColorDataBase object, JsonObject body, Consumer<FriendlyByteBuf> sendPacket, List<String> warnings, List<String> changed) throws FieldException {
+		final boolean setName = has(body, "name");
+		final boolean setColor = has(body, "color");
+		if (!setName && !setColor) {
+			return;
+		}
+
+		final String name = setName ? readString(body, "name") : object.name;
+		int color = object.color;
+		if (setColor) {
+			final int raw = readInt(body, "color");
+			if (raw < 0 || raw > 0xFFFFFF) {
+				final int clamped = Math.max(0, Math.min(0xFFFFFF, raw));
+				warnings.add("color was outside 0..16777215 and was clamped to " + clamped);
+				color = clamped;
+			} else {
+				color = raw;
+			}
+		}
+		object.name = name;
+		object.color = color;
+		object.setNameColor(sendPacket);
+		if (setName) {
+			changed.add("name");
+		}
+		if (setColor) {
+			changed.add("color");
+		}
+	}
+
+	private static void applyPlatform(Platform platform, JsonObject body, Consumer<FriendlyByteBuf> sendPacket, List<String> warnings, List<String> changed) throws FieldException {
+		final boolean setName = has(body, "name");
+		final boolean setDwell = has(body, "dwellTimeSeconds");
+
+		if (setName) {
+			platform.name = readSavedRailName(body, "name");
+		}
+
+		if (setName || setDwell) {
+			final int dwellTime = setDwell ? readHalfSeconds(body, "dwellTimeSeconds") : platform.getDwellTime();
+			platform.setDwellTime(dwellTime, sendPacket);
+			if (setName) {
+				changed.add("name");
+			}
+			if (setDwell) {
+				changed.add("dwellTimeSeconds");
+				warnAboutDwellTime(warnings, dwellTime);
+			}
+		}
+
+		if (has(body, "adcTimeSeconds")) {
+			final int adcTime = readHalfSeconds(body, "adcTimeSeconds");
+			platform.setAdcTime(adcTime, sendPacket);
+			changed.add("adcTimeSeconds");
+			if (adcTime < 0 || adcTime > SavedRailBase.MAX_ADC_TIME) {
+				warnings.add("wait-after-doors time was outside 0..600 seconds and the game reset it to 0 seconds");
+			}
+		}
+
+		if (has(body, "psdDisplayMode")) {
+			platform.setPsdDisplayMode(readPsdDisplayMode(body), sendPacket);
+			changed.add("psdDisplayMode");
+		}
+	}
+
+	private static void applySiding(Siding siding, JsonObject body, Consumer<FriendlyByteBuf> sendPacket, List<String> warnings, List<String> changed) throws FieldException {
+		final boolean setName = has(body, "name");
+		final boolean setDwell = has(body, "dwellTimeSeconds");
+		final float oldAcceleration = siding.getAccelerationConstant();
+		final boolean oldManual = siding.getIsManual();
+		final int oldMaxManualSpeed = siding.getMaxManualSpeed();
+		final int oldDwellTime = siding.getDwellTime();
+
+		if (setName) {
+			siding.name = readSavedRailName(body, "name");
+		}
+
+		final boolean unlimitedTrains = has(body, "unlimitedTrains") ? readBoolean(body, "unlimitedTrains") : siding.getUnlimitedTrains();
+		final int maxTrains = has(body, "maxTrains") ? readMaxTrains(body) : siding.getMaxTrains();
+		final boolean manual = has(body, "isManual") ? readBoolean(body, "isManual") : oldManual;
+		final int maxManualSpeed = has(body, "maxManualSpeed") ? readMaxManualSpeed(body) : oldMaxManualSpeed;
+		final boolean predictiveBraking = has(body, "enablePredictiveBraking") ? readBoolean(body, "enablePredictiveBraking") : siding.getEnablePredictiveBraking();
+		final boolean delayedAcceleration = has(body, "enableDelayedAcceleration") ? readBoolean(body, "enableDelayedAcceleration") : siding.getEnableDelayedAcceleration();
+		final float acceleration = has(body, "accelerationMetersPerSecondSquared")
+				? toMetersPerTickSquared(readDouble(body, "accelerationMetersPerSecondSquared"), warnings)
+				: oldAcceleration;
+		final int dwellTime = setDwell ? readHalfSeconds(body, "dwellTimeSeconds") : oldDwellTime;
+
+		siding.setEnablePredictiveBraking(predictiveBraking);
+		siding.setEnableDelayedAcceleration(delayedAcceleration);
+
+		// Matches what SidingScreen does on close: any change to the driving parameters has to discard the
+		// trains already sitting on the siding, or they keep running with the old values forever.
+		final boolean clearTrains = acceleration != oldAcceleration || manual != oldManual
+				|| maxManualSpeed != oldMaxManualSpeed || dwellTime != oldDwellTime;
+		siding.setUnlimitedTrains(unlimitedTrains, maxTrains, manual, maxManualSpeed, acceleration, dwellTime, clearTrains, sendPacket);
+
+		if (setName) {
+			changed.add("name");
+		}
+		if (setDwell) {
+			changed.add("dwellTimeSeconds");
+			warnAboutDwellTime(warnings, dwellTime);
+		}
+		if (has(body, "unlimitedTrains")) {
+			changed.add("unlimitedTrains");
+		}
+		if (has(body, "maxTrains")) {
+			changed.add("maxTrains");
+		}
+		if (has(body, "isManual")) {
+			changed.add("isManual");
+		}
+		if (has(body, "maxManualSpeed")) {
+			changed.add("maxManualSpeed");
+		}
+		if (has(body, "enablePredictiveBraking")) {
+			changed.add("enablePredictiveBraking");
+		}
+		if (has(body, "enableDelayedAcceleration")) {
+			changed.add("enableDelayedAcceleration");
+		}
+		if (has(body, "accelerationMetersPerSecondSquared")) {
+			changed.add("accelerationMetersPerSecondSquared");
+		}
+	}
+
+	private static String readSavedRailName(JsonObject body, String key) throws FieldException {
+		final String name = readString(body, key);
+		if (name.length() > MAX_SAVED_RAIL_NAME_LENGTH) {
+			throw new FieldException(key, "longer than " + MAX_SAVED_RAIL_NAME_LENGTH + " characters");
+		}
+		return name;
+	}
+
+	private static int readHalfSeconds(JsonObject body, String key) throws FieldException {
+		final double seconds = readDouble(body, key);
+		if (Math.abs(seconds) > MAX_SECONDS_INPUT) {
+			throw new FieldException(key, "out of range");
+		}
+		return (int) Math.round(seconds * 2);
+	}
+
+	private static void warnAboutDwellTime(List<String> warnings, int halfSeconds) {
+		if (halfSeconds <= 0 || halfSeconds > SavedRailBase.MAX_DWELL_TIME) {
+			warnings.add("dwell time was outside 0.5..600 seconds and the game reset it to " + WebDashboardDataService.seconds(SavedRailBase.DEFAULT_DWELL_TIME) + " seconds");
+		}
+	}
+
+	private static int readMaxTrains(JsonObject body) throws FieldException {
+		final int maxTrains = readInt(body, "maxTrains");
+		if (maxTrains < 0 || maxTrains > MAX_TRAINS) {
+			throw new FieldException("maxTrains", "expected 0.." + MAX_TRAINS);
+		}
+		return maxTrains;
+	}
+
+	private static int readMaxManualSpeed(JsonObject body) throws FieldException {
+		final int maxManualSpeed = readInt(body, "maxManualSpeed");
+		if (maxManualSpeed < 0 || maxManualSpeed > MAX_MANUAL_SPEED) {
+			throw new FieldException("maxManualSpeed", "expected 0.." + MAX_MANUAL_SPEED);
+		}
+		return maxManualSpeed;
+	}
+
+	private static int readPsdDisplayMode(JsonObject body) throws FieldException {
+		final int mode = readInt(body, "psdDisplayMode");
+		if (mode < 0 || mode > MAX_PSD_DISPLAY_MODE) {
+			throw new FieldException("psdDisplayMode", "expected 0.." + MAX_PSD_DISPLAY_MODE);
+		}
+		return mode;
+	}
+
+	private static float toMetersPerTickSquared(double metersPerSecondSquared, List<String> warnings) {
+		final double raw = metersPerSecondSquared / WebDashboardDataService.ACCELERATION_UNIT_CONVERSION;
+		final double clamped = Math.max(Train.MIN_ACCELERATION, Math.min(Train.MAX_ACCELERATION, raw));
+		final double factor = Math.pow(10, Train.ACCELERATION_DECIMAL_PLACES);
+		final double rounded = Math.round(clamped * factor) / factor;
+		if (clamped != raw) {
+			warnings.add("acceleration was outside "
+					+ Train.MIN_ACCELERATION * WebDashboardDataService.ACCELERATION_UNIT_CONVERSION + ".."
+					+ Train.MAX_ACCELERATION * WebDashboardDataService.ACCELERATION_UNIT_CONVERSION
+					+ " m/s² and was limited to " + rounded * WebDashboardDataService.ACCELERATION_UNIT_CONVERSION + " m/s²");
+		}
+		return (float) rounded;
 	}
 
 	private static Tuple<Integer, Integer> readCorner(JsonObject body, String key) throws FieldException {

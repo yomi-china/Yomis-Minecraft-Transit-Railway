@@ -1,17 +1,52 @@
-All Rights Reserved
+YMTR - Yomi's Minecraft Transit Railway
+Copyright (c) 2022 Jonathan Ho (Minecraft Transit Railway)
+Copyright (c) 2025-2026 Yomi_307 (YMTR original components and modifications)
 
-Copyright (c) 2025-2026 Jonathan Ho, Yomi_307
+This project is a mixed-license (multi-licensed) project. It is not licensed
+under a single license, and it is not a dual-licensed project in which you may
+choose one license. Different components are licensed under different terms, as
+follows.
 
-This software and associated documentation files (the "Software") is proprietary software.
-All rights are reserved by the copyright holders.
+1. MTR-derived components - MIT License
+   Code, assets, and documentation authored by the Minecraft Transit Railway
+   project, and identical to the corresponding upstream files, are licensed
+   under the MIT License, except for third-party components included in them.
+   The upstream copyright notice is:
+       Copyright (c) 2022 Jonathan Ho
+   The full MIT text is in LICENSE-MIT.
 
-No part of this Software may be copied, modified, distributed, or used in any form
-without the express written permission of the copyright holders.
+2. YMTR-original components - GNU GPL v3.0 or later
+   Original code, assets, and documentation created for YMTR are licensed
+   under the GNU General Public License, version 3 or (at your option) any
+   later version (GPL-3.0-or-later). The full text is in
+   LICENSE-GPL-3.0-or-later.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+3. Mixed files - GPL-3.0-or-later with MIT portions
+   Files that contain both MTR-derived and YMTR-original material are mixed
+   files. The MTR-derived portions remain licensed under the MIT License; the
+   YMTR-original portions are licensed under GPL-3.0-or-later. The file as a
+   whole is distributed as part of the GPL-3.0-or-later combined work, and the
+   MIT copyright and permission notices must be retained.
+
+4. Combined work - GPL-3.0-or-later
+   YMTR is distributed as a combined work of MTR-derived and YMTR-original
+   components. Because the MIT License is compatible with the GNU GPL, the
+   combined work as a whole is distributed under GPL-3.0-or-later. This does
+   not revoke, replace, or reduce the MIT rights in the MTR-derived
+   components; those components remain available under the MIT License.
+
+5. Third-party components
+   Third-party libraries, assets, and reference source trees remain under
+   their own licenses. They are not relicensed by this notice. See NOTICE.
+
+6. Name and logo
+   The YMTR name and logo are project identifiers. Neither the MIT License
+   nor the GPLv3 grants trademark rights. See TRADEMARK.md.
+
+The path-by-path mapping is in LICENSING.md. Files identical to upstream MTR
+are MIT; new YMTR-original files are GPL-3.0-or-later; files that differ from
+upstream are mixed files. If you cannot determine which category a file falls
+into, treat it as a mixed file: distribute it under GPL-3.0-or-later as a
+whole and retain the MIT notice.
+
+SPDX-License-Identifier: MIT AND GPL-3.0-or-later

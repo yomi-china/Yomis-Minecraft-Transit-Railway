@@ -456,6 +456,7 @@ public class TrainClient extends Train implements IGui {
 		reversed = train.reversed;
 		isOnRoute = train.isOnRoute;
 		isCurrentlyManual = train.isCurrentlyManual;
+		enableDelayedAcceleration = train.enableDelayedAcceleration;
 		manualNotch = train.manualNotch;
 		useLegacyManualNotch = train.useLegacyManualNotch;
 		isManualBrakingToReversal = train.isManualBrakingToReversal;

@@ -1,14 +1,16 @@
-import { t, applyTranslations } from './i18n.js?v=35';
-import { SessionError, SessionFailure, clearTokenFromUrl, fetchSession, fetchStatus, login, logout, readTokenFromUrl } from './session.js?v=35';
-import { DataErrorKind, DataFailure, fetchData, fetchMeta, patch, selectWorld } from './api.js?v=35';
-import { MODE_ALL, buildIndex, buildRows } from './lists.js?v=35';
-import * as views from './views.js?v=35';
-import * as map from './map.js?v=35';
-import * as popover from './popover.js?v=35';
-import { hasOriginCorner } from './areafit.js?v=35';
-import * as welcome from './welcome.js?v=35';
-import { initSettings } from './settings.js?v=35';
-import './theme.js?v=35';
+import { t, applyTranslations } from './i18n.js?v=43';
+import { SessionError, SessionFailure, clearTokenFromUrl, fetchSession, fetchStatus, login, logout, readTokenFromUrl } from './session.js?v=43';
+import { DataErrorKind, DataFailure, fetchData, fetchMeta, patch, selectWorld } from './api.js?v=43';
+import { MODE_ALL, buildIndex, buildRows, compareByDisplayName } from './lists.js?v=43';
+import * as views from './views.js?v=43';
+import * as map from './map.js?v=43';
+import * as popover from './popover.js?v=43';
+import { CHILD_KINDS, contextFor } from './editor.js?v=43';
+import { hasOriginCorner } from './areafit.js?v=43';
+import * as welcome from './welcome.js?v=43';
+import { initSettings } from './settings.js?v=43';
+import './theme.js?v=43';
+import './fx.js?v=43';
 
 const EDITABLE_KINDS = new Set(['station', 'route', 'depot']);
 
@@ -48,6 +50,11 @@ function selectedKind() {
 
 let canEdit = false;
 let editingArea = false;
+let childFocusId = null;
+
+function activeMapSelection() {
+	return childFocusId || selectedId();
+}
 
 function setView(view) {
 	views.setView(view);
@@ -124,7 +131,7 @@ function render() {
 		map.setWorld(state.world, state.index);
 		map.setMode(state.mode);
 		map.setTab(state.tab);
-		map.setSelectedId(selectedId());
+		map.setSelectedId(activeMapSelection());
 	} catch (error) {
 		console.error('[MTR-WebDashboard] render failed for state', { ...state }, error);
 		throw error;
@@ -266,9 +273,6 @@ function initMap() {
 		},
 		onEditArea: area => {
 			state.draftArea = area;
-			if (popover.hasSelectionField()) {
-				popover.setSelection(area);
-			}
 			refreshAreaPanel();
 		},
 		onDraftChange: draft => {
@@ -501,21 +505,81 @@ function openEditor(kind, id) {
 	if (!object) {
 		return;
 	}
+	if (childFocusId != null) {
+		childFocusId = null;
+		map.setChildFocusId(null);
+	}
 
+	const childKind = CHILD_KINDS[kind] || null;
 	const plan = map.focusOnTarget(kind, object, state.index);
 	popover.open({
 		kind,
 		object,
+		context: contextFor(object, state.meta),
+		meta: state.meta,
+		childKind,
+		childObjects: childKind ? childObjectsFor(kind, object) : [],
 		anchor: plan.anchorScreen,
 		container: document.getElementById('map-area'),
 		onSubmit: (editKind, editId, fields) => patch(editKind, editId, fields),
+		onSubmitChild: async (childKindId, childId, fields) => {
+			const result = await patch(childKindId, childId, fields);
+			updateObjectInWorld(childKindId, childId, result && result.object);
+			map.refresh();
+			return result;
+		},
+		onChildFocus: childId => {
+			childFocusId = childId;
+			map.setChildFocusId(childId);
+			map.setSelectedId(activeMapSelection());
+		},
 		onRedrawArea: () => {
 			startAreaEditing();
 		},
 		onSave: () => {
+			childFocusId = null;
+			map.setChildFocusId(null);
 			loadData();
+		},
+		onClose: () => {
+			childFocusId = null;
+			map.setChildFocusId(null);
+			map.setSelectedId(activeMapSelection());
 		}
 	});
+}
+
+/** @returns {Array<object>} the platforms of a station or the sidings of a depot, in display order. */
+function childObjectsFor(kind, object) {
+	const childKind = CHILD_KINDS[kind];
+	if (!childKind || !state.world) {
+		return [];
+	}
+
+	const byId = childKind === 'platform' ? state.index.platformById : state.index.sidingById;
+	const ids = childKind === 'platform'
+		? (Array.isArray(object.platformIds) ? object.platformIds : [])
+		: (((state.world.depotIdToSidingIds || {})[object.id]) || []);
+
+	return ids
+		.map(id => byId.get(id))
+		.filter(Boolean)
+		.sort(compareByDisplayName);
+}
+
+/**
+ * Replaces the cached object in place after a child edit, so the card, the map labels and the sidebar all read
+ * the same instance. Rebuilding the whole dataset here would discard whatever the card's other rows hold.
+ */
+function updateObjectInWorld(kind, id, updated) {
+	if (!updated || !state.world) {
+		return;
+	}
+	const collection = kind === 'platform' ? state.world.platforms : kind === 'siding' ? state.world.sidings : null;
+	const existing = (collection || []).find(entry => entry.id === id);
+	if (existing) {
+		Object.assign(existing, updated);
+	}
 }
 
 function cancelAreaEditingIfNeeded() {

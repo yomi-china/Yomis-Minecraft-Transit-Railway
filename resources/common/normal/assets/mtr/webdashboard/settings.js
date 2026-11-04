@@ -1,5 +1,5 @@
-import { t } from './i18n.js?v=35';
-import { ACCENTS, THEME_EVENT, getTheme, setAccent, setMode } from './theme.js?v=35';
+import { t } from './i18n.js?v=43';
+import { ACCENTS, THEME_EVENT, getTheme, setAccent, setMode } from './theme.js?v=43';
 
 let backdrop = null;
 let dialog = null;

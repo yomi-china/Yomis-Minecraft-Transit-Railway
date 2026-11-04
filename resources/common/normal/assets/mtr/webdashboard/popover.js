@@ -1,35 +1,35 @@
-import { buildPayload, createForm, markClean } from './editor.js?v=35';
-import { createColorPicker } from './colorpicker.js?v=35';
-import { placePopover } from './focus.js?v=35';
-import { t } from './i18n.js?v=35';
+import { buildPayload, createForm, getDescriptor } from './editor.js?v=43';
+import { describeFailure, mountFields } from './formview.js?v=43';
+import { mount as mountChildren } from './children.js?v=43';
+import { placePopover } from './focus.js?v=43';
+import { t } from './i18n.js?v=43';
 
 const BODY_PADDING = 20;
 const ARROW_SIZE = 20;
-const FAILURE_STATUS_KEYS = {
-	editor_offline: 'editEditorOffline',
-	not_found: 'editObjectGone',
-	forbidden: 'editNotPermitted',
-	auth: 'editSessionExpired',
-	no_server: 'editNoServer'
-};
+const LAYOUT_FOLLOW_MS = 380;
 
 const el = {
 	card: null,
 	title: null,
 	body: null,
+	fields: null,
+	children: null,
 	status: null,
 	save: null,
 	cancel: null
 };
 
 let session = null;
-let colorPicker = null;
+let formView = null;
+let childrenView = null;
 let saving = false;
+let layoutFrame = 0;
+let layoutUntil = 0;
 
 export function open(options) {
 	close({ silent: true });
 
-	const form = createForm(options.kind, options.object);
+	const form = createForm(options.kind, options.object, options.context);
 	if (form.fields.length === 0) {
 		return;
 	}
@@ -38,15 +38,22 @@ export function open(options) {
 		form,
 		anchor: options.anchor,
 		container: options.container,
+		meta: options.meta || null,
+		childKind: options.childKind || null,
+		childObjects: Array.isArray(options.childObjects) ? options.childObjects : [],
 		onSubmit: options.onSubmit,
+		onSubmitChild: options.onSubmitChild,
 		onSave: options.onSave,
 		onRedrawArea: options.onRedrawArea,
-		onClose: options.onClose
+		onClose: options.onClose,
+		onChildFocus: options.onChildFocus,
+		onLayoutChange: options.onLayoutChange
 	};
 
 	build();
 	render();
 	position();
+	followLayout(LAYOUT_FOLLOW_MS);
 }
 
 /** @returns {boolean} whether the card is open. */
@@ -60,12 +67,17 @@ export function close(options) {
 		return true;
 	}
 
+	stopFollowingLayout();
+	if (childrenView) {
+		childrenView.destroy();
+		childrenView = null;
+	}
+	if (formView) {
+		formView.destroy();
+		formView = null;
+	}
 	if (el.card && el.card.parentNode) {
 		el.card.parentNode.removeChild(el.card);
-	}
-	if (colorPicker) {
-		colorPicker.dispose();
-		colorPicker = null;
 	}
 	const onClose = session.onClose;
 	session = null;
@@ -82,6 +94,14 @@ function build() {
 	card.setAttribute('role', 'dialog');
 	card.setAttribute('aria-modal', 'false');
 
+	const glass = document.createElement('div');
+	glass.className = 'edit-card__glass';
+	glass.setAttribute('aria-hidden', 'true');
+	const blur = document.createElement('div');
+	blur.className = 'edit-card__blur';
+	glass.appendChild(blur);
+	card.appendChild(glass);
+
 	const arrow = document.createElement('div');
 	arrow.className = 'edit-card__arrow';
 	card.appendChild(arrow);
@@ -96,8 +116,6 @@ function build() {
 	const closeButton = document.createElement('button');
 	closeButton.type = 'button';
 	closeButton.className = 'icon-button icon-button--small';
-	closeButton.dataset.i18nTitle = 'editClose';
-	closeButton.dataset.i18nAriaLabel = 'editClose';
 	closeButton.setAttribute('aria-label', t('editClose'));
 	closeButton.title = t('editClose');
 	closeButton.textContent = '\u00D7';
@@ -109,6 +127,15 @@ function build() {
 	const body = document.createElement('div');
 	body.className = 'edit-card__body';
 	card.appendChild(body);
+
+	const fields = document.createElement('div');
+	fields.className = 'edit-card__fields';
+	body.appendChild(fields);
+
+	const children = document.createElement('div');
+	children.className = 'edit-card__children';
+	children.hidden = true;
+	body.appendChild(children);
 
 	const status = document.createElement('p');
 	status.className = 'edit-card__status';
@@ -140,53 +167,112 @@ function build() {
 	el.arrow = arrow;
 	el.title = title;
 	el.body = body;
+	el.fields = fields;
+	el.children = children;
 	el.status = status;
 	el.save = save;
 	el.cancel = cancel;
-
-	el.body.addEventListener('input', onFieldInput);
-	el.body.addEventListener('change', onFieldInput);
 }
 
 function render() {
 	const form = session.form;
-	el.title.textContent = t(form.kind === 'station' ? 'editStationTitle' : form.kind === 'route' ? 'editRouteTitle' : 'editDepotTitle');
+	const descriptor = getDescriptor(form.kind);
+	el.title.textContent = t(descriptor ? descriptor.titleKey : 'editStationTitle');
 	el.cancel.textContent = t('editCancel');
-	el.save.textContent = saving ? t('editSaving') : t('editSave');
+	el.save.textContent = t(descriptor && descriptor.saveKey ? descriptor.saveKey : 'editSave');
 
-	if (colorPicker) {
-		colorPicker.dispose();
-		colorPicker = null;
-	}
-	el.body.textContent = '';
-	form.fields.forEach(field => {
-		el.body.appendChild(renderField(field, form.values[field.key]));
+	formView = mountFields(el.fields, form, {
+		onChange: updateSaveState,
+		onRedrawArea: () => {
+			if (session && session.onRedrawArea) {
+				session.onRedrawArea();
+			}
+		}
 	});
 
+	if (session.childKind) {
+		el.children.hidden = false;
+		childrenView = mountChildren(el.children, {
+			kind: session.childKind,
+			objects: session.childObjects,
+			meta: session.meta,
+			onSubmit: (kind, id, fields) => session.onSubmitChild(kind, id, fields),
+			onFocus: id => {
+				if (session && session.onChildFocus) {
+					session.onChildFocus(id);
+				}
+			},
+			onLayoutChange: () => {
+				if (session) {
+					followLayout(LAYOUT_FOLLOW_MS);
+				}
+			}
+		});
+	}
+
 	updateSaveState();
 }
 
-export function setSelection(value) {
-	if (session == null) {
+function updateSaveState() {
+	if (!session) {
 		return;
 	}
-	const field = session.form.fields.find(candidate => candidate.type === 'corners');
-	if (!field) {
-		return;
-	}
-
-	session.form.values[field.key] = value;
-	const existing = el.body.querySelector('.edit-field[data-key="' + field.key + '"]');
-	if (existing) {
-		existing.parentNode.replaceChild(renderField(field, value), existing);
-	}
-	clearFieldError(field.key);
-	updateSaveState();
+	const { fields } = buildPayload(session.form);
+	el.save.disabled = saving || Object.keys(fields).length === 0;
 }
 
-/** @returns {boolean} whether the open form holds a selection at all, so the caller knows to offer one. */
-export function hasSelectionField() {
-	return session != null && session.form.fields.some(field => field.type === 'corners');
+async function submit() {
+	if (session == null || saving) {
+		return;
+	}
+
+	const { fields, errors } = buildPayload(session.form);
+	if (formView) {
+		formView.clearErrors();
+	}
+	if (errors.length > 0) {
+		if (formView) {
+			formView.showErrors(errors);
+		}
+		setStatus(t('editFixFields'), 'error');
+		return;
+	}
+	if (Object.keys(fields).length === 0) {
+		return;
+	}
+
+	saving = true;
+	el.save.disabled = true;
+	el.save.textContent = t('editSaving');
+	setStatus(t('editSaving'), 'info');
+
+	try {
+		await session.onSubmit(session.form.kind, session.form.id, fields);
+	} catch (error) {
+		saving = false;
+		el.save.textContent = t('editSave');
+		handleSaveFailure(error);
+		updateSaveState();
+		return;
+	}
+
+	saving = false;
+	const onSave = session.onSave;
+	close({ silent: true });
+	if (onSave) {
+		onSave();
+	}
+}
+
+function handleSaveFailure(error) {
+	const failure = describeFailure(error);
+	if (failure.field && formView) {
+		formView.showErrors([{ key: failure.field, message: failure.message }]);
+	}
+	setStatus(failure.status, 'error');
+	if (failure.log) {
+		console.error('[MTR-WebDashboard] save failed', error);
+	}
 }
 
 export function setStatus(text, level) {
@@ -203,221 +289,42 @@ export function setStatus(text, level) {
 	el.status.hidden = false;
 }
 
-function renderField(field, value) {
-	const wrapper = document.createElement('div');
-	wrapper.className = 'edit-field';
-	wrapper.dataset.key = field.key;
+function now() {
+	return typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now();
+}
 
-	if (field.type === 'corners') {
-		const button = document.createElement('button');
-		button.type = 'button';
-		button.className = 'button button--ghost';
-		button.dataset.action = 'redraw-area';
-		const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-		icon.setAttribute('viewBox', '0 0 24 24');
-		icon.setAttribute('width', '15');
-		icon.setAttribute('height', '15');
-		icon.setAttribute('aria-hidden', 'true');
-		icon.setAttribute('focusable', 'false');
-		const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-		path.setAttribute('d', 'M12 2a7 7 0 0 0-7 7c0 5.2 7 13 7 13s7-7.8 7-13a7 7 0 0 0-7-7zm0 9.5A2.5 2.5 0 1 1 14.5 9 2.5 2.5 0 0 1 12 11.5z');
-		icon.appendChild(path);
-		button.appendChild(icon);
-		button.appendChild(document.createTextNode(t('editRedrawArea')));
-		button.addEventListener('click', () => {
-			if (session && session.onRedrawArea) {
-				session.onRedrawArea();
-			}
-		});
-		wrapper.appendChild(button);
-		return wrapper;
+/**
+ * Re-places the card on every frame while a child row animates. The card is clipped by the map area, and its
+ * height changes over ~260ms, so a single re-place at the end would let it hang off the bottom edge first.
+ */
+function followLayout(durationMs) {
+	layoutUntil = Math.max(layoutUntil, now() + durationMs);
+	if (typeof requestAnimationFrame !== 'function') {
+		position();
+		return;
 	}
-
-	const label = document.createElement('label');
-	label.className = 'edit-field__label';
-	label.textContent = field.label;
-	const inputId = 'edit-field-' + field.key;
-	label.htmlFor = inputId;
-	wrapper.appendChild(label);
-
-	if (field.type === 'color') {
-		wrapper.appendChild(renderColorInput(field, value, inputId));
-	} else {
-		const input = document.createElement('input');
-		input.id = inputId;
-		input.className = 'edit-field__input';
-		input.type = 'text';
-		if (field.type === 'integer') {
-			input.inputMode = 'numeric';
+	if (layoutFrame) {
+		return;
+	}
+	const tick = () => {
+		layoutFrame = 0;
+		if (!session) {
+			return;
 		}
-		input.value = value == null ? '' : String(value);
-		if (field.maxLength) {
-			input.maxLength = field.maxLength;
+		position();
+		if (now() < layoutUntil) {
+			layoutFrame = requestAnimationFrame(tick);
 		}
-		wrapper.appendChild(input);
-	}
-
-	const error = document.createElement('p');
-	error.className = 'edit-field__error';
-	error.hidden = true;
-	wrapper.appendChild(error);
-
-	return wrapper;
+	};
+	layoutFrame = requestAnimationFrame(tick);
 }
 
-function renderColorInput(field, value, inputId) {
-	const container = document.createElement('div');
-	container.className = 'edit-color';
-
-	colorPicker = createColorPicker({
-		color: value,
-		onChange: next => {
-			if (session == null) {
-				return;
-			}
-			const changed = session.form.values.color !== next;
-			session.form.values.color = next;
-			clearFieldError('color');
-			if (changed) {
-				updateSaveState();
-			}
-		}
-	});
-
-	const hex = colorPicker.root.querySelector('.color-picker__hex');
-	if (hex) {
-		hex.id = inputId;
+function stopFollowingLayout() {
+	if (layoutFrame && typeof cancelAnimationFrame === 'function') {
+		cancelAnimationFrame(layoutFrame);
 	}
-
-	container.appendChild(colorPicker.root);
-	return container;
-}
-
-function onFieldInput(event) {
-	if (session == null) {
-		return;
-	}
-	const wrapper = event.target.closest('.edit-field');
-	if (!wrapper) {
-		return;
-	}
-	const key = wrapper.dataset.key;
-	const field = session.form.fields.find(candidate => candidate.key === key);
-	if (!field) {
-		return;
-	}
-
-	if (field.type === 'color') {
-		return;
-	}
-
-	session.form.values[key] = event.target.value;
-	clearFieldError(key);
-	updateSaveState();
-}
-
-function updateSaveState() {
-	if (session == null) {
-		return;
-	}
-	const { fields, errors } = buildPayload(session.form);
-	const dirty = Object.keys(fields).length > 0;
-	el.save.disabled = saving || !dirty || errors.length > 0;
-}
-
-function clearFieldError(key) {
-	if (!el.body) {
-		return;
-	}
-	const wrapper = el.body.querySelector('.edit-field[data-key="' + key + '"]');
-	if (wrapper) {
-		const error = wrapper.querySelector('.edit-field__error');
-		if (error) {
-			error.hidden = true;
-			error.textContent = '';
-		}
-	}
-}
-
-function showFieldError(key, message) {
-	if (!el.body) {
-		return;
-	}
-	const wrapper = el.body.querySelector('.edit-field[data-key="' + key + '"]');
-	if (wrapper) {
-		const error = wrapper.querySelector('.edit-field__error');
-		if (error) {
-			error.textContent = message;
-			error.hidden = false;
-		}
-	}
-}
-
-async function submit() {
-	if (session == null || saving) {
-		return;
-	}
-
-	const { fields, errors } = buildPayload(session.form);
-	if (errors.length > 0) {
-		errors.forEach(error => showFieldError(error.key, error.message));
-		setStatus(t('editFixFields'), 'error');
-		return;
-	}
-	if (Object.keys(fields).length === 0) {
-		return;
-	}
-
-	saving = true;
-	el.save.disabled = true;
-	el.save.textContent = t('editSaving');
-	setStatus(t('editSaving'), 'info');
-
-	let result;
-	try {
-		result = await session.onSubmit(session.form.kind, session.form.id, fields);
-	} catch (error) {
-		saving = false;
-		render();
-		handleSaveFailure(error);
-		return;
-	}
-
-	saving = false;
-	if (result && result.object) {
-		const fieldKeys = session.form.fields.map(field => field.key);
-		fieldKeys.forEach(key => {
-			if (result.object[key] !== undefined) {
-				session.form.values[key] = session.form.fields.find(field => field.key === key).type === 'color'
-					? Number(result.object[key])
-					: String(result.object[key]);
-			}
-		});
-	}
-	markClean(session.form);
-	render();
-
-	if (session.onSave) {
-		session.onSave();
-	}
-	close({ silent: true });
-}
-
-function handleSaveFailure(error) {
-	const kind = error && error.kind;
-	if (kind === 'invalid_field') {
-		if (error.field) {
-			showFieldError(error.field, error.message || t('editInvalidField'));
-			setStatus(t('editFixFields'), 'error');
-		} else {
-			setStatus(error.message || t('editSaveFailed'), 'error');
-		}
-		return;
-	}
-	setStatus(t(FAILURE_STATUS_KEYS[kind] || 'editSaveFailed'), 'error');
-	if (!FAILURE_STATUS_KEYS[kind]) {
-		console.error('[MTR-WebDashboard] save failed', error);
-	}
+	layoutFrame = 0;
+	layoutUntil = 0;
 }
 
 function position() {

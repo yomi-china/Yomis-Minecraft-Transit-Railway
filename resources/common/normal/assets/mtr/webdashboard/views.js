@@ -1,5 +1,5 @@
-import { f, t } from './i18n.js?v=35';
-import { MODE_ALL, MODES, countForMode } from './lists.js?v=35';
+import { f, t } from './i18n.js?v=43';
+import { MODE_ALL, MODES, countForMode } from './lists.js?v=43';
 
 const el = {
 	body: document.body,
@@ -267,11 +267,18 @@ function renderRow(row, position, context) {
 	const text = document.createElement('span');
 	text.className = 'row__text';
 
+	// The swatch belongs to the title line, not to the row: a two-line list centres a bare 12px dot in the
+	// gap between title and summary, where it reads as attached to neither. Centring it inside a name line
+	// keeps it on the title for every row, with or without a summary.
+	const nameLine = document.createElement('span');
+	nameLine.className = 'row__name-line';
+
 	const name = document.createElement('span');
 	name.className = 'row__name';
 	name.textContent = row.name || t('untitled');
 	name.title = row.name || t('untitled');
-	text.appendChild(name);
+	nameLine.append(swatch, name);
+	text.appendChild(nameLine);
 
 	if (row.summary && row.summary.length > 0) {
 		const summary = document.createElement('span');
@@ -280,7 +287,7 @@ function renderRow(row, position, context) {
 		text.appendChild(summary);
 	}
 
-	item.append(swatch, text);
+	item.append(text);
 
 	if (row.mode && !context.hideMode) {
 		const mode = document.createElement('span');
@@ -332,13 +339,125 @@ export function renderSidebar(state, derived, chrome = {}) {
 }
 
 export function bindSidebar(handlers) {
+	let tabDrag = null;
+	let suppressTabClickUntil = 0;
+
 	if (el.tabs) {
 		el.tabs.addEventListener('click', event => {
+			if (Date.now() < suppressTabClickUntil) {
+				return;
+			}
 			const button = event.target.closest('.tab');
 			if (button) {
 				handlers.onTab(button.dataset.tab);
 			}
 		});
+
+		startTabDrag();
+	}
+
+	function startTabDrag() {
+		el.tabs.addEventListener('pointerdown', event => {
+			if (event.button !== 0 || !event.target || typeof event.target.closest !== 'function') {
+				return;
+			}
+			const tab = event.target.closest('.tab');
+			if (!tab || tab.getAttribute('aria-selected') !== 'true') {
+				return;
+			}
+			const tabs = Array.from(el.tabs.querySelectorAll('.tab'));
+			if (tabs.length === 0) {
+				return;
+			}
+			const last = tabs[tabs.length - 1];
+			tabDrag = {
+				pointerId: event.pointerId,
+				startX: event.clientX,
+				startLeft: tab.offsetLeft,
+				width: tab.offsetWidth,
+				min: tabs[0].offsetLeft,
+				max: last.offsetLeft + last.offsetWidth - tab.offsetWidth,
+				left: tab.offsetLeft,
+				moved: false
+			};
+			el.tabs.classList.add('is-dragging');
+			if (typeof el.tabs.setPointerCapture === 'function') {
+				try {
+					el.tabs.setPointerCapture(event.pointerId);
+				} catch (error) {
+					// Pointer capture is a nicety; the drag still works through the container listeners.
+				}
+			}
+		});
+
+		el.tabs.addEventListener('pointermove', event => {
+			if (!tabDrag || event.pointerId !== tabDrag.pointerId) {
+				return;
+			}
+			const delta = event.clientX - tabDrag.startX;
+			if (!tabDrag.moved && Math.abs(delta) < 4) {
+				return;
+			}
+			tabDrag.moved = true;
+			tabDrag.left = Math.min(tabDrag.max, Math.max(tabDrag.min, tabDrag.startLeft + delta));
+			el.tabs.style.setProperty('--tabs-indicator-x', `${tabDrag.left}px`);
+			if (event.cancelable) {
+				event.preventDefault();
+			}
+		});
+
+		el.tabs.addEventListener('pointerup', event => endTabDrag(event, false));
+		el.tabs.addEventListener('pointercancel', event => endTabDrag(event, true));
+	}
+
+	function endTabDrag(event, cancelled) {
+		if (!tabDrag || (event && event.pointerId !== tabDrag.pointerId)) {
+			return;
+		}
+
+		const drag = tabDrag;
+		tabDrag = null;
+		el.tabs.classList.remove('is-dragging');
+		if (event && typeof el.tabs.releasePointerCapture === 'function') {
+			try {
+				el.tabs.releasePointerCapture(event.pointerId);
+			} catch (error) {
+				// Already released, or capture was never taken.
+			}
+		}
+
+		if (!drag.moved) {
+			updateTabsIndicator();
+			return;
+		}
+
+		// The click that follows this pointerup lands on whichever tab is under the cursor; the drag itself
+		// already decided the target, so the synthetic click must not switch a second time.
+		suppressTabClickUntil = Date.now() + 350;
+		const target = nearestTab(drag.left + drag.width / 2);
+		const active = activeTab();
+		if (!cancelled && target && (!active || target.dataset.tab !== active.dataset.tab)) {
+			handlers.onTab(target.dataset.tab);
+		} else {
+			updateTabsIndicator();
+		}
+	}
+
+	function activeTab() {
+		return Array.from(el.tabs.querySelectorAll('.tab')).find(tab => tab.getAttribute('aria-selected') === 'true') || null;
+	}
+
+	function nearestTab(centre) {
+		let best = null;
+		let bestDistance = Infinity;
+		el.tabs.querySelectorAll('.tab').forEach(tab => {
+			const distance = Math.abs(tab.offsetLeft + tab.offsetWidth / 2 - centre);
+			if (distance < bestDistance) {
+				bestDistance = distance;
+				best = tab;
+			}
+		});
+		return best;
 	}
 
 	if (el.modes) {

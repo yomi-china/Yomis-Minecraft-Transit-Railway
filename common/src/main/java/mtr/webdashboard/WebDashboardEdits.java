@@ -3,7 +3,10 @@ package mtr.webdashboard;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import mtr.data.NameColorDataBase;
+import mtr.data.Platform;
 import mtr.data.RailwayData;
+import mtr.data.RailwayDataLoggingModule;
+import mtr.data.Siding;
 import mtr.data.Station;
 import mtr.packet.DataUpdateBroadcast;
 import mtr.webdashboard.WebDashboardFields.FieldException;
@@ -96,7 +99,7 @@ public final class WebDashboardEdits {
 			throw new EditFailure(404, "not_found", "No " + kind + " with that id exists in this world");
 		}
 
-		final List<String> before = describe(object);
+		final List<String> before = RailwayDataLoggingModule.getData(object);
 
 		final List<String> warnings = new ArrayList<>();
 		final WebDashboardFields.Applied applied;
@@ -114,7 +117,7 @@ public final class WebDashboardEdits {
 		}
 
 		try {
-			railwayData.railwayDataLoggingModule.addEvent(editor, object.getClass(), object.id, object.name, before, describe(object));
+			railwayData.railwayDataLoggingModule.addEvent(editor, object.getClass(), object.id, object.name, before, RailwayDataLoggingModule.getData(object));
 		} catch (Exception e) {
 			System.out.println("[MTR-WebDashboard] Could not write an audit record for a " + kind + " edit: " + e);
 			warnings.add("the change was applied but could not be written to the audit log");
@@ -128,17 +131,24 @@ public final class WebDashboardEdits {
 		warnings.forEach(warningArray::add);
 		json.add("warnings", warningArray);
 
-		final JsonObject objectJson = new JsonObject();
-		objectJson.addProperty("id", String.valueOf(object.id));
-		objectJson.addProperty("name", object.name);
-		objectJson.addProperty("color", object.color);
-		objectJson.addProperty("transportMode", object.transportMode.toString());
-		if (object instanceof Station station) {
-			objectJson.addProperty("zone", station.zone);
-			final boolean hasArea = station.corner1 != null && station.corner2 != null;
-			objectJson.addProperty("hasArea", hasArea);
-			objectJson.add("corner1", hasArea ? WebDashboardDataService.corner(station.corner1.getA(), station.corner1.getB()) : null);
-			objectJson.add("corner2", hasArea ? WebDashboardDataService.corner(station.corner2.getA(), station.corner2.getB()) : null);
+		final JsonObject objectJson;
+		if (object instanceof Platform platform) {
+			objectJson = WebDashboardDataService.platformJson(platform, railwayData.dataCache);
+		} else if (object instanceof Siding siding) {
+			objectJson = WebDashboardDataService.sidingJson(siding, railwayData.dataCache);
+		} else {
+			objectJson = new JsonObject();
+			objectJson.addProperty("id", String.valueOf(object.id));
+			objectJson.addProperty("name", object.name);
+			objectJson.addProperty("color", object.color);
+			objectJson.addProperty("transportMode", object.transportMode.toString());
+			if (object instanceof Station station) {
+				objectJson.addProperty("zone", station.zone);
+				final boolean hasArea = station.corner1 != null && station.corner2 != null;
+				objectJson.addProperty("hasArea", hasArea);
+				objectJson.add("corner1", hasArea ? WebDashboardDataService.corner(station.corner1.getA(), station.corner1.getB()) : null);
+				objectJson.add("corner2", hasArea ? WebDashboardDataService.corner(station.corner2.getA(), station.corner2.getB()) : null);
+			}
 		}
 		json.add("object", objectJson);
 
@@ -146,16 +156,5 @@ public final class WebDashboardEdits {
 			json.add("effects", applied.effects);
 		}
 		return json;
-	}
-
-	private static List<String> describe(NameColorDataBase object) {
-		final List<String> lines = new ArrayList<>();
-		lines.add("id: " + object.id);
-		lines.add("name: " + object.name);
-		lines.add("color: " + object.color);
-		if (object instanceof Station station) {
-			lines.add("zone: " + station.zone);
-		}
-		return lines;
 	}
 }

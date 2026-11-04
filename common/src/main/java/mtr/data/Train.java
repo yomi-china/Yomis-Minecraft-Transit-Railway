@@ -58,6 +58,7 @@ public abstract class Train extends NameColorDataBase implements IPacket {
 	public final float accelerationConstant;
 	public final boolean isManualAllowed;
 	public boolean enablePredictiveBraking;
+	public boolean enableDelayedAcceleration;
 	public final int maxManualSpeed;
 	public final int manualToAutomaticTime;
 	public final List<PathData> path;
@@ -149,6 +150,7 @@ public abstract class Train extends NameColorDataBase implements IPacket {
 		width = TrainType.getWidth(baseTrainType);
 		this.trainCars = trainCars;
 		enablePredictiveBraking = false;
+		enableDelayedAcceleration = false;
 		this.isManualAllowed = isManualAllowed;
 		isCurrentlyManual = isManualAllowed;
 		this.maxManualSpeed = maxManualSpeed;
@@ -179,6 +181,7 @@ public abstract class Train extends NameColorDataBase implements IPacket {
 		this.repeatIndex2 = repeatIndex2;
 		this.accelerationConstant = accelerationConstant;
 		enablePredictiveBraking = false;
+		enableDelayedAcceleration = false;
 		this.isManualAllowed = isManualAllowed;
 		this.maxManualSpeed = maxManualSpeed;
 		this.manualToAutomaticTime = manualToAutomaticTime;
@@ -238,6 +241,7 @@ public abstract class Train extends NameColorDataBase implements IPacket {
 		this.repeatIndex2 = repeatIndex2;
 		this.accelerationConstant = accelerationConstant;
 		enablePredictiveBraking = false;
+		enableDelayedAcceleration = false;
 		this.isManualAllowed = isManualAllowed;
 		this.maxManualSpeed = maxManualSpeed;
 		this.manualToAutomaticTime = manualToAutomaticTime;
@@ -297,6 +301,7 @@ public abstract class Train extends NameColorDataBase implements IPacket {
 		trainCars = Math.min(transportMode.maxLength, (int) Math.floor(railLength / spacing));
 		isManualAllowed = packet.readBoolean();
 		enablePredictiveBraking = packet.readBoolean();
+		enableDelayedAcceleration = packet.readBoolean();
 		isCurrentlyManual = packet.readBoolean();
 		maxManualSpeed = packet.readInt();
 		manualToAutomaticTime = packet.readInt();
@@ -388,6 +393,7 @@ public abstract class Train extends NameColorDataBase implements IPacket {
 		packet.writeUtf(baseTrainType);
 		packet.writeBoolean(isManualAllowed);
 		packet.writeBoolean(enablePredictiveBraking);
+		packet.writeBoolean(enableDelayedAcceleration);
 		packet.writeBoolean(isCurrentlyManual);
 		packet.writeInt(maxManualSpeed);
 		packet.writeInt(manualToAutomaticTime);
@@ -705,11 +711,14 @@ public abstract class Train extends NameColorDataBase implements IPacket {
 											0, railType == null ? RailType.IRON.maxBlocksPerTick : railType.maxBlocksPerTick);
 								}
 							} else {
-								final float railSpeed;
+								float railSpeed;
 								if (enablePredictiveBraking && !transportMode.continuousMovement) {
 									railSpeed = getPredictiveBrakingSpeed();
 								} else {
 									railSpeed = getRailSpeed(getIndex(0, spacing, false));
+								}
+								if (enableDelayedAcceleration && !transportMode.continuousMovement) {
+									railSpeed = Math.min(railSpeed, getDelayedAccelerationSpeed());
 								}
 								if (speed < railSpeed) {
 									speed = Math.min(speed + newAcceleration, railSpeed);
@@ -954,6 +963,21 @@ public abstract class Train extends NameColorDataBase implements IPacket {
 		}
 
 		return effectiveSpeed;
+	}
+
+	private float getDelayedAccelerationSpeed() {
+		final int headIndex = getIndex(0, spacing, false);
+		final int tailIndex = getIndex(trainCars, spacing, false);
+
+		float minRailSpeed = Float.MAX_VALUE;
+		for (int i = tailIndex; i < headIndex; i++) {
+			final RailType railType = path.get(i).rail.railType;
+			if (railType.canAccelerate) {
+				minRailSpeed = Math.min(minRailSpeed, railType.maxBlocksPerTick);
+			}
+		}
+
+		return minRailSpeed;
 	}
 
 	private double getRailProgress(int car, int trainSpacing) {

@@ -11,7 +11,7 @@
 	"contact": {
 		"sources": "https://github.com/yomi-china/Yomis-Minecraft-Transit-Railway"
 	},
-	"license": "All Rights Reserved",
+	"license": "MIT AND GPL-3.0-or-later",
 	"icon": "icon.png",
 	"environment": "*",
 	"entrypoints": {
