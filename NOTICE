@@ -1,0 +1,46 @@
+YMTR - Yomi's Minecraft Transit Railway
+Copyright (c) 2022 Jonathan Ho (Minecraft Transit Railway)
+Copyright (c) 2025-2026 Yomi_307 (YMTR original components and modifications)
+
+MTR attribution
+---------------
+YMTR is a fork of Minecraft Transit Railway (MTR):
+https://github.com/jonafanho/Minecraft-Transit-Railway
+MTR is Copyright (c) 2022 Jonathan Ho and contributors and is licensed under
+the MIT License. See LICENSE-MIT.
+
+YMTR licensing
+--------------
+Unmodified MTR-derived components are licensed under MIT.
+YMTR-original components are licensed under GPL-3.0-or-later.
+YMTR-modified MTR files are mixed files: GPL-3.0-or-later as a whole, with
+the MIT notice retained for the MTR-derived portions.
+The combined YMTR work is distributed under GPL-3.0-or-later, with the MIT
+notices preserved.
+See LICENSE and LICENSING.md for the full mapping.
+
+Name and logo
+-------------
+The YMTR name and logo are project identifiers. The MIT License and the GPLv3
+do not grant trademark rights. See TRADEMARK.md.
+
+Third-party components
+----------------------
+YMTR bundles or shades the following third-party components. They remain
+separate works under their own licenses and are not relicensed by YMTR.
+
+- Eclipse Jetty 9.4.x - dual-licensed under the Apache License 2.0 and the
+  Eclipse Public License. See META-INF/LICENSE and META-INF/NOTICE.txt in the
+  mod jar.
+- javax.servlet-api 4.0.1 - CDDL-1.0 / GPL-2.0 with the Classpath Exception.
+  See META-INF/LICENSE.txt in the mod jar.
+- JLayer 1.0.1.4, MP3SPI 1.9.5.4, and Tritonus Share 0.3.7.4 - LGPL-2.1 or
+  later. See https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
+- MessagePack for Java (msgpack-core) - Apache-2.0.
+  See https://www.apache.org/licenses/LICENSE-2.0.
+- Noto Sans and Noto Serif CJK fonts - SIL Open Font License 1.1.
+  See assets/mtr/font/ in the mod jar.
+
+The META-INF/LICENSE, META-INF/LICENSE.txt, and META-INF/NOTICE.txt entries
+in the mod jar come from these third-party components. They do not describe
+the YMTR project license. The YMTR licenses are in META-INF/licenses/.
