@@ -55,7 +55,18 @@ public abstract class Train extends NameColorDataBase implements IPacket {
 	public final int spacing;
 	public final int width;
 	public final int trainCars;
+	/** How fast this train speeds up, in blocks per tick squared. */
 	public final float accelerationConstant;
+	/**
+	 * How fast this train slows down, in blocks per tick squared.
+	 * <p>
+	 * Kept a separate field rather than a rename of {@link #accelerationConstant}, because every addon compiled
+	 * against MTR reads that field and calls {@code Siding#getAccelerationConstant()} for "the rate at which
+	 * this train changes speed". Those still resolve, and for any setting that never separated the two rates
+	 * they still return the number they returned before: {@link #decelerationConstant} is initialised to
+	 * {@link #accelerationConstant} whenever no explicit braking rate is known.
+	 */
+	public final float decelerationConstant;
 	public final boolean isManualAllowed;
 	public boolean enablePredictiveBraking;
 	public boolean enableDelayedAcceleration;
@@ -116,6 +127,41 @@ public abstract class Train extends NameColorDataBase implements IPacket {
 		}
 	}
 
+	/**
+	 * The speed change a manual notch applies in one step, in blocks per tick.
+	 * <p>
+	 * Power notches spend {@link #accelerationConstant} and brake notches spend {@link #decelerationConstant},
+	 * so a train that brakes harder than it accelerates does exactly that under manual driving as well. The
+	 * neutral notch multiplies by zero and is therefore unaffected by which rate applies. This replaces the
+	 * old {@code notches * accelerationConstant} expression that made manual braking use the acceleration rate.
+	 *
+	 * @param notch        the manual notch, from {@link #EB} to {@link #P5}
+	 * @param ticksElapsed how many ticks this step covers
+	 * @return the signed speed delta to add to the current speed
+	 */
+	public final float getManualNotchSpeedChange(int notch, float ticksElapsed) {
+		final float multiplier = useLegacyManualNotch ? notch / 2.0f : getManualNotchAccelerationMultiplier(notch);
+		return multiplier >= 0 ? multiplier * accelerationConstant * ticksElapsed : multiplier * decelerationConstant * ticksElapsed;
+	}
+
+	/** The rate this train speeds up at, in blocks per tick squared. */
+	public final float getAccelerationConstant() {
+		return accelerationConstant;
+	}
+
+	/** The rate this train slows down at, in blocks per tick squared. */
+	public final float getDecelerationConstant() {
+		return decelerationConstant;
+	}
+
+	/**
+	 * The distance needed to drop from {@code fromSpeed} to {@code toSpeed}, both in blocks per tick, using
+	 * this train's braking rate. Used wherever the driving logic asks "can I still stop in time?".
+	 */
+	public final double getBrakingDistance(float fromSpeed, float toSpeed) {
+		return 0.5 * ((double) fromSpeed * fromSpeed - (double) toSpeed * toSpeed) / decelerationConstant;
+	}
+
 	@Deprecated
 	public static final int OLD_MAX_POWER = 2;
 	@Deprecated
@@ -136,7 +182,16 @@ public abstract class Train extends NameColorDataBase implements IPacket {
 	private static final String KEY_RIDING_ENTITIES = "riding_entities";
 	private static final String KEY_CARGO = "cargo";
 
+	/**
+	 * The signature every addon compiled against MTR calls. It is deliberately kept exactly as it was: the
+	 * braking rate defaults to the acceleration rate, which is how a single rate behaved before they were
+	 * split, so an addon that only knows about acceleration keeps producing the train it always produced.
+	 */
 	public Train(long id, long sidingId, float railLength, String trainId, String baseTrainType, int trainCars, List<PathData> path, List<Double> distances, int repeatIndex1, int repeatIndex2, float accelerationConstant, boolean isManualAllowed, int maxManualSpeed, int manualToAutomaticTime) {
+		this(id, sidingId, railLength, trainId, baseTrainType, trainCars, path, distances, repeatIndex1, repeatIndex2, accelerationConstant, accelerationConstant, isManualAllowed, maxManualSpeed, manualToAutomaticTime);
+	}
+
+	public Train(long id, long sidingId, float railLength, String trainId, String baseTrainType, int trainCars, List<PathData> path, List<Double> distances, int repeatIndex1, int repeatIndex2, float accelerationConstant, float decelerationConstant, boolean isManualAllowed, int maxManualSpeed, int manualToAutomaticTime) {
 		super(id);
 		this.sidingId = sidingId;
 		this.railLength = RailwayData.round(railLength, 3);
@@ -161,6 +216,8 @@ public abstract class Train extends NameColorDataBase implements IPacket {
 		this.repeatIndex2 = repeatIndex2;
 		final float tempAccelerationConstant = RailwayData.round(accelerationConstant, ACCELERATION_DECIMAL_PLACES);
 		this.accelerationConstant = tempAccelerationConstant < MIN_ACCELERATION ? ACCELERATION_DEFAULT : tempAccelerationConstant;
+		final float tempDecelerationConstant = RailwayData.round(decelerationConstant, ACCELERATION_DECIMAL_PLACES);
+		this.decelerationConstant = tempDecelerationConstant < MIN_ACCELERATION ? this.accelerationConstant : tempDecelerationConstant;
 		inventory = new SimpleContainer(trainCars);
 	}
 
@@ -168,6 +225,15 @@ public abstract class Train extends NameColorDataBase implements IPacket {
 			long sidingId, float railLength,
 			List<PathData> path, List<Double> distances, int repeatIndex1, int repeatIndex2,
 			float accelerationConstant, boolean isManualAllowed, int maxManualSpeed, int manualToAutomaticTime,
+			Map<String, Value> map
+	) {
+		this(sidingId, railLength, path, distances, repeatIndex1, repeatIndex2, accelerationConstant, accelerationConstant, isManualAllowed, maxManualSpeed, manualToAutomaticTime, map);
+	}
+
+	public Train(
+			long sidingId, float railLength,
+			List<PathData> path, List<Double> distances, int repeatIndex1, int repeatIndex2,
+			float accelerationConstant, float decelerationConstant, boolean isManualAllowed, int maxManualSpeed, int manualToAutomaticTime,
 			Map<String, Value> map
 	) {
 		super(map);
@@ -180,6 +246,7 @@ public abstract class Train extends NameColorDataBase implements IPacket {
 		this.repeatIndex1 = repeatIndex1;
 		this.repeatIndex2 = repeatIndex2;
 		this.accelerationConstant = accelerationConstant;
+		this.decelerationConstant = decelerationConstant < MIN_ACCELERATION ? accelerationConstant : decelerationConstant;
 		enablePredictiveBraking = false;
 		enableDelayedAcceleration = false;
 		this.isManualAllowed = isManualAllowed;
@@ -231,6 +298,16 @@ public abstract class Train extends NameColorDataBase implements IPacket {
 			float accelerationConstant, boolean isManualAllowed, int maxManualSpeed, int manualToAutomaticTime,
 			CompoundTag compoundTag
 	) {
+		this(sidingId, railLength, path, distances, repeatIndex1, repeatIndex2, accelerationConstant, accelerationConstant, isManualAllowed, maxManualSpeed, manualToAutomaticTime, compoundTag);
+	}
+
+	@Deprecated
+	public Train(
+			long sidingId, float railLength,
+			List<PathData> path, List<Double> distances, int repeatIndex1, int repeatIndex2,
+			float accelerationConstant, float decelerationConstant, boolean isManualAllowed, int maxManualSpeed, int manualToAutomaticTime,
+			CompoundTag compoundTag
+	) {
 		super(compoundTag);
 
 		this.sidingId = sidingId;
@@ -240,6 +317,7 @@ public abstract class Train extends NameColorDataBase implements IPacket {
 		this.repeatIndex1 = repeatIndex1;
 		this.repeatIndex2 = repeatIndex2;
 		this.accelerationConstant = accelerationConstant;
+		this.decelerationConstant = decelerationConstant < MIN_ACCELERATION ? accelerationConstant : decelerationConstant;
 		enablePredictiveBraking = false;
 		enableDelayedAcceleration = false;
 		this.isManualAllowed = isManualAllowed;
@@ -288,6 +366,8 @@ public abstract class Train extends NameColorDataBase implements IPacket {
 		speed = packet.readFloat();
 		final float tempAccelerationConstant = RailwayData.round(packet.readFloat(), ACCELERATION_DECIMAL_PLACES);
 		accelerationConstant = tempAccelerationConstant < MIN_ACCELERATION ? ACCELERATION_DEFAULT : tempAccelerationConstant;
+		final float tempDecelerationConstant = RailwayData.round(packet.readFloat(), ACCELERATION_DECIMAL_PLACES);
+		decelerationConstant = tempDecelerationConstant < MIN_ACCELERATION ? accelerationConstant : tempDecelerationConstant;
 		railProgress = packet.readDouble();
 		elapsedDwellTicks = packet.readFloat();
 		nextStoppingIndex = packet.readInt();
@@ -384,6 +464,9 @@ public abstract class Train extends NameColorDataBase implements IPacket {
 		packet.writeFloat(railLength);
 		packet.writeFloat(speed);
 		packet.writeFloat(accelerationConstant);
+		// Appended right after the acceleration it belongs to. Client and server are the same build, so the
+		// reader in Train(FriendlyByteBuf) walks the exact same order.
+		packet.writeFloat(decelerationConstant);
 		packet.writeDouble(railProgress);
 		packet.writeFloat(elapsedDwellTicks);
 		packet.writeInt(nextStoppingIndex);
@@ -582,6 +665,7 @@ public abstract class Train extends NameColorDataBase implements IPacket {
 				}
 			} else {
 				final float newAcceleration = accelerationConstant * ticksElapsed;
+				final float newDeceleration = decelerationConstant * ticksElapsed;
 
 				if (railProgress >= distances.get(distances.size() - 1) - (railLength - trainCars * spacing) / 2) {
 					isOnRoute = false;
@@ -664,9 +748,9 @@ public abstract class Train extends NameColorDataBase implements IPacket {
 								? distances.get(forcedStopIndex) - railProgress
 								: distances.get(nextStoppingIndex) - railProgress;
 
-						final boolean forceBrake = forcedStopIndex >= 0 && effectiveStopDistance < 0.5 * speed * speed / accelerationConstant;
+						final boolean forceBrake = forcedStopIndex >= 0 && effectiveStopDistance < getBrakingDistance(speed, 0);
 
-						if (!transportMode.continuousMovement && (effectiveStopDistance < 0.5 * speed * speed / accelerationConstant || isManualBrakingToReversal || forceBrake)) {
+						if (!transportMode.continuousMovement && (effectiveStopDistance < getBrakingDistance(speed, 0) || isManualBrakingToReversal || forceBrake)) {
 							if (!isCurrentlyManual || forcedStopIndex >= 0 || isReversalPoint || isManualBrakingToReversal) {
 								if (!wasDecelerating && !isManualBrakingToReversal) {
 									wasDecelerating = true;
@@ -694,7 +778,7 @@ public abstract class Train extends NameColorDataBase implements IPacket {
 								wasDecelerating = false;
 								if (manualNotch >= EB) {
 									final RailType railType = convertMaxManualSpeed(maxManualSpeed);
-									speed = Mth.clamp(speed + (useLegacyManualNotch ? manualNotch / 2.0f : getManualNotchAccelerationMultiplier(manualNotch)) * newAcceleration,
+									speed = Mth.clamp(speed + getManualNotchSpeedChange(manualNotch, ticksElapsed),
 											0, railType == null ? RailType.IRON.maxBlocksPerTick : railType.maxBlocksPerTick);
 								}
 							}
@@ -707,7 +791,7 @@ public abstract class Train extends NameColorDataBase implements IPacket {
 							if (isCurrentlyManual) {
 								if (manualNotch >= EB && !isManualBrakingToReversal) {
 									final RailType railType = convertMaxManualSpeed(maxManualSpeed);
-									speed = Mth.clamp(speed + (useLegacyManualNotch ? manualNotch / 2.0f : getManualNotchAccelerationMultiplier(manualNotch)) * newAcceleration,
+									speed = Mth.clamp(speed + getManualNotchSpeedChange(manualNotch, ticksElapsed),
 											0, railType == null ? RailType.IRON.maxBlocksPerTick : railType.maxBlocksPerTick);
 								}
 							} else {
@@ -724,7 +808,7 @@ public abstract class Train extends NameColorDataBase implements IPacket {
 									speed = Math.min(speed + newAcceleration, railSpeed);
 									manualNotch = P5;
 								} else if (speed > railSpeed) {
-									speed = Math.max(speed - newAcceleration, railSpeed);
+									speed = Math.max(speed - newDeceleration, railSpeed);
 									manualNotch = B7;
 								} else {
 									manualNotch = N;
@@ -853,7 +937,7 @@ public abstract class Train extends NameColorDataBase implements IPacket {
 		if (!dedupKey.equals(lastReportedStopReason)) {
 			lastReportedStopReason = dedupKey;
 			final int headIndex = getIndex(0, spacing, false);
-			final float brakingDist = 0.5F * speed * speed / accelerationConstant;
+			final float brakingDist = (float) getBrakingDistance(speed, 0);
 			final String body = String.format(" §fstopIdx=%d §7(head=%d rp=%.1f spd=%.3f brkDist=%.1f platIdx=%d man=%b)",
 					nextStoppingIndex, headIndex, railProgress, speed, brakingDist, nextPlatformIndex, isCurrentlyManual);
 			final String railInfo = nextStoppingIndex < path.size() && nextStoppingIndex >= 0 ? " §7rail=" + path.get(nextStoppingIndex).rail.railType : "";
@@ -937,8 +1021,10 @@ public abstract class Train extends NameColorDataBase implements IPacket {
 		double cumulativeDistance = distances.get(currentIndex) - railProgress;
 
 		float effectiveSpeed = currentRailSpeed;
-		// Stable scan range based on current track's speed limit, not current speed
-		final double maxLookahead = 0.5 * currentRailSpeed * currentRailSpeed / accelerationConstant + 10;
+		// Stable scan range based on current track's speed limit, not current speed. This is the distance the
+		// train would travel while braking from that limit, so it has to use the braking rate, not the
+		// acceleration rate: with a weak brake the train needs to start slowing down much further out.
+		final double maxLookahead = 0.5 * currentRailSpeed * currentRailSpeed / decelerationConstant + 10;
 
 		for (int i = currentIndex + 1; i < path.size(); i++) {
 			final PathData pd = path.get(i);
@@ -948,7 +1034,7 @@ public abstract class Train extends NameColorDataBase implements IPacket {
 				final float segSpeed = rt.maxBlocksPerTick;
 				if (segSpeed < speed) {
 					// Exact braking distance: decelerate from current speed to target segment speed
-					final double requiredBrakingDist = 0.5 * (speed * speed - segSpeed * segSpeed) / accelerationConstant;
+					final double requiredBrakingDist = getBrakingDistance(speed, segSpeed);
 					if (cumulativeDistance <= requiredBrakingDist) {
 						effectiveSpeed = Math.min(effectiveSpeed, segSpeed);
 					}

@@ -32,7 +32,8 @@ final class WebDashboardFields {
 	private static final List<String> STATION_FIELDS = List.of("name", "color", "corners", "zone");
 	private static final List<String> PLATFORM_FIELDS = List.of("name", "dwellTimeSeconds", "adcTimeSeconds", "psdDisplayMode");
 	private static final List<String> SIDING_FIELDS = List.of("name", "dwellTimeSeconds", "unlimitedTrains", "maxTrains", "isManual",
-			"maxManualSpeed", "enablePredictiveBraking", "enableDelayedAcceleration", "accelerationMetersPerSecondSquared");
+			"maxManualSpeed", "enablePredictiveBraking", "enableDelayedAcceleration", "accelerationMetersPerSecondSquared",
+			"decelerationMetersPerSecondSquared");
 
 	/**
 	 * The in-game saved rail editor only accepts a number this long, and a longer one cannot be read back
@@ -261,6 +262,7 @@ final class WebDashboardFields {
 		final boolean setName = has(body, "name");
 		final boolean setDwell = has(body, "dwellTimeSeconds");
 		final float oldAcceleration = siding.getAccelerationConstant();
+		final float oldDeceleration = siding.getDecelerationConstant();
 		final boolean oldManual = siding.getIsManual();
 		final int oldMaxManualSpeed = siding.getMaxManualSpeed();
 		final int oldDwellTime = siding.getDwellTime();
@@ -276,8 +278,20 @@ final class WebDashboardFields {
 		final boolean predictiveBraking = has(body, "enablePredictiveBraking") ? readBoolean(body, "enablePredictiveBraking") : siding.getEnablePredictiveBraking();
 		final boolean delayedAcceleration = has(body, "enableDelayedAcceleration") ? readBoolean(body, "enableDelayedAcceleration") : siding.getEnableDelayedAcceleration();
 		final float acceleration = has(body, "accelerationMetersPerSecondSquared")
-				? toMetersPerTickSquared(readDouble(body, "accelerationMetersPerSecondSquared"), warnings)
+				? toMetersPerTickSquared(readDouble(body, "accelerationMetersPerSecondSquared"), "acceleration", warnings)
 				: oldAcceleration;
+		// A request without a deceleration is a page written before the split, or the same page changing only
+		// one of the two fields. If the siding never had two different rates, that page expects the single
+		// value to move both of them; if it already had two, its deceleration is the user's setting and is
+		// left alone.
+		final float deceleration;
+		if (has(body, "decelerationMetersPerSecondSquared")) {
+			deceleration = toMetersPerTickSquared(readDouble(body, "decelerationMetersPerSecondSquared"), "deceleration", warnings);
+		} else if (has(body, "accelerationMetersPerSecondSquared") && oldDeceleration == oldAcceleration) {
+			deceleration = acceleration;
+		} else {
+			deceleration = oldDeceleration;
+		}
 		final int dwellTime = setDwell ? readHalfSeconds(body, "dwellTimeSeconds") : oldDwellTime;
 
 		siding.setEnablePredictiveBraking(predictiveBraking);
@@ -285,9 +299,9 @@ final class WebDashboardFields {
 
 		// Matches what SidingScreen does on close: any change to the driving parameters has to discard the
 		// trains already sitting on the siding, or they keep running with the old values forever.
-		final boolean clearTrains = acceleration != oldAcceleration || manual != oldManual
+		final boolean clearTrains = acceleration != oldAcceleration || deceleration != oldDeceleration || manual != oldManual
 				|| maxManualSpeed != oldMaxManualSpeed || dwellTime != oldDwellTime;
-		siding.setUnlimitedTrains(unlimitedTrains, maxTrains, manual, maxManualSpeed, acceleration, dwellTime, clearTrains, sendPacket);
+		siding.setUnlimitedTrains(unlimitedTrains, maxTrains, manual, maxManualSpeed, predictiveBraking, acceleration, deceleration, dwellTime, clearTrains, sendPacket);
 
 		if (setName) {
 			changed.add("name");
@@ -316,6 +330,9 @@ final class WebDashboardFields {
 		}
 		if (has(body, "accelerationMetersPerSecondSquared")) {
 			changed.add("accelerationMetersPerSecondSquared");
+		}
+		if (has(body, "decelerationMetersPerSecondSquared")) {
+			changed.add("decelerationMetersPerSecondSquared");
 		}
 	}
 
@@ -365,13 +382,13 @@ final class WebDashboardFields {
 		return mode;
 	}
 
-	private static float toMetersPerTickSquared(double metersPerSecondSquared, List<String> warnings) {
+	private static float toMetersPerTickSquared(double metersPerSecondSquared, String fieldName, List<String> warnings) {
 		final double raw = metersPerSecondSquared / WebDashboardDataService.ACCELERATION_UNIT_CONVERSION;
 		final double clamped = Math.max(Train.MIN_ACCELERATION, Math.min(Train.MAX_ACCELERATION, raw));
 		final double factor = Math.pow(10, Train.ACCELERATION_DECIMAL_PLACES);
 		final double rounded = Math.round(clamped * factor) / factor;
 		if (clamped != raw) {
-			warnings.add("acceleration was outside "
+			warnings.add(fieldName + " was outside "
 					+ Train.MIN_ACCELERATION * WebDashboardDataService.ACCELERATION_UNIT_CONVERSION + ".."
 					+ Train.MAX_ACCELERATION * WebDashboardDataService.ACCELERATION_UNIT_CONVERSION
 					+ " m/s² and was limited to " + rounded * WebDashboardDataService.ACCELERATION_UNIT_CONVERSION + " m/s²");

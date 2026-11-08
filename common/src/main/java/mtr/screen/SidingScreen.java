@@ -28,6 +28,7 @@ import net.minecraft.util.Mth;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
@@ -35,6 +36,7 @@ public class SidingScreen extends SavedRailScreenBase<Siding> implements Icons {
 
 	private boolean isSelectingTrain;
 	private final float oldAcceleration;
+	private final float oldDeceleration;
 	private final boolean oldIsManual;
 	private final int oldMaxManualSpeed;
 	private final int oldDwellTime;
@@ -45,6 +47,7 @@ public class SidingScreen extends SavedRailScreenBase<Siding> implements Icons {
 	private final WidgetBetterCheckbox buttonUnlimitedTrains;
 	private final WidgetBetterTextField textFieldMaxTrains;
 	private final WidgetBetterTextField textFieldAcceleration;
+	private final WidgetBetterTextField textFieldDeceleration;
 	private final WidgetBetterCheckbox buttonIsManual;
 	private final WidgetBetterCheckbox buttonPredictiveBraking;
 	private final WidgetBetterCheckbox buttonDelayedAcceleration;
@@ -53,6 +56,7 @@ public class SidingScreen extends SavedRailScreenBase<Siding> implements Icons {
 	private static final Component SELECTED_TRAIN_TEXT = Text.translatable("gui.mtr.selected_vehicle");
 	private static final Component MAX_TRAINS_TEXT = Text.translatable("gui.mtr.max_vehicles");
 	private static final Component ACCELERATION_CONSTANT_TEXT = Text.translatable("gui.mtr.acceleration");
+	private static final Component DECELERATION_CONSTANT_TEXT = Text.translatable("gui.mtr.deceleration");
 	private static final Component MANUAL_TO_AUTOMATIC_TIME = Text.translatable("gui.mtr.manual_to_automatic_time");
 	private static final Component PREDICTIVE_BRAKING_TEXT = Text.translatable("gui.mtr.predictive_braking");
 	private static final Component MAX_MANUAL_SPEED = Text.translatable("gui.mtr.max_manual_speed");
@@ -62,6 +66,12 @@ public class SidingScreen extends SavedRailScreenBase<Siding> implements Icons {
 	private static final int SLIDER_SCALE = 1000;
 	private static final float ACCELERATION_UNIT_CONVERSION_1 = 20 * 20; // m/tick^2 to m/s^2
 	private static final float ACCELERATION_UNIT_CONVERSION_2 = ACCELERATION_UNIT_CONVERSION_1 * 3.6F; // m/tick^2 to km/h/s
+	/** Room for the two labels above the acceleration/deceleration row, taken from the rows below it. */
+	private static final int ACCELERATION_BLOCK_EXTRA_HEIGHT = 6;
+	/** The two rate fields sit in one row, so they are shorter than a normal text field to leave room for their labels. */
+	private static final int ACCELERATION_FIELD_HEIGHT = 16;
+	private static final int ACCELERATION_FIELD_GAP = SQUARE_SIZE / 2;
+	private static final int MIN_ACCELERATION_FIELD_WIDTH = 40;
 	private static final Map<String, String> WIKIPEDIA_ARTICLES = new HashMap<>();
 
 	public SidingScreen(Siding siding, TransportMode transportMode, DashboardScreen dashboardScreen) {
@@ -72,6 +82,8 @@ public class SidingScreen extends SavedRailScreenBase<Siding> implements Icons {
 		textFieldMaxTrains = new WidgetBetterTextField(WidgetBetterTextField.TextFieldFilter.POSITIVE_INTEGER, "", MAX_TRAINS_TEXT_LENGTH);
 		textFieldAcceleration = new WidgetBetterTextField(WidgetBetterTextField.TextFieldFilter.POSITIVE_FLOAT,
 				Text.translatable("gui.mtr.acceleration").getString(), 8);
+		textFieldDeceleration = new WidgetBetterTextField(WidgetBetterTextField.TextFieldFilter.POSITIVE_FLOAT,
+				Text.translatable("gui.mtr.deceleration").getString(), 8);
 		buttonIsManual = new WidgetBetterCheckbox(0, 0, 0, SQUARE_SIZE, Text.translatable("gui.mtr.is_manual"), checked -> {
 			if (checked && !textFieldMaxTrains.getValue().equals("1")) {
 				textFieldMaxTrains.setValue("1");
@@ -93,6 +105,7 @@ public class SidingScreen extends SavedRailScreenBase<Siding> implements Icons {
 			setIsSelectingTrain(false);
 		});
 		oldAcceleration = savedRailBase.getAccelerationConstant();
+		oldDeceleration = savedRailBase.getDecelerationConstant();
 		oldIsManual = savedRailBase.getIsManual();
 		oldMaxManualSpeed = savedRailBase.getMaxManualSpeed();
 		oldDwellTime = savedRailBase.getDwellTime();
@@ -125,12 +138,17 @@ public class SidingScreen extends SavedRailScreenBase<Siding> implements Icons {
 			setIsSelectingTrain(false);
 		});
 
-		IDrawing.setPositionAndWidth(textFieldAcceleration, SQUARE_SIZE + textWidth, SQUARE_SIZE * 4 + TEXT_FIELD_PADDING * 2, MAX_TRAINS_WIDTH);
-		float currentAccelMps2 = savedRailBase.getAccelerationConstant() * ACCELERATION_UNIT_CONVERSION_1;
-		textFieldAcceleration.setValue(String.format("%.3f", currentAccelMps2));
+		IDrawing.setPositionAndWidth(textFieldAcceleration, accelerationFieldX(), accelerationFieldY(), accelerationFieldWidth());
+		textFieldAcceleration.setFieldHeight(ACCELERATION_FIELD_HEIGHT);
+		textFieldAcceleration.setValue(formatAcceleration(savedRailBase.getAccelerationConstant()));
 		textFieldAcceleration.setResponder(text -> setIsSelectingTrain(false));
 
-		final int checkboxY = SQUARE_SIZE * 5 + TEXT_FIELD_PADDING * 2;
+		IDrawing.setPositionAndWidth(textFieldDeceleration, decelerationFieldX(), accelerationFieldY(), accelerationFieldWidth());
+		textFieldDeceleration.setFieldHeight(ACCELERATION_FIELD_HEIGHT);
+		textFieldDeceleration.setValue(formatAcceleration(savedRailBase.getDecelerationConstant()));
+		textFieldDeceleration.setResponder(text -> setIsSelectingTrain(false));
+
+		final int checkboxY = SQUARE_SIZE * 5 + TEXT_FIELD_PADDING * 2 + ACCELERATION_BLOCK_EXTRA_HEIGHT;
 		final int predictiveBrakingRight = SQUARE_SIZE + 24 + font.width(PREDICTIVE_BRAKING_TEXT) + TEXT_PADDING;
 		IDrawing.setPositionAndWidth(buttonPredictiveBraking, SQUARE_SIZE, checkboxY, predictiveBrakingRight - SQUARE_SIZE);
 		buttonPredictiveBraking.setChecked(savedRailBase.getEnablePredictiveBraking());
@@ -138,15 +156,15 @@ public class SidingScreen extends SavedRailScreenBase<Siding> implements Icons {
 		IDrawing.setPositionAndWidth(buttonDelayedAcceleration, predictiveBrakingRight, checkboxY, width - predictiveBrakingRight - SQUARE_SIZE);
 		buttonDelayedAcceleration.setChecked(savedRailBase.getEnableDelayedAcceleration());
 
-		IDrawing.setPositionAndWidth(buttonIsManual, SQUARE_SIZE, SQUARE_SIZE * 6 + TEXT_FIELD_PADDING * 2 + 2, width - textWidth - SQUARE_SIZE * 2);
+		IDrawing.setPositionAndWidth(buttonIsManual, SQUARE_SIZE, SQUARE_SIZE * 6 + TEXT_FIELD_PADDING * 2 + 2 + ACCELERATION_BLOCK_EXTRA_HEIGHT, width - textWidth - SQUARE_SIZE * 2);
 
 		UtilitiesClient.setWidgetX(sliderMaxManualSpeed, SQUARE_SIZE + textWidth);
-		UtilitiesClient.setWidgetY(sliderMaxManualSpeed, SQUARE_SIZE * 7 + TEXT_FIELD_PADDING * 2 + 2);
+		UtilitiesClient.setWidgetY(sliderMaxManualSpeed, SQUARE_SIZE * 7 + TEXT_FIELD_PADDING * 2 + 2 + ACCELERATION_BLOCK_EXTRA_HEIGHT);
 		sliderMaxManualSpeed.setHeight(SQUARE_SIZE);
 		sliderMaxManualSpeed.setValue(savedRailBase.getMaxManualSpeed());
 
-		UtilitiesClient.setWidgetY(sliderDwellTimeMin, SQUARE_SIZE * 8 + TEXT_FIELD_PADDING * 2 + 2);
-		UtilitiesClient.setWidgetY(sliderDwellTimeSec, SQUARE_SIZE * 17 / 2 + TEXT_FIELD_PADDING * 2 + 2);
+		UtilitiesClient.setWidgetY(sliderDwellTimeMin, SQUARE_SIZE * 8 + TEXT_FIELD_PADDING * 2 + 2 + ACCELERATION_BLOCK_EXTRA_HEIGHT);
+		UtilitiesClient.setWidgetY(sliderDwellTimeSec, SQUARE_SIZE * 17 / 2 + TEXT_FIELD_PADDING * 2 + 2 + ACCELERATION_BLOCK_EXTRA_HEIGHT);
 
 		setIsSelectingTrain(false);
 
@@ -154,6 +172,7 @@ public class SidingScreen extends SavedRailScreenBase<Siding> implements Icons {
 			addDrawableChild(buttonUnlimitedTrains);
 			addDrawableChild(textFieldMaxTrains);
 			addDrawableChild(textFieldAcceleration);
+			addDrawableChild(textFieldDeceleration);
 			addDrawableChild(buttonPredictiveBraking);
 			addDrawableChild(buttonDelayedAcceleration);
 			addDrawableChild(buttonIsManual);
@@ -167,6 +186,7 @@ public class SidingScreen extends SavedRailScreenBase<Siding> implements Icons {
 		availableTrainsList.tick();
 		textFieldMaxTrains.tick();
 		textFieldAcceleration.tick();
+		textFieldDeceleration.tick();
 	}
 
 	@Override
@@ -176,10 +196,13 @@ public class SidingScreen extends SavedRailScreenBase<Siding> implements Icons {
 			guiGraphics.drawString(font, SELECTED_TRAIN_TEXT, SQUARE_SIZE, SQUARE_SIZE * 2 + TEXT_FIELD_PADDING + TEXT_PADDING, ARGB_WHITE);
 			if (showScheduleControls) {
 				guiGraphics.drawString(font, MAX_TRAINS_TEXT, SQUARE_SIZE, SQUARE_SIZE * 3 + TEXT_FIELD_PADDING * 3 / 2 + TEXT_PADDING, ARGB_WHITE);
-				guiGraphics.drawString(font, ACCELERATION_CONSTANT_TEXT, SQUARE_SIZE, SQUARE_SIZE * 4 + TEXT_FIELD_PADDING * 2 + TEXT_PADDING, ARGB_WHITE);
+				// The two rates share one row, so each gets its own label directly above its field instead of
+				// the single left-hand label the other rows use.
+				guiGraphics.drawString(font, ACCELERATION_CONSTANT_TEXT, accelerationFieldX(), accelerationLabelY(), ARGB_WHITE);
+				guiGraphics.drawString(font, DECELERATION_CONSTANT_TEXT, decelerationFieldX(), accelerationLabelY(), ARGB_WHITE);
 				if (buttonIsManual.selected()) {
-					guiGraphics.drawString(font, MAX_MANUAL_SPEED, SQUARE_SIZE, SQUARE_SIZE * 7 + TEXT_FIELD_PADDING * 2 + TEXT_PADDING + 2, ARGB_WHITE);
-					guiGraphics.drawString(font, MANUAL_TO_AUTOMATIC_TIME, SQUARE_SIZE, SQUARE_SIZE * 8 + TEXT_FIELD_PADDING * 2 + TEXT_PADDING + 2, ARGB_WHITE);
+					guiGraphics.drawString(font, MAX_MANUAL_SPEED, SQUARE_SIZE, SQUARE_SIZE * 7 + TEXT_FIELD_PADDING * 2 + TEXT_PADDING + 2 + ACCELERATION_BLOCK_EXTRA_HEIGHT, ARGB_WHITE);
+					guiGraphics.drawString(font, MANUAL_TO_AUTOMATIC_TIME, SQUARE_SIZE, SQUARE_SIZE * 8 + TEXT_FIELD_PADDING * 2 + TEXT_PADDING + 2 + ACCELERATION_BLOCK_EXTRA_HEIGHT, ARGB_WHITE);
 				}
 			}
 		} else {
@@ -217,13 +240,17 @@ public class SidingScreen extends SavedRailScreenBase<Siding> implements Icons {
 		}
 		float accelerationConstant;
 		try {
-			float valueMps2 = Float.parseFloat(textFieldAcceleration.getValue());
-			double valueMptick2 = valueMps2 / ACCELERATION_UNIT_CONVERSION_1;
-			double clamped = Mth.clamp(valueMptick2, Train.MIN_ACCELERATION, Train.MAX_ACCELERATION);
-			long factor = (long) Math.pow(10, Train.ACCELERATION_DECIMAL_PLACES);
-			accelerationConstant = (float) (Math.round(clamped * factor) / (double) factor);
+			accelerationConstant = parseAcceleration(textFieldAcceleration.getValue());
 		} catch (Exception ignored) {
 			accelerationConstant = Train.ACCELERATION_DEFAULT;
+		}
+		float decelerationConstant;
+		try {
+			decelerationConstant = parseAcceleration(textFieldDeceleration.getValue());
+		} catch (Exception ignored) {
+			// An unusable braking field must never silently fall back to the global default: it keeps the
+			// same rate as the acceleration field, which is the old single-value behaviour.
+			decelerationConstant = accelerationConstant;
 		}
 		final boolean isManual = buttonIsManual.selected();
 		final boolean enablePredictiveBraking = buttonPredictiveBraking.selected();
@@ -234,8 +261,56 @@ public class SidingScreen extends SavedRailScreenBase<Siding> implements Icons {
 		final int dwellTime = (int) ((second + minutes * SECONDS_PER_MINUTE) * 2);
 		savedRailBase.setEnablePredictiveBraking(enablePredictiveBraking);
 		savedRailBase.setEnableDelayedAcceleration(enableDelayedAcceleration);
-		savedRailBase.setUnlimitedTrains(buttonUnlimitedTrains.selected(), maxTrains, isManual, maxManualSpeed, accelerationConstant, dwellTime, oldAcceleration != accelerationConstant || oldIsManual != isManual || oldMaxManualSpeed != maxManualSpeed || oldDwellTime != dwellTime, packet -> PacketTrainDataGuiClient.sendUpdate(getPacketIdentifier(), packet));
+		savedRailBase.setUnlimitedTrains(buttonUnlimitedTrains.selected(), maxTrains, isManual, maxManualSpeed, enablePredictiveBraking, accelerationConstant, decelerationConstant, dwellTime, oldAcceleration != accelerationConstant || oldDeceleration != decelerationConstant || oldIsManual != isManual || oldMaxManualSpeed != maxManualSpeed || oldDwellTime != dwellTime, packet -> PacketTrainDataGuiClient.sendUpdate(getPacketIdentifier(), packet));
 		super.onClose();
+	}
+
+	/**
+	 * Converts one of the two rate fields from m/s² into blocks per tick squared, clamped to the range the
+	 * model accepts and rounded to the precision it stores. Both fields go through the same conversion, so
+	 * their displayed values and their stored values can never drift apart.
+	 */
+	private static float parseAcceleration(String text) {
+		final double valueMptick2 = Float.parseFloat(text) / ACCELERATION_UNIT_CONVERSION_1;
+		final double clamped = Mth.clamp(valueMptick2, Train.MIN_ACCELERATION, Train.MAX_ACCELERATION);
+		final long factor = (long) Math.pow(10, Train.ACCELERATION_DECIMAL_PLACES);
+		return (float) (Math.round(clamped * factor) / (double) factor);
+	}
+
+	private static String formatAcceleration(float accelerationConstant) {
+		// A fixed locale, because the field only accepts a '.' decimal point and the text is written back out
+		// as the stored value on every reopen.
+		return String.format(Locale.US, "%.3f", accelerationConstant * ACCELERATION_UNIT_CONVERSION_1);
+	}
+
+	/**
+	 * Left edge of the acceleration field in the shared rate row.
+	 * <p>
+	 * This row uses the whole width, including the label column the other rows leave free, because both of
+	 * its labels are drawn directly above their own field. That keeps two usable input boxes and their
+	 * labels inside the screen even when a translation spells the labels out in full.
+	 */
+	private int accelerationFieldX() {
+		return SQUARE_SIZE;
+	}
+
+	/** Both fields are the same width; they split the row with a gap between them. */
+	private int accelerationFieldWidth() {
+		return Math.max(MIN_ACCELERATION_FIELD_WIDTH, (width - SQUARE_SIZE * 2 - ACCELERATION_FIELD_GAP) / 2);
+	}
+
+	private int decelerationFieldX() {
+		return accelerationFieldX() + accelerationFieldWidth() + ACCELERATION_FIELD_GAP;
+	}
+
+	/** Top of the label line that sits directly above the two rate fields. */
+	private static int accelerationLabelY() {
+		return SQUARE_SIZE * 4 + TEXT_FIELD_PADDING * 2;
+	}
+
+	/** Top of the two rate fields; the label line occupies the space above them. */
+	private static int accelerationFieldY() {
+		return accelerationLabelY() + TEXT_HEIGHT;
 	}
 
 	@Override
@@ -289,6 +364,7 @@ public class SidingScreen extends SavedRailScreenBase<Siding> implements Icons {
 		buttonUnlimitedTrains.visible = !isSelectingTrain;
 		textFieldMaxTrains.visible = !isSelectingTrain;
 		textFieldAcceleration.visible = !isSelectingTrain;
+		textFieldDeceleration.visible = !isSelectingTrain;
 		buttonIsManual.visible = !isSelectingTrain;
 		buttonPredictiveBraking.visible = !isSelectingTrain;
 		buttonDelayedAcceleration.visible = !isSelectingTrain;

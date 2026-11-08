@@ -86,6 +86,18 @@ public class WidgetBetterTextField extends EditBox implements IGui {
 		super.setMaxLength(Integer.MAX_VALUE);
 	}
 
+	/**
+	 * Gives the field a height shorter than the widget default.
+	 * <p>
+	 * {@code AbstractWidget} offers no {@code setHeight} in this version, so the protected field is assigned
+	 * directly. {@code EditBox} reads exactly this field for its frame, its text baseline and its hit test, so
+	 * the field keeps behaving normally, it is just shorter - which is what lets two of them share one row
+	 * while keeping a label line above each.
+	 */
+	public void setFieldHeight(int height) {
+		this.height = height;
+	}
+
 	private String trySetLength(String text) {
 		return text.isEmpty() ? "" : text.substring(0, Math.min(newMaxLength, text.length()));
 	}

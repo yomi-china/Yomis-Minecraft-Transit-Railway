@@ -1,15 +1,14 @@
 package mtr.render;
 
-import com.mojang.blaze3d.platform.Window;
-import com.mojang.blaze3d.systems.RenderSystem;
-import com.mojang.blaze3d.vertex.BufferBuilder;
-import com.mojang.blaze3d.vertex.Tesselator;
-import mtr.client.IDrawing;
-import mtr.data.*;
-import mtr.mappings.UtilitiesClient;
+import com.mojang.blaze3d.vertex.VertexConsumer;
+import mtr.data.IGui;
+import mtr.data.RailwayData;
+import mtr.data.Train;
+import mtr.data.TrainClient;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.player.LocalPlayer;
+import net.minecraft.client.renderer.RenderType;
 import net.minecraft.util.Mth;
 import org.joml.Matrix4f;
 
@@ -21,15 +20,48 @@ public class RenderDrivingOverlay implements IGui {
 	private static final int EDGE_PADDING = 16;
 	private static final int TOOL_SIZE = 96;
 	private static final int RADIUS = TOOL_SIZE / 2;
-	private static final int SPEEDOMETER_CIRCLE_INTERVAL = 3;
-	private static final double SPEEDOMETER_CIRCLE_EDGE_LENGTH = Math.tan(Math.toRadians(SPEEDOMETER_CIRCLE_INTERVAL) / 2) * TOOL_SIZE + 0.5;
+
 	private static final int SPEEDOMETER_START_ANGLE = -60;
 	private static final int SPEEDOMETER_SPAN = 300;
-	private static final int SPEEDOMETER_TICK_INTERVAL = 5;
+
+	/**
+	 * The static part of the dial (face, rim and ticks) is cached in local coordinates and only
+	 * rebuilt when the maximum speed of the driven train changes.
+	 */
+	private static float[] dialGeometry;
+	private static int dialGeometryVertexCount;
+	private static int cachedMaxSpeedKmh = -1;
+
+	private static final int RING_SEGMENTS = 180;
+	private static final int DIAL_BODY_SEGMENTS = 60;
+	private static final int HUB_SEGMENTS = 20;
+	private static final int VERTEX_STRIDE = 6;
+
+	private static final float DIAL_RADIUS = RADIUS - 0.5F;
+	private static final float RIM_INNER_RADIUS = RADIUS - 1.5F;
+	private static final float RIM_FADE_RADIUS = RADIUS - 0.25F;
+	private static final float RIM_OUTER_RADIUS = RADIUS + 0.25F;
+
+	private static final float TICK_OUTER_RADIUS = RADIUS - 2;
+	private static final int TICK_LENGTH_MAJOR = 8;
+	private static final int TICK_LENGTH_MINOR = 4;
+	private static final float TICK_THICKNESS = 2;
+
+	private static final float LABEL_RADIUS = RADIUS - 14;
+	private static final float LABEL_SCALE = 0.5F;
+
+	private static final float NEEDLE_INNER_RADIUS = 2;
+	private static final float NEEDLE_OUTER_RADIUS = RADIUS - 4;
+	private static final float NEEDLE_CORE_WIDTH = 0.55F;
+	private static final float NEEDLE_FEATHER_WIDTH = 0.95F;
+
+	private static final float HUB_CORE_RADIUS = 1.9F;
+	private static final float HUB_OUTER_RADIUS = 2.5F;
+
+	private static final float MANUAL_TEXT_SCALE = 0.75F;
 
 	private static final int PLATFORM_BAR_WIDTH = 6;
 	private static final int PLATFORM_BAR_HEIGHT = 120;
-	private static final int PLATFORM_BAR_OFFSET_Y = 20;
 	private static final int TEXT_PADDING = 4;
 
 	private static final int BLUE_COLOR = 0xFFAACCFF;
@@ -38,6 +70,7 @@ public class RenderDrivingOverlay implements IGui {
 	private static final int RED_COLOR = 0xFFFF0000;
 	private static final int DARK_GRAY = 0xFF333333;
 	private static final int LIGHT_GRAY = 0xFFAAAAAA;
+	private static final int DIAL_COLOR = 0xFF222222;
 
 	public static void render(GuiGraphics guiGraphics) {
 		final Minecraft client = Minecraft.getInstance();
@@ -51,11 +84,8 @@ public class RenderDrivingOverlay implements IGui {
 			return;
 		}
 
-		final Window window = client.getWindow();
-		if (window == null) return;
-
-		final int screenWidth = window.getGuiScaledWidth();
-		final int screenHeight = window.getGuiScaledHeight();
+		final int screenWidth = guiGraphics.guiWidth();
+		final int screenHeight = guiGraphics.guiHeight();
 
 		renderPlatformBar(guiGraphics, client, screenWidth, screenHeight);
 		renderSpeedometer(guiGraphics, client, screenWidth, screenHeight);
@@ -99,75 +129,86 @@ public class RenderDrivingOverlay implements IGui {
 		final int centerX = screenWidth - RADIUS - EDGE_PADDING;
 		final int centerY = screenHeight - RADIUS - EDGE_PADDING;
 
-		final var matrixStack = guiGraphics.pose();
-		matrixStack.pushPose();
-		matrixStack.translate(centerX, centerY, 0);
-
 		final float speed = trainClient.getSpeed();
 		final double speedKmh = speed * 20 * 3.6;
 		final float doorValue = trainClient.getDoorValue();
 		final int manualNotch = trainClient.getManualNotch();
 		final boolean isManual = trainClient.isCurrentlyManual();
-		final int maxSpeedKmh = trainClient.getMaxManualSpeedKmh();
+		final int maxSpeedKmh = Math.max(20, trainClient.getMaxManualSpeedKmh());
 
-		RenderSystem.enableBlend();
-		final Tesselator tesselator = Tesselator.getInstance();
-		final BufferBuilder buffer = tesselator.getBuilder();
-		final float halfEdge = (float) SPEEDOMETER_CIRCLE_EDGE_LENGTH / 2;
+		final var poseStack = guiGraphics.pose();
+		poseStack.pushPose();
+		poseStack.translate(centerX, centerY, 0);
+		final Matrix4f pose = poseStack.last().pose();
 
-		matrixStack.pushPose();
-		for (int i = 0; i < 180; i += SPEEDOMETER_CIRCLE_INTERVAL) {
-			final Matrix4f pose = matrixStack.last().pose();
-			UtilitiesClient.beginDrawingRectangle(buffer);
-			drawRectangle(buffer, pose, -RADIUS, -halfEdge, RADIUS, halfEdge, 0xFFAAAAAA);
-			drawRectangle(buffer, pose, -RADIUS + 1, -halfEdge, RADIUS - 1, halfEdge, 0xFF222222);
-			tesselator.end();
-			UtilitiesClient.finishDrawingRectangle();
-			matrixStack.mulPose(com.mojang.math.Axis.ZP.rotationDegrees(SPEEDOMETER_CIRCLE_INTERVAL));
+		// Everything is written into the GUI vertex batch: no shader, blend or depth state is
+		// changed, so this cannot leak into (or clash with) the rest of the HUD rendering.
+		final VertexConsumer consumer = guiGraphics.bufferSource().getBuffer(RenderType.gui());
+
+		ensureDialGeometry(maxSpeedKmh);
+		for (int i = 0; i < dialGeometryVertexCount; i++) {
+			final int index = i * VERTEX_STRIDE;
+			writeVertex(consumer, pose, dialGeometry[index], dialGeometry[index + 1], dialGeometry[index + 3], dialGeometry[index + 4], dialGeometry[index + 5], dialGeometry[index + 2]);
 		}
-		matrixStack.popPose();
 
-		matrixStack.pushPose();
-		matrixStack.mulPose(com.mojang.math.Axis.ZP.rotationDegrees(SPEEDOMETER_START_ANGLE));
-		for (int i = 0; i <= maxSpeedKmh; i += SPEEDOMETER_TICK_INTERVAL) {
-			final boolean isMajor = (i % 20 == 0);
-			final int tickLength = isMajor ? 8 : 4;
-			guiGraphics.fill(-RADIUS + 2, -1, -RADIUS + 2 + tickLength, 1, LIGHT_GRAY);
-			matrixStack.mulPose(com.mojang.math.Axis.ZP.rotationDegrees((float) SPEEDOMETER_TICK_INTERVAL * SPEEDOMETER_SPAN / maxSpeedKmh));
-		}
-		matrixStack.popPose();
+		final float speedRatio = Mth.clamp((float) (speedKmh / maxSpeedKmh), 0, 1);
+		writeNeedle(consumer, pose, SPEEDOMETER_START_ANGLE + speedRatio * SPEEDOMETER_SPAN);
+		writeHub(consumer, pose);
 
-		matrixStack.pushPose();
-		matrixStack.mulPose(com.mojang.math.Axis.ZP.rotationDegrees(SPEEDOMETER_START_ANGLE));
-		for (int i = 0; i <= maxSpeedKmh; i += 20) {
-			matrixStack.pushPose();
-			matrixStack.translate(-RADIUS + 12, 0, 0);
-			matrixStack.mulPose(com.mojang.math.Axis.ZP.rotationDegrees(-SPEEDOMETER_START_ANGLE - (float) i * SPEEDOMETER_SPAN / maxSpeedKmh));
-			matrixStack.scale(0.5F, 0.5F, 1);
-			final String label = String.valueOf(i);
+		drawSpeedLabels(guiGraphics, client, maxSpeedKmh);
+
+		poseStack.pushPose();
+		poseStack.translate(-RADIUS * 0.3F, -TOOL_SIZE * 0.1F, 0);
+		drawNotchText(guiGraphics, client, manualNotch);
+		poseStack.popPose();
+
+		poseStack.pushPose();
+		poseStack.translate(0, -TOOL_SIZE * 0.25F, 0);
+		poseStack.scale(MANUAL_TEXT_SCALE, MANUAL_TEXT_SCALE, 1);
+		drawCenteredText(guiGraphics, client, "MANUAL", isManual ? GREEN_COLOR : DARK_GRAY);
+		poseStack.popPose();
+
+		poseStack.pushPose();
+		poseStack.translate(RADIUS * 0.3F, -TOOL_SIZE * 0.1F, 0);
+		drawCenteredText(guiGraphics, client, doorValue > 0 ? "DO" : "DC", ARGB_WHITE);
+		poseStack.translate(0, 8, 0);
+		poseStack.scale(0.5F, 0.5F, 1);
+		drawCenteredText(guiGraphics, client, "(" + (int) (doorValue * 100) + "%)", ARGB_WHITE);
+		poseStack.popPose();
+
+		poseStack.pushPose();
+		poseStack.translate(0, TOOL_SIZE * 0.1F, 0);
+		drawCenteredText(guiGraphics, client, RailwayData.round(speedKmh, 1) + "", ARGB_WHITE);
+		poseStack.translate(0, 8, 0);
+		poseStack.scale(0.5F, 0.5F, 1);
+		drawCenteredText(guiGraphics, client, "km/h", ARGB_WHITE);
+		poseStack.popPose();
+
+		poseStack.popPose();
+	}
+
+	private static void drawSpeedLabels(GuiGraphics guiGraphics, Minecraft client, int maxSpeedKmh) {
+		final int labelStep = getLabelStep(maxSpeedKmh);
+		final var poseStack = guiGraphics.pose();
+
+		for (int value = 0; value <= maxSpeedKmh; value += labelStep) {
+			final float radians = (float) Math.toRadians(angleFor(value, maxSpeedKmh));
+			final int labelX = Math.round(Mth.cos(radians) * LABEL_RADIUS);
+			final int labelY = Math.round(Mth.sin(radians) * LABEL_RADIUS);
+			final String label = String.valueOf(value);
 			final int width = client.font.width(label);
-			guiGraphics.drawString(client.font, label, -width / 2, -4, ARGB_WHITE, false);
-			matrixStack.popPose();
-			matrixStack.mulPose(com.mojang.math.Axis.ZP.rotationDegrees(20F * SPEEDOMETER_SPAN / maxSpeedKmh));
+
+			poseStack.pushPose();
+			poseStack.translate(labelX, labelY, 0);
+			poseStack.scale(LABEL_SCALE, LABEL_SCALE, 1);
+			guiGraphics.drawString(client.font, label, -width / 2, -client.font.lineHeight / 2, ARGB_WHITE, false);
+			poseStack.popPose();
 		}
-		matrixStack.popPose();
+	}
 
-		matrixStack.pushPose();
-		final float needleAngle = SPEEDOMETER_START_ANGLE + (float) speedKmh * SPEEDOMETER_SPAN / maxSpeedKmh;
-		matrixStack.mulPose(com.mojang.math.Axis.ZP.rotationDegrees(needleAngle));
-		final Matrix4f needlePose = matrixStack.last().pose();
-		UtilitiesClient.beginDrawingRectangle(buffer);
-		drawRectangle(buffer, needlePose, -RADIUS + 4, -1, 0, 1, RED_COLOR);
-		tesselator.end();
-		UtilitiesClient.finishDrawingRectangle();
-		matrixStack.popPose();
-
-		guiGraphics.fill(-2, -2, 2, 2, 0xFFFFFFFF);
-
-		matrixStack.pushPose();
-		matrixStack.translate(-RADIUS * 0.3, -TOOL_SIZE * 0.1, 0);
-		String notchText;
-		int notchColor;
+	private static void drawNotchText(GuiGraphics guiGraphics, Minecraft client, int manualNotch) {
+		final String notchText;
+		final int notchColor;
 		if (manualNotch <= Train.EB) {
 			notchText = "EB";
 			notchColor = RED_COLOR;
@@ -182,38 +223,16 @@ public class RenderDrivingOverlay implements IGui {
 			notchColor = ARGB_WHITE;
 		}
 		drawCenteredText(guiGraphics, client, notchText, notchColor);
+
 		if (manualNotch != 0 && manualNotch > Train.EB) {
-			matrixStack.translate(0, 8, 0);
-			matrixStack.scale(0.5F, 0.5F, 1);
+			final var poseStack = guiGraphics.pose();
+			poseStack.pushPose();
+			poseStack.translate(0, 8, 0);
+			poseStack.scale(0.5F, 0.5F, 1);
 			final int powerPercent = Math.round(Math.abs(Train.getManualNotchAccelerationMultiplier(manualNotch)) * 100);
 			drawCenteredText(guiGraphics, client, "(" + powerPercent + "%)", notchColor);
+			poseStack.popPose();
 		}
-		matrixStack.popPose();
-
-		matrixStack.pushPose();
-		matrixStack.translate(0, -TOOL_SIZE * 0.25, 0);
-		drawCenteredText(guiGraphics, client, "MANUAL", isManual ? GREEN_COLOR : DARK_GRAY);
-		matrixStack.popPose();
-
-		matrixStack.pushPose();
-		matrixStack.translate(RADIUS * 0.3, -TOOL_SIZE * 0.1, 0);
-		final String doorState = doorValue > 0 ? "DO" : "DC";
-		drawCenteredText(guiGraphics, client, doorState, ARGB_WHITE);
-		matrixStack.translate(0, 8, 0);
-		matrixStack.scale(0.5F, 0.5F, 1);
-		drawCenteredText(guiGraphics, client, "(" + (int) (doorValue * 100) + "%)", ARGB_WHITE);
-		matrixStack.popPose();
-
-		matrixStack.pushPose();
-		matrixStack.translate(0, TOOL_SIZE * 0.1, 0);
-		drawCenteredText(guiGraphics, client, RailwayData.round(speedKmh, 1) + "", ARGB_WHITE);
-		matrixStack.translate(0, 8, 0);
-		matrixStack.scale(0.5F, 0.5F, 1);
-		drawCenteredText(guiGraphics, client, "km/h", ARGB_WHITE);
-		matrixStack.popPose();
-
-		matrixStack.popPose();
-		RenderSystem.disableBlend();
 	}
 
 	private static void renderStationInfo(GuiGraphics guiGraphics, Minecraft client, int screenWidth, int screenHeight) {
@@ -245,6 +264,171 @@ public class RenderDrivingOverlay implements IGui {
 		}
 	}
 
+	private static void ensureDialGeometry(int maxSpeedKmh) {
+		if (dialGeometry != null && maxSpeedKmh == cachedMaxSpeedKmh) {
+			return;
+		}
+		cachedMaxSpeedKmh = maxSpeedKmh;
+
+		final int labelStep = getLabelStep(maxSpeedKmh);
+		final int minorStep = getMinorStep(labelStep);
+		final int tickCount = maxSpeedKmh / minorStep + 1;
+		final GeometryBuilder builder = new GeometryBuilder(DIAL_BODY_SEGMENTS * 4 + RING_SEGMENTS * 8 + tickCount * 4);
+
+		// Dial face. Its polygon edge is hidden below the rim, so it can be built coarsely.
+		addRingBand(builder, 0, DIAL_RADIUS, 255, 255, DIAL_COLOR, DIAL_BODY_SEGMENTS);
+
+		// Rim, with a solid inner part and a feathered outer edge for smooth anti-aliased borders.
+		addRingBand(builder, RIM_INNER_RADIUS, RIM_FADE_RADIUS, 255, 255, LIGHT_GRAY, RING_SEGMENTS);
+		addRingBand(builder, RIM_FADE_RADIUS, RIM_OUTER_RADIUS, 255, 0, LIGHT_GRAY, RING_SEGMENTS);
+
+		for (int value = 0; value <= maxSpeedKmh; value += minorStep) {
+			final float length = value % labelStep == 0 ? TICK_LENGTH_MAJOR : TICK_LENGTH_MINOR;
+			addTick(builder, angleFor(value, maxSpeedKmh), TICK_OUTER_RADIUS - length, TICK_OUTER_RADIUS, TICK_THICKNESS);
+		}
+
+		dialGeometry = builder.data;
+		dialGeometryVertexCount = builder.size / VERTEX_STRIDE;
+	}
+
+	private static void addRingBand(GeometryBuilder builder, float innerRadius, float outerRadius, int innerAlpha, int outerAlpha, int color, int segments) {
+		final float red = ((color >> 16) & 0xFF) / 255F;
+		final float green = ((color >> 8) & 0xFF) / 255F;
+		final float blue = (color & 0xFF) / 255F;
+
+		for (int i = 0; i < segments; i++) {
+			final float angle1 = (float) (i * Math.PI * 2 / segments);
+			final float angle2 = (float) ((i + 1) * Math.PI * 2 / segments);
+			final float cos1 = Mth.cos(angle1);
+			final float sin1 = Mth.sin(angle1);
+			final float cos2 = Mth.cos(angle2);
+			final float sin2 = Mth.sin(angle2);
+
+			builder.quad(
+					cos1 * innerRadius, sin1 * innerRadius, innerAlpha,
+					cos2 * innerRadius, sin2 * innerRadius, innerAlpha,
+					cos2 * outerRadius, sin2 * outerRadius, outerAlpha,
+					cos1 * outerRadius, sin1 * outerRadius, outerAlpha,
+					red, green, blue
+			);
+		}
+	}
+
+	private static void addTick(GeometryBuilder builder, float angleDegrees, float innerRadius, float outerRadius, float thickness) {
+		final float radians = (float) Math.toRadians(angleDegrees);
+		final float cos = Mth.cos(radians);
+		final float sin = Mth.sin(radians);
+		final float offsetX = -sin * thickness / 2;
+		final float offsetY = cos * thickness / 2;
+
+		final float shade = 0xAA / 255F;
+		builder.quad(
+				cos * innerRadius - offsetX, sin * innerRadius - offsetY, 255,
+				cos * innerRadius + offsetX, sin * innerRadius + offsetY, 255,
+				cos * outerRadius + offsetX, sin * outerRadius + offsetY, 255,
+				cos * outerRadius - offsetX, sin * outerRadius - offsetY, 255,
+				shade, shade, shade
+		);
+	}
+
+	private static void writeNeedle(VertexConsumer consumer, Matrix4f pose, float angleDegrees) {
+		final float radians = (float) Math.toRadians(angleDegrees);
+		final float cos = Mth.cos(radians);
+		final float sin = Mth.sin(radians);
+		final float offsetX = -sin;
+		final float offsetY = cos;
+
+		final float red = 1;
+		final float green = 0;
+		final float blue = 0;
+
+		writeNeedleBand(consumer, pose, cos, sin, offsetX, offsetY, -NEEDLE_CORE_WIDTH, NEEDLE_CORE_WIDTH, red, green, blue);
+		writeNeedleBand(consumer, pose, cos, sin, offsetX, offsetY, -NEEDLE_FEATHER_WIDTH, -NEEDLE_CORE_WIDTH, red, green, blue);
+		writeNeedleBand(consumer, pose, cos, sin, offsetX, offsetY, NEEDLE_CORE_WIDTH, NEEDLE_FEATHER_WIDTH, red, green, blue);
+	}
+
+	private static void writeNeedleBand(VertexConsumer consumer, Matrix4f pose, float cos, float sin, float offsetX, float offsetY, float side1, float side2, float red, float green, float blue) {
+		final float inner1X = cos * NEEDLE_INNER_RADIUS + offsetX * side1;
+		final float inner1Y = sin * NEEDLE_INNER_RADIUS + offsetY * side1;
+		final float outer1X = cos * NEEDLE_OUTER_RADIUS + offsetX * side1;
+		final float outer1Y = sin * NEEDLE_OUTER_RADIUS + offsetY * side1;
+		final float outer2X = cos * NEEDLE_OUTER_RADIUS + offsetX * side2;
+		final float outer2Y = sin * NEEDLE_OUTER_RADIUS + offsetY * side2;
+		final float inner2X = cos * NEEDLE_INNER_RADIUS + offsetX * side2;
+		final float inner2Y = sin * NEEDLE_INNER_RADIUS + offsetY * side2;
+
+		// The outer edge of each band fades out to keep the needle edges smooth.
+		final float alpha1 = Math.abs(side1) > NEEDLE_CORE_WIDTH ? 0 : 1;
+		final float alpha2 = Math.abs(side2) > NEEDLE_CORE_WIDTH ? 0 : 1;
+
+		writeQuad(consumer, pose,
+				inner1X, inner1Y, alpha1,
+				inner2X, inner2Y, alpha2,
+				outer2X, outer2Y, alpha2,
+				outer1X, outer1Y, alpha1,
+				red, green, blue
+		);
+	}
+
+	private static void writeHub(VertexConsumer consumer, Matrix4f pose) {
+		writeRingBand(consumer, pose, 0, HUB_CORE_RADIUS, 1, 1, HUB_SEGMENTS, 1, 1, 1);
+		writeRingBand(consumer, pose, HUB_CORE_RADIUS, HUB_OUTER_RADIUS, 1, 0, HUB_SEGMENTS, 1, 1, 1);
+	}
+
+	private static void writeRingBand(VertexConsumer consumer, Matrix4f pose, float innerRadius, float outerRadius, float innerAlpha, float outerAlpha, int segments, float red, float green, float blue) {
+		for (int i = 0; i < segments; i++) {
+			final float angle1 = (float) (i * Math.PI * 2 / segments);
+			final float angle2 = (float) ((i + 1) * Math.PI * 2 / segments);
+			final float cos1 = Mth.cos(angle1);
+			final float sin1 = Mth.sin(angle1);
+			final float cos2 = Mth.cos(angle2);
+			final float sin2 = Mth.sin(angle2);
+
+			writeQuad(consumer, pose,
+					cos1 * innerRadius, sin1 * innerRadius, innerAlpha,
+					cos2 * innerRadius, sin2 * innerRadius, innerAlpha,
+					cos2 * outerRadius, sin2 * outerRadius, outerAlpha,
+					cos1 * outerRadius, sin1 * outerRadius, outerAlpha,
+					red, green, blue
+			);
+		}
+	}
+
+	private static void writeQuad(VertexConsumer consumer, Matrix4f pose, float x1, float y1, float alpha1, float x2, float y2, float alpha2, float x3, float y3, float alpha3, float x4, float y4, float alpha4, float red, float green, float blue) {
+		writeVertex(consumer, pose, x1, y1, red, green, blue, alpha1);
+		writeVertex(consumer, pose, x2, y2, red, green, blue, alpha2);
+		writeVertex(consumer, pose, x3, y3, red, green, blue, alpha3);
+		writeVertex(consumer, pose, x4, y4, red, green, blue, alpha4);
+	}
+
+	private static void writeVertex(VertexConsumer consumer, Matrix4f pose, float x, float y, float red, float green, float blue, float alpha) {
+		// Transforming by hand avoids the temporary vector allocated by VertexConsumer#vertex(Matrix4f, ...).
+		final float transformedX = pose.m00() * x + pose.m10() * y + pose.m30();
+		final float transformedY = pose.m01() * x + pose.m11() * y + pose.m31();
+		final float transformedZ = pose.m02() * x + pose.m12() * y + pose.m32();
+		consumer.vertex(transformedX, transformedY, transformedZ).color(red, green, blue, alpha).endVertex();
+	}
+
+	private static float angleFor(int value, int maxSpeedKmh) {
+		return SPEEDOMETER_START_ANGLE + (float) value * SPEEDOMETER_SPAN / maxSpeedKmh;
+	}
+
+	private static int getLabelStep(int maxSpeedKmh) {
+		if (maxSpeedKmh >= 100) {
+			return 20;
+		} else if (maxSpeedKmh >= 40) {
+			return 10;
+		} else if (maxSpeedKmh >= 20) {
+			return 5;
+		} else {
+			return 1;
+		}
+	}
+
+	private static int getMinorStep(int labelStep) {
+		return Math.max(1, labelStep / 4);
+	}
+
 	public static void setData(int accelerationSign, TrainClient trainClient) {
 		RenderDrivingOverlay.trainClient = trainClient;
 		coolDown = 2;
@@ -255,14 +439,34 @@ public class RenderDrivingOverlay implements IGui {
 		guiGraphics.drawString(client.font, text, -width / 2, -client.font.lineHeight / 2, color, false);
 	}
 
-	private static void drawRectangle(BufferBuilder buffer, Matrix4f pose, float x1, float y1, float x2, float y2, int color) {
-		final int a = (color >> 24) & 0xFF;
-		final int r = (color >> 16) & 0xFF;
-		final int g = (color >> 8) & 0xFF;
-		final int b = color & 0xFF;
-		buffer.vertex(pose, x1, y1, 0).color(r, g, b, a).endVertex();
-		buffer.vertex(pose, x1, y2, 0).color(r, g, b, a).endVertex();
-		buffer.vertex(pose, x2, y2, 0).color(r, g, b, a).endVertex();
-		buffer.vertex(pose, x2, y1, 0).color(r, g, b, a).endVertex();
+	private static final class GeometryBuilder {
+
+		private float[] data;
+		private int size;
+
+		private GeometryBuilder(int vertexCapacity) {
+			data = new float[Math.max(4, vertexCapacity) * VERTEX_STRIDE];
+		}
+
+		private void quad(float x1, float y1, float alpha1, float x2, float y2, float alpha2, float x3, float y3, float alpha3, float x4, float y4, float alpha4, float red, float green, float blue) {
+			vertex(x1, y1, alpha1, red, green, blue);
+			vertex(x2, y2, alpha2, red, green, blue);
+			vertex(x3, y3, alpha3, red, green, blue);
+			vertex(x4, y4, alpha4, red, green, blue);
+		}
+
+		private void vertex(float x, float y, float alpha, float red, float green, float blue) {
+			if (size + VERTEX_STRIDE > data.length) {
+				final float[] grown = new float[data.length * 2];
+				System.arraycopy(data, 0, grown, 0, size);
+				data = grown;
+			}
+			data[size++] = x;
+			data[size++] = y;
+			data[size++] = alpha / 255F;
+			data[size++] = red;
+			data[size++] = green;
+			data[size++] = blue;
+		}
 	}
 }

@@ -134,6 +134,7 @@
 	"category.mtr.keybinding": "Minecraft Transit Railway 按键绑定",
 	"entity.mtr.seat": "",
 	"gui.mtr.acceleration": "车辆加速度",
+	"gui.mtr.deceleration": "车辆减速度",
 	"gui.mtr.add_balance_for_emeralds": "充值 $%s （%s 绿宝石）",
 	"gui.mtr.add_depot": "新增车厂",
 	"gui.mtr.add_exit": "新增车站出口",

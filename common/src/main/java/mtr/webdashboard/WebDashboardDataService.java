@@ -284,6 +284,7 @@ public final class WebDashboardDataService {
 		object.addProperty("enablePredictiveBraking", siding.getEnablePredictiveBraking());
 		object.addProperty("enableDelayedAcceleration", siding.getEnableDelayedAcceleration());
 		object.addProperty("accelerationConstant", siding.getAccelerationConstant());
+		object.addProperty("decelerationConstant", siding.getDecelerationConstant());
 		object.addProperty("trainId", siding.getTrainId());
 		object.addProperty("baseTrainType", siding.getBaseTrainType());
 		object.addProperty("trainCars", siding.getTrainCars());
@@ -545,7 +546,7 @@ public final class WebDashboardDataService {
 					^ Objects.hashCode(siding.getUnlimitedTrains()) ^ siding.getMaxTrains() ^ Objects.hashCode(siding.getIsManual())
 					^ siding.getMaxManualSpeed() ^ Objects.hashCode(siding.getEnablePredictiveBraking())
 					^ Objects.hashCode(siding.getEnableDelayedAcceleration())
-					^ Objects.hashCode(siding.getAccelerationConstant()) ^ Objects.hashCode(siding.getTrainId())
+					^ Objects.hashCode(siding.getAccelerationConstant()) ^ Objects.hashCode(siding.getDecelerationConstant()) ^ Objects.hashCode(siding.getTrainId())
 					^ Objects.hashCode(siding.getBaseTrainType()) ^ siding.getTrainCars() ^ Objects.hashCode(siding.railLength);
 		}
 

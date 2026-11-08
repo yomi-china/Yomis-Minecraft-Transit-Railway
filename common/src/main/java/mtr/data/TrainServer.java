@@ -44,18 +44,34 @@ public class TrainServer extends Train {
 	private int debugPeriodicCounter;
 
 	private static final int MAX_HOLD_DELAY_MILLIS = 120000;
+
+	/** The signature every addon compiled against MTR calls; the braking rate defaults to the acceleration rate. */
 	public TrainServer(long id, long sidingId, float railLength, String trainId, String baseTrainType, int trainCars, List<PathData> path, List<Double> distances, int repeatIndex1, int repeatIndex2, float accelerationConstant, List<Siding.TimeSegment> timeSegments, boolean isManual, int maxManualSpeed, int manualToAutomaticTime) {
-		super(id, sidingId, railLength, trainId, baseTrainType, trainCars, path, distances, repeatIndex1, repeatIndex2, accelerationConstant, isManual, maxManualSpeed, manualToAutomaticTime);
+		this(id, sidingId, railLength, trainId, baseTrainType, trainCars, path, distances, repeatIndex1, repeatIndex2, accelerationConstant, accelerationConstant, timeSegments, isManual, maxManualSpeed, manualToAutomaticTime);
+	}
+
+	public TrainServer(long id, long sidingId, float railLength, String trainId, String baseTrainType, int trainCars, List<PathData> path, List<Double> distances, int repeatIndex1, int repeatIndex2, float accelerationConstant, float decelerationConstant, List<Siding.TimeSegment> timeSegments, boolean isManual, int maxManualSpeed, int manualToAutomaticTime) {
+		super(id, sidingId, railLength, trainId, baseTrainType, trainCars, path, distances, repeatIndex1, repeatIndex2, accelerationConstant, decelerationConstant, isManual, maxManualSpeed, manualToAutomaticTime);
 		this.timeSegments = timeSegments;
 	}
 
+	/** The signature every addon compiled against MTR calls; the braking rate defaults to the acceleration rate. */
 	public TrainServer(
 			long sidingId, float railLength, List<Siding.TimeSegment> timeSegments,
 			List<PathData> path, List<Double> distances, int repeatIndex1, int repeatIndex2,
 			float accelerationConstant, boolean isManual, int maxManualSpeed, int manualToAutomaticTime,
 			Map<String, Value> map
 	) {
-		super(sidingId, railLength, path, distances, repeatIndex1, repeatIndex2, accelerationConstant, isManual, maxManualSpeed, manualToAutomaticTime, map);
+		this(sidingId, railLength, timeSegments, path, distances, repeatIndex1, repeatIndex2, accelerationConstant, accelerationConstant, isManual, maxManualSpeed, manualToAutomaticTime, map);
+	}
+
+	public TrainServer(
+			long sidingId, float railLength, List<Siding.TimeSegment> timeSegments,
+			List<PathData> path, List<Double> distances, int repeatIndex1, int repeatIndex2,
+			float accelerationConstant, float decelerationConstant, boolean isManual, int maxManualSpeed, int manualToAutomaticTime,
+			Map<String, Value> map
+	) {
+		super(sidingId, railLength, path, distances, repeatIndex1, repeatIndex2, accelerationConstant, decelerationConstant, isManual, maxManualSpeed, manualToAutomaticTime, map);
 		this.timeSegments = timeSegments;
 	}
 
@@ -66,7 +82,17 @@ public class TrainServer extends Train {
 			float accelerationConstant, boolean isManual, int maxManualSpeed, int manualToAutomaticTime,
 			CompoundTag compoundTag
 	) {
-		super(sidingId, railLength, path, distances, repeatIndex1, repeatIndex2, accelerationConstant, isManual, maxManualSpeed, manualToAutomaticTime, compoundTag);
+		this(sidingId, railLength, timeSegments, path, distances, repeatIndex1, repeatIndex2, accelerationConstant, accelerationConstant, isManual, maxManualSpeed, manualToAutomaticTime, compoundTag);
+	}
+
+	@Deprecated
+	public TrainServer(
+			long sidingId, float railLength, List<Siding.TimeSegment> timeSegments,
+			List<PathData> path, List<Double> distances, int repeatIndex1, int repeatIndex2,
+			float accelerationConstant, float decelerationConstant, boolean isManual, int maxManualSpeed, int manualToAutomaticTime,
+			CompoundTag compoundTag
+	) {
+		super(sidingId, railLength, path, distances, repeatIndex1, repeatIndex2, accelerationConstant, decelerationConstant, isManual, maxManualSpeed, manualToAutomaticTime, compoundTag);
 		this.timeSegments = timeSegments;
 	}
 

@@ -122,6 +122,14 @@ export const DESCRIPTORS = {
 				read: (object, form) => formatDecimal((Number(object.accelerationConstant) || 0) * form.accelerationUnit, 3)
 			},
 			{
+				// The braking rate. Older payloads only ever carried the acceleration above, and the server
+				// treats a missing deceleration as "same as acceleration", so a page without this field still
+				// edits a siding the way it always did.
+				key: 'decelerationMetersPerSecondSquared', type: 'decimal', labelKey: 'fieldDeceleration',
+				min: 0.04, max: 20, hideWhenContinuous: true,
+				read: (object, form) => formatDecimal((Number(object.decelerationConstant) || 0) * form.accelerationUnit, 3)
+			},
+			{
 				key: 'dwellTimeSeconds', type: 'decimal', labelKey: 'fieldDrivableTimeout',
 				min: 0.5, max: 600, multipleOf: SAVED_RAIL_TIME_STEP, hideWhenContinuous: true,
 				visible: values => values.isManual === true
@@ -476,6 +484,10 @@ export function summarizeSavedRail(kind, object, context) {
 		const acceleration = Number(object.accelerationConstant);
 		if (Number.isFinite(acceleration)) {
 			parts.push(f('summaryAcceleration', formatDecimal(acceleration * normalized.accelerationUnit, 3)));
+		}
+		const deceleration = Number(object.decelerationConstant);
+		if (Number.isFinite(deceleration) && deceleration !== acceleration) {
+			parts.push(f('summaryDeceleration', formatDecimal(deceleration * normalized.accelerationUnit, 3)));
 		}
 		return parts.join(' · ');
 	}
