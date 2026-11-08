@@ -21,7 +21,8 @@ public class RenderDrivingOverlay implements IGui {
 	private static final int TOOL_SIZE = 96;
 	private static final int RADIUS = TOOL_SIZE / 2;
 
-	private static final int SPEEDOMETER_START_ANGLE = -60;
+	/** Screen-space angle of 0 km/h (lower left); the scale increases clockwise, leaving the gap at the bottom. */
+	private static final int SPEEDOMETER_START_ANGLE = 120;
 	private static final int SPEEDOMETER_SPAN = 300;
 
 	/**
