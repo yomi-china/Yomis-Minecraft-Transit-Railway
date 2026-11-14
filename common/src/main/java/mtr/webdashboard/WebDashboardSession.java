@@ -106,7 +106,11 @@ public final class WebDashboardSession {
 				.append("; SameSite=Strict")
 				.append("; Max-Age=").append(COOKIE_MAX_AGE_SECONDS);
 
-		if (WebDashboardSettings.get().isAllowLanAccess()) {
+		// Only mark the cookie Secure when the request really arrived over HTTPS. Tying this to
+		// allowLanAccess was wrong twice over: the LAN entry point is plain HTTP, and so is the client
+		// tunnel. A Secure cookie on a plain HTTP origin is simply not stored by most browsers, which
+		// looks exactly like a rejected sign-in.
+		if (request.isSecure()) {
 			cookie.append("; Secure");
 		}
 

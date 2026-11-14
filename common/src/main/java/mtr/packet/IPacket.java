@@ -22,6 +22,10 @@ public interface IPacket {
 	ResourceLocation PACKET_WEB_DASHBOARD_LOGIN_REQUEST = new ResourceLocation(MTR.MOD_ID, "web_dashboard_login_request");
 	ResourceLocation PACKET_WEB_DASHBOARD_LOGIN_TOKEN = new ResourceLocation(MTR.MOD_ID, "web_dashboard_login_token");
 
+	// Web dashboard API tunnel. Static assets are served by the client itself; only /api/* uses these.
+	ResourceLocation PACKET_WEB_DASHBOARD_TUNNEL_C2S = new ResourceLocation(MTR.MOD_ID, "web_dashboard_tunnel_c2s");
+	ResourceLocation PACKET_WEB_DASHBOARD_TUNNEL_S2C = new ResourceLocation(MTR.MOD_ID, "web_dashboard_tunnel_s2c");
+
 	ResourceLocation PACKET_ANNOUNCE = new ResourceLocation(MTR.MOD_ID, "packet_announce");
 	ResourceLocation PACKET_USE_TIME_AND_WIND_SYNC = new ResourceLocation(MTR.MOD_ID, "packet_use_time_and_wind_sync");
 

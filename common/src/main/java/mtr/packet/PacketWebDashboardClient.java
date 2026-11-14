@@ -7,6 +7,7 @@ import mtr.mappings.Text;
 import mtr.screen.WebDashboardUrlScreen;
 import mtr.webdashboard.WebDashboardRuntime;
 import mtr.webdashboard.WebDashboardServer;
+import mtr.webdashboard.tunnel.WebDashboardLocalProxy;
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.FriendlyByteBuf;
 
@@ -22,13 +23,22 @@ public class PacketWebDashboardClient implements IPacket {
 	/**
 	 * Requests a sign-in token for the local player.
 	 * <p>
-	 * Called from the dashboard button's click handler. Refuses early when the service is not
-	 * listening, rather than offering a link to a dead port.
+	 * Single player talks to the integrated server's Jetty directly, exactly as before. Multiplayer
+	 * needs the local proxy, because the server's Jetty is only reachable from the server machine;
+	 * the proxy serves the page itself and tunnels only API requests.
 	 */
 	public static void requestLoginToken() {
-		if (!WebDashboardRuntime.isRunning()) {
-			notifyPlayer(Text.translatable("gui.mtr.web_dashboard_not_running").getString());
-			return;
+		final Minecraft minecraft = Minecraft.getInstance();
+		if (minecraft.hasSingleplayerServer()) {
+			if (!WebDashboardRuntime.isRunning()) {
+				notifyPlayer(Text.translatable("gui.mtr.web_dashboard_not_running").getString());
+				return;
+			}
+		} else {
+			if (minecraft.getConnection() == null || !WebDashboardLocalProxy.ensureRunning()) {
+				notifyPlayer(Text.translatable("gui.mtr.web_dashboard_not_running").getString());
+				return;
+			}
 		}
 
 		final FriendlyByteBuf packet = new FriendlyByteBuf(Unpooled.buffer());
@@ -67,7 +77,23 @@ public class PacketWebDashboardClient implements IPacket {
 			// without the fragment the link would silently land read-only, which is worse than the token
 			// being in the clipboard. It is never drawn on screen, only put in the clipboard - see
 			// WebDashboardUrlScreen for why.
-			final String url = WebDashboardServer.getLoginUrl(token);
+			// Single player uses the integrated server's Jetty directly, so the address is the familiar
+			// http://127.0.0.1:8890/ one. Multiplayer cannot reach that port, so it uses the local
+			// proxy: the page is served from this jar and only /api/* is tunnelled.
+			final String url;
+			if (minecraftClient.hasSingleplayerServer()) {
+				if (!WebDashboardRuntime.isRunning()) {
+					notifyPlayer(Text.translatable("gui.mtr.web_dashboard_not_running").getString());
+					return;
+				}
+				url = WebDashboardServer.getLoginUrl(token);
+			} else {
+				if (!WebDashboardLocalProxy.isRunning()) {
+					notifyPlayer(Text.translatable("gui.mtr.web_dashboard_not_running").getString());
+					return;
+				}
+				url = WebDashboardLocalProxy.getLoginUrl(token);
+			}
 
 			minecraftClient.setScreen(new WebDashboardUrlScreen(url, url, previousScreen));
 		});

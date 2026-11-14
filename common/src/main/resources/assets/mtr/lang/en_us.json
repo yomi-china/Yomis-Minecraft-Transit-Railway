@@ -288,7 +288,7 @@
 	"gui.mtr.mismatched_versions_server_version": "Server Version: %s",
 	"gui.mtr.mismatched_versions_your_version": "Your Version: %s",
 	"gui.mtr.moving_only": "Moving Vehicles Only",
-	"gui.mtr.mtr_options": "Minecraft Transit Railway Options",
+	"gui.mtr.mtr_options": "Yomi's Minecraft Transit Railway Options",
 	"gui.mtr.name": "Name",
 	"gui.mtr.network_audio_failed": "Failed to play announcement audio: %s",
 	"gui.mtr.network_audio_invalid": "Audio data is invalid or corrupted",

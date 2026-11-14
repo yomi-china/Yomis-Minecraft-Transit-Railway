@@ -26,8 +26,6 @@ import org.eclipse.jetty.util.thread.QueuedThreadPool;
 
 public final class WebDashboardServer {
 
-	private static final String RESOURCE_ROOT = "/assets/mtr/webdashboard/";
-	private static final String INDEX_PAGE = "index.html";
 	private static final int THREAD_POOL_MAX = 40;
 	private static final int THREAD_POOL_MIN = 4;
 	private static final int THREAD_POOL_IDLE_TIMEOUT_MS = 120;
@@ -58,16 +56,16 @@ public final class WebDashboardServer {
 		final ServletContextHandler context = new ServletContextHandler();
 		newServer.setHandler(context);
 
-		final URL resourceRoot = MTR.class.getResource(RESOURCE_ROOT);
+		final URL resourceRoot = MTR.class.getResource(WebDashboardAssets.RESOURCE_ROOT);
 		if (resourceRoot == null) {
-			resourceDiagnostic = RESOURCE_ROOT + " is NOT on the classpath - the web assets did not reach the jar";
+			resourceDiagnostic = WebDashboardAssets.RESOURCE_ROOT + " is NOT on the classpath - the web assets did not reach the jar";
 			System.out.println("[MTR-WebDashboard] WARNING: " + resourceDiagnostic + ". Only the API endpoints will respond.");
 		} else {
 			try {
 				final Resource baseResource = Resource.newResource(resourceRoot.toURI());
 				context.setBaseResource(baseResource);
-				final Resource indexResource = baseResource.addPath(INDEX_PAGE);
-				resourceDiagnostic = baseResource + " (exists=" + baseResource.exists() + ", directory=" + baseResource.isDirectory() + ", " + INDEX_PAGE + "=" + indexResource.exists() + ")";
+				final Resource indexResource = baseResource.addPath(WebDashboardAssets.INDEX_PAGE);
+				resourceDiagnostic = baseResource + " (exists=" + baseResource.exists() + ", directory=" + baseResource.isDirectory() + ", " + WebDashboardAssets.INDEX_PAGE + "=" + indexResource.exists() + ")";
 				System.out.println("[MTR-WebDashboard] Resource root " + resourceDiagnostic);
 			} catch (Exception e) {
 				resourceDiagnostic = "could not resolve " + resourceRoot + ": " + e;
@@ -75,12 +73,12 @@ public final class WebDashboardServer {
 			}
 		}
 
-		context.setWelcomeFiles(new String[]{INDEX_PAGE});
+		context.setWelcomeFiles(new String[]{WebDashboardAssets.INDEX_PAGE});
 
 		final ServletHolder staticHolder = new ServletHolder("webdashboard-static", DefaultServlet.class);
 		staticHolder.setInitParameter("dirAllowed", "false");
 		staticHolder.setInitParameter("cacheControl", "no-store, no-cache, must-revalidate");
-		staticHolder.setInitParameter("welcomeFiles", INDEX_PAGE);
+		staticHolder.setInitParameter("welcomeFiles", WebDashboardAssets.INDEX_PAGE);
 
 		context.addServlet(new ServletHolder(new StatusServletHandler()), StatusServletHandler.PATH);
 		context.addServlet(new ServletHolder(new HealthServletHandler()), HealthServletHandler.PATH);

@@ -18,6 +18,7 @@ import mtr.webdashboard.WebDashboardPermissions;
 import mtr.webdashboard.WebDashboardRuntime;
 import mtr.webdashboard.WebDashboardServer;
 import mtr.webdashboard.WebDashboardTokenStore;
+import mtr.webdashboard.tunnel.WebDashboardTunnelServer;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
@@ -497,9 +498,16 @@ public class MTR implements IPacket {
 			// Drops any unused sign-in token, but keeps browser sessions: a session belongs to a browser
 			// and is not tied to the game being open. Access revocation is what ends sessions.
 			WebDashboardTokenStore.revokeLoginToken(player.getUUID());
+			// The API tunnel rides on this player's connection; once it is gone there is nothing to
+			// carry a response, so release the loopback sockets immediately.
+			if (!Keys.LIFTS_ONLY) {
+				WebDashboardTunnelServer.onPlayerQuit(player.getUUID());
+			}
 		});
 
 		if (!Keys.LIFTS_ONLY) {
+			// The tunnel only exists for the web dashboard, so it is registered together with it.
+			Registry.registerNetworkReceiver(PACKET_WEB_DASHBOARD_TUNNEL_C2S, (minecraftServer, player, packet) -> WebDashboardTunnelServer.handle(player, packet));
 			Webserver.init();
 			Registry.registerServerStartingEvent(minecraftServer -> {
 				Webserver.callback = minecraftServer::execute;
@@ -525,6 +533,8 @@ public class MTR implements IPacket {
 				// Cleared first, so anything still running cannot reach a stale player list or a half-torn-down
 				// world.
 				WebDashboardRuntime.setServer(null);
+				// The tunnel talks to the dashboard over loopback; close it before the Jetty it targets.
+				WebDashboardTunnelServer.stop();
 				Webserver.stop();
 				WebDashboardServer.stop();
 			});

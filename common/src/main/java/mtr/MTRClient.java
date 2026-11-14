@@ -45,6 +45,9 @@ import mtr.screen.RailDataEditorClient;
 import mtr.servlet.Webserver;
 import mtr.sound.LoopingSoundInstance;
 import mtr.webdashboard.WebDashboardServer;
+import mtr.webdashboard.tunnel.WebDashboardLocalProxy;
+import mtr.webdashboard.tunnel.WebDashboardTunnelClient;
+import mtr.webdashboard.tunnel.WebDashboardTunnelProtocol;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.RenderType;
 import net.minecraft.core.BlockPos;
@@ -72,14 +75,6 @@ public class MTRClient implements IPacket {
 	public static final int TICKS_PER_SPEED_SOUND = 4;
 	public static final LoopingSoundInstance TACTILE_MAP_SOUND_INSTANCE = new LoopingSoundInstance("tactile_map_music");
 	private static final int SAMPLE_MILLIS = 1000;
-
-	/**
-	 * Ticks to wait before the client tries to start the web dashboard service itself. The server
-	 * normally starts it well before this, and {@link WebDashboardServer#start()} is idempotent, so
-	 * this only matters if that path did not run.
-	 */
-	private static final int WEB_DASHBOARD_FALLBACK_TICKS = 60;
-	private static int webDashboardFallbackTicks = 0;
 
 	public static void init() {
 		if (!Keys.LIFTS_ONLY) {
@@ -287,6 +282,7 @@ public class MTRClient implements IPacket {
 		RegistryClient.registerNetworkReceiver(PACKET_CHUNK_S2C, packet -> PacketTrainDataGuiClient.receiveChunk(Minecraft.getInstance(), packet));
 		RegistryClient.registerNetworkReceiver(PACKET_OPEN_DASHBOARD_SCREEN, packet -> PacketTrainDataGuiClient.openDashboardScreenS2C(Minecraft.getInstance(), packet));
 		RegistryClient.registerNetworkReceiver(PACKET_WEB_DASHBOARD_LOGIN_TOKEN, packet -> PacketWebDashboardClient.openWebDashboard(Minecraft.getInstance(), packet));
+		RegistryClient.registerNetworkReceiver(PACKET_WEB_DASHBOARD_TUNNEL_S2C, WebDashboardTunnelClient::handle);
 		RegistryClient.registerNetworkReceiver(PACKET_OPEN_RAIL_DATA_EDITOR, packet -> RailDataEditorClient.open(packet.readBlockPos()));
 		RegistryClient.registerNetworkReceiver(PACKET_OPEN_PIDS_CONFIG_SCREEN, packet -> PacketTrainDataGuiClient.openPIDSConfigScreenS2C(Minecraft.getInstance(), packet));
 		RegistryClient.registerNetworkReceiver(PACKET_OPEN_ARRIVAL_PROJECTOR_CONFIG_SCREEN, packet -> PacketTrainDataGuiClient.openArrivalProjectorConfigScreenS2C(Minecraft.getInstance(), packet));
@@ -392,24 +388,20 @@ public class MTRClient implements IPacket {
 			Webserver.init();
 			Registry.registerPlayerQuitEvent(player -> Webserver.stop());
 
-			// The web dashboard is normally started by the server side, which in single player is the
-			// integrated server in this same JVM. This client-side attempt is a safety net so the
-			// button keeps working in setups where that event does not fire. start() is idempotent, so
-			// the two paths cannot produce a second listener; if they race, the loser's bind failure is
-			// reported and ignored inside WebDashboardServer.
+			// The client owns the multiplayer entry point: HTML/CSS/JS are served straight from this
+			// jar, and only /api/* is tunnelled. It is started on demand by the sign-in button, so it
+			// does not hold the dashboard port while a single-player world needs it.
 			// Registered straight through Architectury rather than the project's RegistryUtilitiesClient
 			// wrapper: that wrapper has no tick or stopping entry point on Fabric, and both loaders back
 			// these events.
-			ClientTickEvent.CLIENT_PRE.register(minecraft -> {
-				if (webDashboardFallbackTicks >= 0 && ++webDashboardFallbackTicks > WEB_DASHBOARD_FALLBACK_TICKS) {
-					webDashboardFallbackTicks = -1;
-					if (!WebDashboardServer.isRunning()) {
-						System.out.println("[MTR-WebDashboard] The server side did not start the service, starting it from the client.");
-						WebDashboardServer.loadSettingsAndStart(Minecraft.getInstance().gameDirectory.toPath().resolve("config"));
-					}
-				}
+			ClientTickEvent.CLIENT_PRE.register(minecraft -> WebDashboardTunnelClient.tick());
+			ClientLifecycleEvent.CLIENT_STOPPING.register(minecraft -> {
+				WebDashboardTunnelClient.closeAll(WebDashboardTunnelProtocol.CLOSE_PLAYER_DISCONNECTED);
+				WebDashboardLocalProxy.stop();
+				// Single player: the integrated server started this one; stopping it here is a safety
+				// net for a shutdown path where the server stopping event did not run.
+				WebDashboardServer.stop();
 			});
-			ClientLifecycleEvent.CLIENT_STOPPING.register(minecraft -> WebDashboardServer.stop());
 
 			BlockTactileMap.TileEntityTactileMap.updateSoundSource = TACTILE_MAP_SOUND_INSTANCE::setPos;
 			BlockTactileMap.TileEntityTactileMap.onUse = pos -> {
