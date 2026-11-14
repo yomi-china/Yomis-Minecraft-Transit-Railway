@@ -1,6 +1,7 @@
 package mtr.render;
 
 import com.mojang.blaze3d.vertex.VertexConsumer;
+import mtr.client.Config;
 import mtr.data.IGui;
 import mtr.data.RailwayData;
 import mtr.data.Train;
@@ -9,6 +10,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.client.renderer.RenderType;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.Mth;
 import org.joml.Matrix4f;
 
@@ -59,7 +61,26 @@ public class RenderDrivingOverlay implements IGui {
 	private static final float HUB_CORE_RADIUS = 1.9F;
 	private static final float HUB_OUTER_RADIUS = 2.5F;
 
+	private static final long RECOMMENDED_SPEED_INTERVAL_MS = 500;
+	private static final float RECOMMENDED_MARKER_TIP_RADIUS = RADIUS - 1.5F;
+	private static final float RECOMMENDED_MARKER_BASE_RADIUS = RADIUS - 8;
+	private static final float RECOMMENDED_MARKER_HALF_WIDTH = 2.2F;
+	private static final float RECOMMENDED_RED = 1;
+	private static final float RECOMMENDED_GREEN = 0.76F;
+	private static final float RECOMMENDED_BLUE = 0;
+
+	private static TrainClient recommendedSpeedTrain;
+	private static float previousRecommendedSpeed;
+	private static float currentRecommendedSpeed;
+	private static long recommendedSpeedSampleMillis;
+
 	private static final float MANUAL_TEXT_SCALE = 0.75F;
+
+	private static final ResourceLocation DOOR_OPEN_TEXTURE = new ResourceLocation("mtr", "textures/gui/door-open.png");
+	private static final ResourceLocation DOOR_CLOSE_TEXTURE = new ResourceLocation("mtr", "textures/gui/door-close.png");
+	private static final int DOOR_ICON_TEXTURE_SIZE = 64;
+	/** 64 * 0.25 = 16 gui units, the drawn part is about 10 units, comparable to the notch text. */
+	private static final float DOOR_ICON_SCALE = 0.25F;
 
 	private static final int PLATFORM_BAR_WIDTH = 6;
 	private static final int PLATFORM_BAR_HEIGHT = 120;
@@ -156,6 +177,11 @@ public class RenderDrivingOverlay implements IGui {
 		writeNeedle(consumer, pose, SPEEDOMETER_START_ANGLE + speedRatio * SPEEDOMETER_SPAN);
 		writeHub(consumer, pose);
 
+		if (Config.enableRecommendedSpeed()) {
+			final float recommendedRatio = Mth.clamp(getRecommendedSpeedKmh() / maxSpeedKmh, 0, 1);
+			writeRecommendedSpeedMarker(consumer, pose, SPEEDOMETER_START_ANGLE + recommendedRatio * SPEEDOMETER_SPAN);
+		}
+
 		drawSpeedLabels(guiGraphics, client, maxSpeedKmh);
 
 		poseStack.pushPose();
@@ -171,7 +197,7 @@ public class RenderDrivingOverlay implements IGui {
 
 		poseStack.pushPose();
 		poseStack.translate(RADIUS * 0.3F, -TOOL_SIZE * 0.1F, 0);
-		drawCenteredText(guiGraphics, client, doorValue > 0 ? "DO" : "DC", ARGB_WHITE);
+		drawDoorIcon(guiGraphics, doorValue > 0 ? DOOR_OPEN_TEXTURE : DOOR_CLOSE_TEXTURE);
 		poseStack.translate(0, 8, 0);
 		poseStack.scale(0.5F, 0.5F, 1);
 		drawCenteredText(guiGraphics, client, "(" + (int) (doorValue * 100) + "%)", ARGB_WHITE);
@@ -234,6 +260,15 @@ public class RenderDrivingOverlay implements IGui {
 			drawCenteredText(guiGraphics, client, "(" + powerPercent + "%)", notchColor);
 			poseStack.popPose();
 		}
+	}
+
+	private static void drawDoorIcon(GuiGraphics guiGraphics, ResourceLocation texture) {
+		final var poseStack = guiGraphics.pose();
+		poseStack.pushPose();
+		poseStack.scale(DOOR_ICON_SCALE, DOOR_ICON_SCALE, 1);
+		final int offset = -DOOR_ICON_TEXTURE_SIZE / 2;
+		guiGraphics.blit(texture, offset, offset, 0, 0, DOOR_ICON_TEXTURE_SIZE, DOOR_ICON_TEXTURE_SIZE, DOOR_ICON_TEXTURE_SIZE, DOOR_ICON_TEXTURE_SIZE);
+		poseStack.popPose();
 	}
 
 	private static void renderStationInfo(GuiGraphics guiGraphics, Minecraft client, int screenWidth, int screenHeight) {
@@ -376,6 +411,43 @@ public class RenderDrivingOverlay implements IGui {
 		writeRingBand(consumer, pose, HUB_CORE_RADIUS, HUB_OUTER_RADIUS, 1, 0, HUB_SEGMENTS, 1, 1, 1);
 	}
 
+	/**
+	 * The automatic driving speed for the current position, sampled every half second and interpolated in
+	 * between so the marker glides instead of jumping between samples. Only called while the overlay is
+	 * drawn, so no work is done for trains that are not being driven manually.
+	 */
+	private static float getRecommendedSpeedKmh() {
+		final long now = System.currentTimeMillis();
+		if (recommendedSpeedTrain != trainClient) {
+			recommendedSpeedTrain = trainClient;
+			previousRecommendedSpeed = currentRecommendedSpeed = trainClient.getRecommendedSpeed();
+			recommendedSpeedSampleMillis = now;
+		} else if (now - recommendedSpeedSampleMillis >= RECOMMENDED_SPEED_INTERVAL_MS) {
+			previousRecommendedSpeed = currentRecommendedSpeed;
+			currentRecommendedSpeed = trainClient.getRecommendedSpeed();
+			recommendedSpeedSampleMillis = now;
+		}
+		final float progress = Mth.clamp((now - recommendedSpeedSampleMillis) / (float) RECOMMENDED_SPEED_INTERVAL_MS, 0, 1);
+		return Mth.lerp(progress, previousRecommendedSpeed, currentRecommendedSpeed) * 20 * 3.6F;
+	}
+
+	private static void writeRecommendedSpeedMarker(VertexConsumer consumer, Matrix4f pose, float angleDegrees) {
+		final float radians = (float) Math.toRadians(angleDegrees);
+		final float cos = Mth.cos(radians);
+		final float sin = Mth.sin(radians);
+		final float normalX = -sin;
+		final float normalY = cos;
+
+		// A thin triangle hugging the inside of the ticks, pointing outwards.
+		writeQuad(consumer, pose,
+				cos * RECOMMENDED_MARKER_TIP_RADIUS, sin * RECOMMENDED_MARKER_TIP_RADIUS, 1,
+				cos * RECOMMENDED_MARKER_BASE_RADIUS - normalX * RECOMMENDED_MARKER_HALF_WIDTH, sin * RECOMMENDED_MARKER_BASE_RADIUS - normalY * RECOMMENDED_MARKER_HALF_WIDTH, 1,
+				cos * RECOMMENDED_MARKER_BASE_RADIUS + normalX * RECOMMENDED_MARKER_HALF_WIDTH, sin * RECOMMENDED_MARKER_BASE_RADIUS + normalY * RECOMMENDED_MARKER_HALF_WIDTH, 1,
+				cos * RECOMMENDED_MARKER_TIP_RADIUS, sin * RECOMMENDED_MARKER_TIP_RADIUS, 1,
+				RECOMMENDED_RED, RECOMMENDED_GREEN, RECOMMENDED_BLUE
+		);
+	}
+
 	private static void writeRingBand(VertexConsumer consumer, Matrix4f pose, float innerRadius, float outerRadius, float innerAlpha, float outerAlpha, int segments, float red, float green, float blue) {
 		for (int i = 0; i < segments; i++) {
 			final float angle1 = (float) (i * Math.PI * 2 / segments);
@@ -431,6 +503,9 @@ public class RenderDrivingOverlay implements IGui {
 	}
 
 	public static void setData(int accelerationSign, TrainClient trainClient) {
+		if (RenderDrivingOverlay.trainClient != trainClient) {
+			recommendedSpeedTrain = null;
+		}
 		RenderDrivingOverlay.trainClient = trainClient;
 		coolDown = 2;
 	}

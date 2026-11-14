@@ -425,6 +425,110 @@ public class TrainClient extends Train implements IGui {
 		return -1;
 	}
 
+	/**
+	 * The speed this train would be travelling at right now if the autopilot were driving it, in blocks per tick.
+	 * <p>
+	 * This is deliberately not the track speed limit. It is the speed profile the automatic driving logic would
+	 * produce at the current position on the current route, using this train's acceleration and braking rates:
+	 * <ul>
+	 *     <li>the speed limit of the rail the train is on (same lookup as the autopilot),</li>
+	 *     <li>the acceleration curve from the stop the train last departed, {@code v = sqrt(2 * a * s)},</li>
+	 *     <li>the braking curve towards the next stop, {@code v = sqrt(2 * b * s)},</li>
+	 *     <li>the braking envelope for slower limits ahead when predictive braking is enabled,</li>
+	 *     <li>the delayed acceleration limit when the train has not cleared slower rails yet.</li>
+	 * </ul>
+	 *
+	 * @return the recommended speed in blocks per tick
+	 */
+	public float getRecommendedSpeed() {
+		if (!isOnRoute || path.isEmpty() || distances.isEmpty()) {
+			return 0;
+		}
+
+		final int headIndex = getIndex(0, spacing, false);
+		if (headIndex < 0 || headIndex >= path.size()) {
+			return 0;
+		}
+
+		float recommendedSpeed = getRailSpeed(headIndex);
+
+		if (!transportMode.continuousMovement) {
+			// Acceleration curve from the last stop. v^2 = 2 * a * s.
+			final int departureIndex = getPreviousStopIndex(headIndex);
+			if (departureIndex >= 0) {
+				final double travelled = railProgress - distances.get(departureIndex);
+				if (travelled >= 0) {
+					recommendedSpeed = Math.min(recommendedSpeed, (float) Math.sqrt(2 * accelerationConstant * travelled));
+				}
+			}
+
+			// Braking curve towards the next stop. v^2 = 2 * b * s.
+			final int stopIndex = getRecommendedStopIndex(headIndex);
+			if (stopIndex >= 0) {
+				final double remaining = distances.get(stopIndex) - railProgress;
+				recommendedSpeed = Math.min(recommendedSpeed, (float) Math.sqrt(2 * decelerationConstant * Math.max(0, remaining)));
+			}
+		}
+
+		if (enablePredictiveBraking && !transportMode.continuousMovement) {
+			// Positional braking envelope: the highest speed that can still brake down to each slower limit ahead.
+			final float currentLimit = getRailSpeed(headIndex);
+			final double maxLookahead = 0.5 * currentLimit * currentLimit / decelerationConstant + 10;
+			double distanceToSegment = distances.get(headIndex) - railProgress;
+			for (int i = headIndex + 1; i < path.size() && distanceToSegment <= maxLookahead; i++) {
+				final RailType railType = path.get(i).rail.railType;
+				if (railType.canAccelerate) {
+					final float segmentSpeed = railType.maxBlocksPerTick;
+					recommendedSpeed = Math.min(recommendedSpeed, (float) Math.sqrt(segmentSpeed * segmentSpeed + 2 * decelerationConstant * Math.max(0, distanceToSegment)));
+				}
+				distanceToSegment += path.get(i).rail.getLength();
+			}
+		}
+
+		if (enableDelayedAcceleration && !transportMode.continuousMovement) {
+			// The autopilot holds acceleration back until the whole train has cleared slower rails.
+			float delayedSpeed = Float.MAX_VALUE;
+			final int tailIndex = getIndex(trainCars, spacing, false);
+			for (int i = Math.max(0, Math.min(tailIndex, headIndex)); i < headIndex; i++) {
+				final RailType railType = path.get(i).rail.railType;
+				if (railType.canAccelerate) {
+					delayedSpeed = Math.min(delayedSpeed, railType.maxBlocksPerTick);
+				}
+			}
+			recommendedSpeed = Math.min(recommendedSpeed, delayedSpeed);
+		}
+
+		return Math.max(0, recommendedSpeed);
+	}
+
+	/**
+	 * The index the autopilot would brake for: the synced next stopping index when it is still ahead of the train,
+	 * otherwise the next stop found by scanning the path (the client copy can briefly lag behind the server).
+	 */
+	private int getRecommendedStopIndex(int headIndex) {
+		if (nextStoppingIndex >= headIndex && nextStoppingIndex < path.size()) {
+			return nextStoppingIndex;
+		}
+		for (int i = headIndex; i < path.size(); i++) {
+			if (path.get(i).dwellTime > 0 || i == path.size() - 1) {
+				return i;
+			}
+		}
+		return -1;
+	}
+
+	/**
+	 * The last stop behind the train, or {@code -1} when the train has not left a stop on this route yet.
+	 */
+	private int getPreviousStopIndex(int headIndex) {
+		for (int i = Math.min(headIndex, path.size() - 1); i >= 0; i--) {
+			if (path.get(i).dwellTime > 0 && path.get(i).rail.railType == RailType.PLATFORM) {
+				return i;
+			}
+		}
+		return -1;
+	}
+
 	public void startRidingClient(UUID uuid, float percentageX, float percentageZ) {
 		final LocalPlayer player = Minecraft.getInstance().player;
 		if (player != null && player.getUUID().equals(uuid)) {
