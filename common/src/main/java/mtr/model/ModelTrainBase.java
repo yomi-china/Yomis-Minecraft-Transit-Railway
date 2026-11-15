@@ -60,24 +60,32 @@ public abstract class ModelTrainBase extends EntityModel<Entity> implements IGui
 		baseTransform(matrices);
 
 		if (isTranslucent) {
-			if (renderDetails) {
+			if (renderDetails && hasRenderStage(RenderStage.INTERIOR_TRANSLUCENT)) {
 				final RenderType renderLayerInteriorTranslucent = lightsOn ? MoreRenderLayers.getInteriorTranslucent(texture) : MoreRenderLayers.getExteriorTranslucent(texture);
 				render(matrices, vertexConsumers.getBuffer(renderLayerInteriorTranslucent), RenderStage.INTERIOR_TRANSLUCENT, lightOnInteriorLevel, doorLeftX, doorRightX, doorLeftZ, doorRightZ, currentCar, trainCars, head1IsFront, true);
 			}
 		} else {
-			final RenderType renderLayerLight = lightsOn ? MoreRenderLayers.getLight(texture, false) : MoreRenderLayers.getExterior(texture);
-			final RenderType renderLayerInterior = lightsOn ? MoreRenderLayers.getInterior(texture) : MoreRenderLayers.getExterior(texture);
-			render(matrices, vertexConsumers.getBuffer(renderLayerLight), RenderStage.LIGHTS, lightOnGlowingLevel, doorLeftX, doorRightX, doorLeftZ, doorRightZ, currentCar, trainCars, head1IsFront, renderDetails);
-			render(matrices, vertexConsumers.getBuffer(renderLayerInterior), RenderStage.INTERIOR, lightOnInteriorLevel, doorLeftX, doorRightX, doorLeftZ, doorRightZ, currentCar, trainCars, head1IsFront, renderDetails);
+			if (hasRenderStage(RenderStage.LIGHTS)) {
+				final RenderType renderLayerLight = lightsOn ? MoreRenderLayers.getLight(texture, false) : MoreRenderLayers.getExterior(texture);
+				render(matrices, vertexConsumers.getBuffer(renderLayerLight), RenderStage.LIGHTS, lightOnGlowingLevel, doorLeftX, doorRightX, doorLeftZ, doorRightZ, currentCar, trainCars, head1IsFront, renderDetails);
+			}
+			if (hasRenderStage(RenderStage.INTERIOR)) {
+				final RenderType renderLayerInterior = lightsOn ? MoreRenderLayers.getInterior(texture) : MoreRenderLayers.getExterior(texture);
+				render(matrices, vertexConsumers.getBuffer(renderLayerInterior), RenderStage.INTERIOR, lightOnInteriorLevel, doorLeftX, doorRightX, doorLeftZ, doorRightZ, currentCar, trainCars, head1IsFront, renderDetails);
+			}
 
 			if (renderDetails) {
 				renderExtraDetails(matrices, vertexConsumers, light, lightOnInteriorLevel, lightsOn, doorLeftX, doorRightX, doorLeftZ, doorRightZ);
 			}
 
-			render(matrices, vertexConsumers.getBuffer(MoreRenderLayers.getExterior(texture)), RenderStage.EXTERIOR, light, doorLeftX, doorRightX, doorLeftZ, doorRightZ, currentCar, trainCars, head1IsFront, renderDetails);
-			render(matrices, vertexConsumers.getBuffer(MoreRenderLayers.getLight(texture, true)), RenderStage.ALWAYS_ON_LIGHTS, MAX_LIGHT_GLOWING, doorLeftX, doorRightX, doorLeftZ, doorRightZ, currentCar, trainCars, head1IsFront, renderDetails);
+			if (hasRenderStage(RenderStage.EXTERIOR)) {
+				render(matrices, vertexConsumers.getBuffer(MoreRenderLayers.getExterior(texture)), RenderStage.EXTERIOR, light, doorLeftX, doorRightX, doorLeftZ, doorRightZ, currentCar, trainCars, head1IsFront, renderDetails);
+			}
+			if (hasRenderStage(RenderStage.ALWAYS_ON_LIGHTS)) {
+				render(matrices, vertexConsumers.getBuffer(MoreRenderLayers.getLight(texture, true)), RenderStage.ALWAYS_ON_LIGHTS, MAX_LIGHT_GLOWING, doorLeftX, doorRightX, doorLeftZ, doorRightZ, currentCar, trainCars, head1IsFront, renderDetails);
+			}
 
-			if (renderDetails) {
+			if (renderDetails && hasTextDisplays()) {
 				final TrainClient train = data instanceof TrainClient ? (TrainClient) data : null;
 				final MultiBufferSource.BufferSource immediate = MultiBufferSource.immediate(Tesselator.getInstance().getBuilder());
 				final Route thisRoute = train == null ? null : train.getThisRoute();
@@ -91,6 +99,23 @@ public abstract class ModelTrainBase extends EntityModel<Entity> implements IGui
 		}
 
 		matrices.popPose();
+	}
+
+	/**
+	 * Whether this model can produce geometry for the given render stage. Returning false lets the renderer skip
+	 * creating a vertex buffer and walking the model hierarchy for an empty stage. Defaults to true so that addon
+	 * models keep their existing behaviour.
+	 */
+	public boolean hasRenderStage(RenderStage renderStage) {
+		return true;
+	}
+
+	/**
+	 * Whether this model has any dynamic text display. When false the text buffer is not created at all.
+	 * Defaults to true so that addon models keep their existing behaviour.
+	 */
+	protected boolean hasTextDisplays() {
+		return true;
 	}
 
 	protected void renderExtraDetails(PoseStack matrices, MultiBufferSource vertexConsumers, int light, int lightOnInteriorLevel, boolean lightsOn, float doorLeftX, float doorRightX, float doorLeftZ, float doorRightZ) {

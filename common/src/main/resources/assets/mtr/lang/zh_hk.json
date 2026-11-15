@@ -597,6 +597,7 @@
 	"options.mtr.language_options_2": "非 CJK",
 	"options.mtr.off": "關閉",
 	"options.mtr.on": "開啓",
+	"options.mtr.redstone_door_control": "紅石控制屏蔽門",
 	"options.mtr.shift_to_toggle_sitting": "使用%s切換車上坐立姿勢",
 	"options.mtr.show_announcement_messages": "在聊天室顯示「下一站」信息",
 	"options.mtr.support_patreon": "在 Patreon 上贊助本模組！",

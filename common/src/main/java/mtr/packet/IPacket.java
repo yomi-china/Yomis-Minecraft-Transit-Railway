@@ -29,6 +29,11 @@ public interface IPacket {
 	ResourceLocation PACKET_ANNOUNCE = new ResourceLocation(MTR.MOD_ID, "packet_announce");
 	ResourceLocation PACKET_USE_TIME_AND_WIND_SYNC = new ResourceLocation(MTR.MOD_ID, "packet_use_time_and_wind_sync");
 
+	// Global redstone door control switch: S2C carries the world setting to the config screen,
+	// C2S applies a change made by an operator.
+	ResourceLocation PACKET_REDSTONE_DOOR_CONTROL_SYNC = new ResourceLocation(MTR.MOD_ID, "packet_redstone_door_control_sync");
+	ResourceLocation PACKET_REDSTONE_DOOR_CONTROL = new ResourceLocation(MTR.MOD_ID, "packet_redstone_door_control");
+
 	ResourceLocation PACKET_SERVER_AUDIO_REQUEST = new ResourceLocation(MTR.MOD_ID, "packet_server_audio_request");
 	ResourceLocation PACKET_SERVER_AUDIO_CHUNK = new ResourceLocation(MTR.MOD_ID, "packet_server_audio_chunk");
 

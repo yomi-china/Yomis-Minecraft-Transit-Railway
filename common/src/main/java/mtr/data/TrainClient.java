@@ -1,6 +1,7 @@
 package mtr.data;
 
 import mtr.MTRClient;
+import mtr.client.AnteCompat;
 import mtr.client.ClientData;
 import mtr.client.Config;
 import mtr.client.ScrollingText;
@@ -22,6 +23,7 @@ import net.minecraft.world.level.block.Block;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -53,10 +55,16 @@ public class TrainClient extends Train implements IGui {
 
 	public final TrainRendererBase trainRenderer;
 	public final TrainSoundBase trainSound;
+	public final TrainProperties trainProperties;
 	public final VehicleRidingClient vehicleRidingClient = new VehicleRidingClient(ridingEntities, PACKET_UPDATE_TRAIN_PASSENGER_POSITION);
 	public final List<ScrollingText> scrollingTexts = new ArrayList<>();
 
 	private final Set<Runnable> trainTranslucentRenders = new HashSet<>();
+	private final List<ConnectionCache> connectionCaches = new ArrayList<>();
+	private final List<TranslucentCarRender> translucentCarRenders = new ArrayList<>();
+	private long[] doorScanTicks = new long[0];
+	private boolean[] doorScanLeft = new boolean[0];
+	private boolean[] doorScanRight = new boolean[0];
 
 	private int scoringTargetStopIndex = -1;
 	private double scoringPeakSpeed;
@@ -71,7 +79,7 @@ public class TrainClient extends Train implements IGui {
 
 	public TrainClient(FriendlyByteBuf packet) {
 		super(packet);
-		final TrainProperties trainProperties = TrainClientRegistry.getTrainProperties(trainId);
+		trainProperties = TrainClientRegistry.getTrainProperties(trainId);
 		trainRenderer = trainProperties.renderer.createTrainInstance(this);
 		trainSound = trainProperties.sound.createTrainInstance(this);
 	}
@@ -100,39 +108,29 @@ public class TrainClient extends Train implements IGui {
 		final double newZ = carZ - offset.z;
 
 		doorOpening = doorValue > oldDoorValue;
+
+		final double renderRadius = Math.max(spacing, width) / 2D + 1;
+		final boolean forceVisible = isPlayerRiding(clientPlayer) || Minecraft.getInstance().gameRenderer.getMainCamera().isDetached();
+		TrainRendererBase.beginCar(getViewOffset(), newX, newY, newZ, renderRadius, forceVisible);
 		trainRenderer.renderCar(ridingCar, newX, newY, newZ, carYaw, carPitch, doorLeftOpen, doorRightOpen);
-		trainTranslucentRenders.add(() -> trainRenderer.renderCar(ridingCar, newX, newY, newZ, carYaw, carPitch, doorLeftOpen, doorRightOpen));
+
+		if (trainRenderer.hasTranslucentParts()) {
+			final TranslucentCarRender translucentCarRender = getTranslucentCarRender(ridingCar);
+			translucentCarRender.set(ridingCar, newX, newY, newZ, carYaw, carPitch, doorLeftOpen, doorRightOpen, renderRadius, forceVisible);
+			trainTranslucentRenders.add(translucentCarRender);
+		}
 
 		if (ridingCar > 0) {
-			final double newPrevCarX = prevCarX - offset.x;
-			final double newPrevCarY = prevCarY - offset.y;
-			final double newPrevCarZ = prevCarZ - offset.z;
-
-			final Vec3 prevPos0 = new Vec3(0, 0, spacing / 2D - 1).xRot(prevCarPitch).yRot(prevCarYaw).add(newPrevCarX, newPrevCarY, newPrevCarZ);
-			final Vec3 thisPos0 = new Vec3(0, 0, -(spacing / 2D - 1)).xRot(carPitch).yRot(carYaw).add(newX, newY, newZ);
-			final Vec3 connectPos = prevPos0.add(thisPos0).scale(0.5);
-			final float connectYaw = (float) Mth.atan2(thisPos0.x - prevPos0.x, thisPos0.z - prevPos0.z);
-			final double connectRealSpacing = thisPos0.distanceTo(prevPos0);
-			final float connectPitch = (float) asin((thisPos0.y - prevPos0.y) / connectRealSpacing);
+			final ConnectionCache connectionCache = getConnectionCache(ridingCar);
+			connectionCache.update(world, prevCarX, prevCarY, prevCarZ, prevCarYaw, prevCarPitch, newX, newY, newZ, carYaw, carPitch, offset);
 
 			for (int i = 0; i < 2; i++) {
-				final double xStart = width / 2D + (i == 0 ? -1 : 0.5) * CONNECTION_X_OFFSET;
-				final double zStart = spacing / 2D - (i == 0 ? 1 : 2) * CONNECTION_Z_OFFSET;
-
-				final Vec3 prevPos1 = new Vec3(xStart, SMALL_OFFSET, zStart).xRot(prevCarPitch).yRot(prevCarYaw).add(newPrevCarX, newPrevCarY, newPrevCarZ);
-				final Vec3 prevPos2 = new Vec3(xStart, CONNECTION_HEIGHT + SMALL_OFFSET, zStart).xRot(prevCarPitch).yRot(prevCarYaw).add(newPrevCarX, newPrevCarY, newPrevCarZ);
-				final Vec3 prevPos3 = new Vec3(-xStart, CONNECTION_HEIGHT + SMALL_OFFSET, zStart).xRot(prevCarPitch).yRot(prevCarYaw).add(newPrevCarX, newPrevCarY, newPrevCarZ);
-				final Vec3 prevPos4 = new Vec3(-xStart, SMALL_OFFSET, zStart).xRot(prevCarPitch).yRot(prevCarYaw).add(newPrevCarX, newPrevCarY, newPrevCarZ);
-
-				final Vec3 thisPos1 = new Vec3(-xStart, SMALL_OFFSET, -zStart).xRot(carPitch).yRot(carYaw).add(newX, newY, newZ);
-				final Vec3 thisPos2 = new Vec3(-xStart, CONNECTION_HEIGHT + SMALL_OFFSET, -zStart).xRot(carPitch).yRot(carYaw).add(newX, newY, newZ);
-				final Vec3 thisPos3 = new Vec3(xStart, CONNECTION_HEIGHT + SMALL_OFFSET, -zStart).xRot(carPitch).yRot(carYaw).add(newX, newY, newZ);
-				final Vec3 thisPos4 = new Vec3(xStart, SMALL_OFFSET, -zStart).xRot(carPitch).yRot(carYaw).add(newX, newY, newZ);
-
+				final Vec3[] points = connectionCache.points[i];
+				TrainRendererBase.beginCar(getViewOffset(), points[0].x, points[0].y, points[0].z, renderRadius, forceVisible);
 				if (i == 0) {
-					trainRenderer.renderConnection(prevPos1, prevPos2, prevPos3, prevPos4, thisPos1, thisPos2, thisPos3, thisPos4, connectPos.x, connectPos.y, connectPos.z, connectYaw, connectPitch);
+					trainRenderer.renderConnection(points[1], points[2], points[3], points[4], points[5], points[6], points[7], points[8], points[0].x, points[0].y, points[0].z, connectionCache.connectYaw, connectionCache.connectPitch);
 				} else {
-					trainRenderer.renderBarrier(prevPos1, prevPos2, prevPos3, prevPos4, thisPos1, thisPos2, thisPos3, thisPos4, connectPos.x, connectPos.y, connectPos.z, connectYaw, connectPitch);
+					trainRenderer.renderBarrier(points[1], points[2], points[3], points[4], points[5], points[6], points[7], points[8], points[0].x, points[0].y, points[0].z, connectionCache.connectYaw, connectionCache.connectPitch);
 				}
 			}
 		}
@@ -546,6 +544,10 @@ public class TrainClient extends Train implements IGui {
 		path.clear();
 		distances.clear();
 		ridingEntities.clear();
+		invalidatePositionCache();
+		connectionCaches.clear();
+		translucentCarRenders.clear();
+		Arrays.fill(doorScanTicks, Long.MIN_VALUE);
 
 		path.addAll(train.path);
 		distances.addAll(train.distances);
@@ -639,6 +641,167 @@ public class TrainClient extends Train implements IGui {
 			}
 		}
 		return 0;
+	}
+
+	@Override
+	protected boolean scanDoorsForRender(Level world, double trainX, double trainY, double trainZ, float checkYaw, float pitch, double halfSpacing, int dwellTicks, int carIndex, int side, float doorValue) {
+		if (doorValue <= 0 && !AnteCompat.isInstalled()) {
+			return false;
+		}
+		final int cacheIndex = carIndex * 2 + side;
+		if (cacheIndex < 0) {
+			return super.scanDoorsForRender(world, trainX, trainY, trainZ, checkYaw, pitch, halfSpacing, dwellTicks, carIndex, side, doorValue);
+		}
+		ensureDoorScanCacheSize(carIndex + 1);
+		final long tick = world.getGameTime();
+		if (doorScanTicks[cacheIndex] == tick) {
+			return side == 0 ? doorScanLeft[cacheIndex] : doorScanRight[cacheIndex];
+		}
+		final boolean result = super.scanDoorsForRender(world, trainX, trainY, trainZ, checkYaw, pitch, halfSpacing, dwellTicks, carIndex, side, doorValue);
+		doorScanTicks[cacheIndex] = tick;
+		if (side == 0) {
+			doorScanLeft[cacheIndex] = result;
+		} else {
+			doorScanRight[cacheIndex] = result;
+		}
+		return result;
+	}
+
+	private void ensureDoorScanCacheSize(int cars) {
+		final int required = cars * 2;
+		if (doorScanTicks.length < required) {
+			final int oldLength = doorScanTicks.length;
+			doorScanTicks = Arrays.copyOf(doorScanTicks, required);
+			doorScanLeft = Arrays.copyOf(doorScanLeft, required);
+			doorScanRight = Arrays.copyOf(doorScanRight, required);
+			Arrays.fill(doorScanTicks, oldLength, required, Long.MIN_VALUE);
+		}
+	}
+
+	private ConnectionCache getConnectionCache(int carIndex) {
+		while (connectionCaches.size() <= carIndex) {
+			connectionCaches.add(new ConnectionCache());
+		}
+		return connectionCaches.get(carIndex);
+	}
+
+	private TranslucentCarRender getTranslucentCarRender(int carIndex) {
+		while (translucentCarRenders.size() <= carIndex) {
+			translucentCarRenders.add(new TranslucentCarRender());
+		}
+		return translucentCarRenders.get(carIndex);
+	}
+
+	/**
+	 * Computes the connection anchor points at most once per game tick (the inputs only change once per tick).
+	 */
+	private final class ConnectionCache {
+
+		private final Vec3[][] points = new Vec3[2][9];
+		private long tick = Long.MIN_VALUE;
+		private double offsetX;
+		private double offsetY;
+		private double offsetZ;
+		private double prevCarX;
+		private double prevCarY;
+		private double prevCarZ;
+		private double carX;
+		private double carY;
+		private double carZ;
+		private float prevCarYaw;
+		private float prevCarPitch;
+		private float carYaw;
+		private float carPitch;
+		private float connectYaw;
+		private float connectPitch;
+
+		private void update(Level world, double prevCarX, double prevCarY, double prevCarZ, float prevCarYaw, float prevCarPitch, double carX, double carY, double carZ, float carYaw, float carPitch, Vec3 offset) {
+			final long gameTime = world.getGameTime();
+			if (tick == gameTime
+					&& offsetX == offset.x && offsetY == offset.y && offsetZ == offset.z
+					&& this.prevCarX == prevCarX && this.prevCarY == prevCarY && this.prevCarZ == prevCarZ
+					&& this.prevCarYaw == prevCarYaw && this.prevCarPitch == prevCarPitch
+					&& this.carX == carX && this.carY == carY && this.carZ == carZ
+					&& this.carYaw == carYaw && this.carPitch == carPitch) {
+				return;
+			}
+
+			this.offsetX = offset.x;
+			this.offsetY = offset.y;
+			this.offsetZ = offset.z;
+			this.prevCarX = prevCarX;
+			this.prevCarY = prevCarY;
+			this.prevCarZ = prevCarZ;
+			this.carX = carX;
+			this.carY = carY;
+			this.carZ = carZ;
+			this.prevCarYaw = prevCarYaw;
+			this.prevCarPitch = prevCarPitch;
+			this.carYaw = carYaw;
+			this.carPitch = carPitch;
+
+			final double newPrevCarX = prevCarX - offset.x;
+			final double newPrevCarY = prevCarY - offset.y;
+			final double newPrevCarZ = prevCarZ - offset.z;
+
+			final Vec3 prevPos0 = new Vec3(0, 0, spacing / 2D - 1).xRot(prevCarPitch).yRot(prevCarYaw).add(newPrevCarX, newPrevCarY, newPrevCarZ);
+			final Vec3 thisPos0 = new Vec3(0, 0, -(spacing / 2D - 1)).xRot(carPitch).yRot(carYaw).add(carX, carY, carZ);
+			final Vec3 connectPos = prevPos0.add(thisPos0).scale(0.5);
+			connectYaw = (float) Mth.atan2(thisPos0.x - prevPos0.x, thisPos0.z - prevPos0.z);
+			final double connectRealSpacing = thisPos0.distanceTo(prevPos0);
+			connectPitch = (float) asin((thisPos0.y - prevPos0.y) / connectRealSpacing);
+
+			for (int i = 0; i < 2; i++) {
+				final Vec3[] variant = points[i];
+				final double xStart = width / 2D + (i == 0 ? -1 : 0.5) * CONNECTION_X_OFFSET;
+				final double zStart = spacing / 2D - (i == 0 ? 1 : 2) * CONNECTION_Z_OFFSET;
+
+				variant[0] = connectPos;
+				variant[1] = new Vec3(xStart, SMALL_OFFSET, zStart).xRot(prevCarPitch).yRot(prevCarYaw).add(newPrevCarX, newPrevCarY, newPrevCarZ);
+				variant[2] = new Vec3(xStart, CONNECTION_HEIGHT + SMALL_OFFSET, zStart).xRot(prevCarPitch).yRot(prevCarYaw).add(newPrevCarX, newPrevCarY, newPrevCarZ);
+				variant[3] = new Vec3(-xStart, CONNECTION_HEIGHT + SMALL_OFFSET, zStart).xRot(prevCarPitch).yRot(prevCarYaw).add(newPrevCarX, newPrevCarY, newPrevCarZ);
+				variant[4] = new Vec3(-xStart, SMALL_OFFSET, zStart).xRot(prevCarPitch).yRot(prevCarYaw).add(newPrevCarX, newPrevCarY, newPrevCarZ);
+				variant[5] = new Vec3(-xStart, SMALL_OFFSET, -zStart).xRot(carPitch).yRot(carYaw).add(carX, carY, carZ);
+				variant[6] = new Vec3(-xStart, CONNECTION_HEIGHT + SMALL_OFFSET, -zStart).xRot(carPitch).yRot(carYaw).add(carX, carY, carZ);
+				variant[7] = new Vec3(xStart, CONNECTION_HEIGHT + SMALL_OFFSET, -zStart).xRot(carPitch).yRot(carYaw).add(carX, carY, carZ);
+				variant[8] = new Vec3(xStart, SMALL_OFFSET, -zStart).xRot(carPitch).yRot(carYaw).add(carX, carY, carZ);
+			}
+
+			tick = gameTime;
+		}
+	}
+
+	private final class TranslucentCarRender implements Runnable {
+
+		private int carIndex;
+		private double x;
+		private double y;
+		private double z;
+		private float yaw;
+		private float pitch;
+		private boolean doorLeftOpen;
+		private boolean doorRightOpen;
+		private double radius;
+		private boolean forceVisible;
+
+		private void set(int carIndex, double x, double y, double z, float yaw, float pitch, boolean doorLeftOpen, boolean doorRightOpen, double radius, boolean forceVisible) {
+			this.carIndex = carIndex;
+			this.x = x;
+			this.y = y;
+			this.z = z;
+			this.yaw = yaw;
+			this.pitch = pitch;
+			this.doorLeftOpen = doorLeftOpen;
+			this.doorRightOpen = doorRightOpen;
+			this.radius = radius;
+			this.forceVisible = forceVisible;
+		}
+
+		@Override
+		public void run() {
+			TrainRendererBase.beginCar(getViewOffset(), x, y, z, radius, forceVisible);
+			trainRenderer.renderCar(carIndex, x, y, z, yaw, pitch, doorLeftOpen, doorRightOpen);
+		}
 	}
 
 	@FunctionalInterface

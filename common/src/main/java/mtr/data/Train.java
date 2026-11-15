@@ -81,6 +81,7 @@ public abstract class Train extends NameColorDataBase implements IPacket {
 	protected final SimpleContainer inventory;
 
 	private final float railLength;
+	private Vec3[] cachedPositions;
 
 	public static final float ACCELERATION_DEFAULT = 0.01F; // m/tick^2
 	public static final float MAX_ACCELERATION = 0.05F; // m/tick^2
@@ -889,9 +890,16 @@ public abstract class Train extends NameColorDataBase implements IPacket {
 			}
 
 			if (!path.isEmpty()) {
-				final Vec3[] positions = new Vec3[trainCars + 1];
-				for (int i = 0; i <= trainCars; i++) {
-					positions[i] = getRoutePosition(reversed ? trainCars - i : i, spacing);
+				final Vec3[] positions;
+				if (cachedPositions != null && cachedPositions.length == trainCars + 1 && ticksElapsed == 0) {
+					positions = cachedPositions;
+				} else {
+					final Vec3[] newPositions = new Vec3[trainCars + 1];
+					for (int i = 0; i <= trainCars; i++) {
+						newPositions[i] = getRoutePosition(reversed ? trainCars - i : i, spacing);
+					}
+					cachedPositions = newPositions;
+					positions = newPositions;
 				}
 
 				if (handlePositions(world, positions, ticksElapsed)) {
@@ -962,8 +970,8 @@ public abstract class Train extends NameColorDataBase implements IPacket {
 			final double realSpacing = pos2.distanceTo(pos1);
 			final float yaw = (float) Mth.atan2(pos2.x - pos1.x, pos2.z - pos1.z);
 			final float pitch = realSpacing == 0 ? 0 : (float) asin((pos2.y - pos1.y) / realSpacing);
-			final boolean doorLeftOpen = scanDoors(world, x, y, z, (float) Math.PI + yaw, pitch, realSpacing / 2, dwellTicks) && doorValue > 0;
-			final boolean doorRightOpen = scanDoors(world, x, y, z, yaw, pitch, realSpacing / 2, dwellTicks) && doorValue > 0;
+			final boolean doorLeftOpen = scanDoorsForRender(world, x, y, z, (float) Math.PI + yaw, pitch, realSpacing / 2, dwellTicks, index, 0, doorValue) && doorValue > 0;
+			final boolean doorRightOpen = scanDoorsForRender(world, x, y, z, yaw, pitch, realSpacing / 2, dwellTicks, index, 1, doorValue) && doorValue > 0;
 
 			calculateCarCallback.calculateCarCallback(x, y, z, yaw, pitch, realSpacing, doorLeftOpen, doorRightOpen);
 		}
@@ -984,6 +992,10 @@ public abstract class Train extends NameColorDataBase implements IPacket {
 
 	protected float getModelZOffset() {
 		return 0;
+	}
+
+	protected final void invalidatePositionCache() {
+		cachedPositions = null;
 	}
 
 	protected boolean isRepeat() {
@@ -1074,6 +1086,14 @@ public abstract class Train extends NameColorDataBase implements IPacket {
 		final double tempRailProgress = Math.max(getRailProgress(car, trainSpacing) - getModelZOffset(), 0);
 		final int index = getIndex(tempRailProgress, false);
 		return path.get(index).rail.getPosition(tempRailProgress - (index == 0 ? 0 : distances.get(index - 1))).add(0, transportMode.railOffset, 0);
+	}
+
+	/**
+	 * Rendering-side door scan hook. The default implementation always scans (server behaviour is unchanged);
+	 * the client overrides this to merge repeated scans within the same game tick.
+	 */
+	protected boolean scanDoorsForRender(Level world, double trainX, double trainY, double trainZ, float checkYaw, float pitch, double halfSpacing, int dwellTicks, int carIndex, int side, float doorValue) {
+		return scanDoors(world, trainX, trainY, trainZ, checkYaw, pitch, halfSpacing, dwellTicks);
 	}
 
 	private boolean scanDoors(Level world, double trainX, double trainY, double trainZ, float checkYaw, float pitch, double halfSpacing, int dwellTicks) {

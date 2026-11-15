@@ -89,6 +89,12 @@ public class PacketTrainDataGuiServer extends PacketTrainDataBase {
 		Registry.sendToPlayer(player, PACKET_OPEN_DASHBOARD_SCREEN, packet);
 	}
 
+	public static void updateRedstoneDoorControlS2C(ServerPlayer player, boolean redstoneDoorControl) {
+		final FriendlyByteBuf packet = new FriendlyByteBuf(Unpooled.buffer());
+		packet.writeBoolean(redstoneDoorControl);
+		Registry.sendToPlayer(player, PACKET_REDSTONE_DOOR_CONTROL_SYNC, packet);
+	}
+
 	public static void openRailwaySignScreenS2C(ServerPlayer player, BlockPos signPos) {
 		final FriendlyByteBuf packet = new FriendlyByteBuf(Unpooled.buffer());
 		packet.writeBlockPos(signPos);
@@ -593,6 +599,24 @@ public class PacketTrainDataGuiServer extends PacketTrainDataBase {
 				railwayData.setUseTimeAndWindSync(useTimeAndWindSync);
 				final String key = "\"use_time_and_wind_sync\":";
 				railwayData.railwayDataLoggingModule.addEvent(player, RailwayData.class, Collections.singletonList(key + useTimeAndWindSyncOld), Collections.singletonList(key + useTimeAndWindSync));
+			});
+		}
+	}
+
+	public static void receiveRedstoneDoorControlC2S(MinecraftServer minecraftServer, ServerPlayer player, FriendlyByteBuf packet) {
+		if (RailwayData.hasNoPermission(player) || !player.hasPermissions(1)) {
+			return;
+		}
+
+		final Level world = player.level();
+		final RailwayData railwayData = RailwayData.getInstance(world);
+		if (railwayData != null) {
+			final boolean redstoneDoorControl = packet.readBoolean();
+			minecraftServer.execute(() -> {
+				final boolean redstoneDoorControlOld = railwayData.getRedstoneDoorControl();
+				railwayData.setRedstoneDoorControl(redstoneDoorControl);
+				final String key = "\"redstone_door_control\":";
+				railwayData.railwayDataLoggingModule.addEvent(player, RailwayData.class, Collections.singletonList(key + redstoneDoorControlOld), Collections.singletonList(key + redstoneDoorControl));
 			});
 		}
 	}

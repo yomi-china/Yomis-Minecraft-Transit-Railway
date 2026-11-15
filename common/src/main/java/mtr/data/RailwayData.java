@@ -73,6 +73,13 @@ public class RailwayData extends PersistentStateMapper implements IPacket {
 	private int prevSidingCount;
 	private boolean useTimeAndWindSync;
 
+	/**
+	 * Global redstone door control switch. Kept static so that door block entities can read it
+	 * once per tick without touching the (per-dimension) saved data. It is loaded from and saved
+	 * to the world's {@link RailwayData}; worlds that predate this option default to enabled.
+	 */
+	private static boolean redstoneDoorControlEnabled = true;
+
 	private final Level world;
 	private final Map<BlockPos, Map<BlockPos, Rail>> rails = new HashMap<>();
 	private final SignalBlocks signalBlocks = new SignalBlocks();
@@ -107,10 +114,14 @@ public class RailwayData extends PersistentStateMapper implements IPacket {
 	private static final String KEY_RAILS = "rails";
 	private static final String KEY_SIGNAL_BLOCKS = "signal_blocks";
 	private static final String KEY_USE_TIME_AND_WIND_SYNC = "use_time_and_wind_sync";
+	private static final String KEY_REDSTONE_DOOR_CONTROL = "redstone_door_control";
 
 	public RailwayData(Level world) {
 		super(NAME);
 		this.world = world;
+		// A brand new world does not go through load(), so reset the shared switch to its default
+		// here; loading an existing world overwrites this right after construction.
+		redstoneDoorControlEnabled = true;
 
 		trainPositions.add(new HashMap<>());
 		trainPositions.add(new HashMap<>());
@@ -243,6 +254,7 @@ public class RailwayData extends PersistentStateMapper implements IPacket {
 		signalBlocks.writeCache();
 
 		useTimeAndWindSync = compoundTag.getBoolean(KEY_USE_TIME_AND_WIND_SYNC);
+		redstoneDoorControlEnabled = !compoundTag.contains(KEY_REDSTONE_DOOR_CONTROL) || compoundTag.getBoolean(KEY_REDSTONE_DOOR_CONTROL);
 		runRealTimeSync();
 
 		try {
@@ -281,6 +293,7 @@ public class RailwayData extends PersistentStateMapper implements IPacket {
 	@Override
 	public CompoundTag save(CompoundTag compoundTag) {
 		compoundTag.putBoolean(KEY_USE_TIME_AND_WIND_SYNC, useTimeAndWindSync);
+		compoundTag.putBoolean(KEY_REDSTONE_DOOR_CONTROL, redstoneDoorControlEnabled);
 		return compoundTag;
 	}
 
@@ -513,6 +526,19 @@ public class RailwayData extends PersistentStateMapper implements IPacket {
 	public void setUseTimeAndWindSync(boolean useTimeAndWindSync) {
 		this.useTimeAndWindSync = useTimeAndWindSync;
 		runRealTimeSync();
+	}
+
+	public boolean getRedstoneDoorControl() {
+		return redstoneDoorControlEnabled;
+	}
+
+	public void setRedstoneDoorControl(boolean redstoneDoorControl) {
+		redstoneDoorControlEnabled = redstoneDoorControl;
+		setDirty();
+	}
+
+	public static boolean isRedstoneDoorControlEnabled() {
+		return redstoneDoorControlEnabled;
 	}
 
 	private void sendRailsInChunks(ServerPlayer player, Map<BlockPos, Map<BlockPos, Rail>> railsToAdd) {

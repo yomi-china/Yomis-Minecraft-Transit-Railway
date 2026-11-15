@@ -21,6 +21,7 @@ import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.renderer.MultiBufferSource;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -43,6 +44,12 @@ public class DynamicTrainModel extends ModelTrainBase implements IResourcePackCr
 	public final JsonObject properties;
 	public final int doorMax;
 	private final Map<String, Boolean> whitelistBlacklistCache = new HashMap<>();
+
+	private JsonArray precomputedPartsArray;
+	private boolean precomputed;
+	private boolean precomputeUnsupported;
+	private RenderPart[][] stageParts;
+	private boolean hasTextDisplaysCache;
 
 	public DynamicTrainModel(JsonObject model, JsonObject properties, DoorAnimationType doorAnimationType) {
 		super(doorAnimationType, false);
@@ -132,6 +139,41 @@ public class DynamicTrainModel extends ModelTrainBase implements IResourcePackCr
 		this.doorRightZ = doorRightZ;
 		this.head1IsFront = head1IsFront;
 
+		if (!ensurePrecomputed()) {
+			renderUncached(matrices, vertices, renderStage, light, currentCar, trainCars, renderDetails);
+			return;
+		}
+
+		final RenderPart[] partsForStage = stageParts[renderStage.ordinal()];
+		for (final RenderPart renderPart : partsForStage) {
+			if (renderPart.part == null) {
+				continue;
+			}
+			if (!renderDetails && renderPart.skipRenderingIfTooFar) {
+				continue;
+			}
+			if (shouldSkipRender(renderPart.renderCondition)) {
+				continue;
+			}
+			if (renderPart.shouldSkipCar(currentCar, trainCars)) {
+				continue;
+			}
+
+			final float xOffset = getOffsetX(renderPart.doorOffset);
+			final float zOffset = getOffsetZ(renderPart.doorOffset);
+			for (int i = 0; i < renderPart.positionsX.length; i++) {
+				final float x = renderPart.positionsX[i];
+				final float z = renderPart.positionsZ[i];
+				if (renderPart.mirror) {
+					renderOnceFlipped(renderPart.part, matrices, vertices, light, x - xOffset, z - zOffset);
+				} else {
+					renderOnce(renderPart.part, matrices, vertices, light, x + xOffset, z + zOffset);
+				}
+			}
+		}
+	}
+
+	private void renderUncached(PoseStack matrices, VertexConsumer vertices, RenderStage renderStage, int light, int currentCar, int trainCars, boolean renderDetails) {
 		iterateParts(currentCar, trainCars, partObject -> {
 			if (!renderDetails && partObject.get(KEY_PROPERTIES_SKIP_RENDERING_IF_TOO_FAR).getAsBoolean() || !renderStage.toString().equals(partObject.get(KEY_PROPERTIES_STAGE).getAsString().toUpperCase(Locale.ENGLISH)) || shouldSkipRender(partObject)) {
 				return;
@@ -154,6 +196,103 @@ public class DynamicTrainModel extends ModelTrainBase implements IResourcePackCr
 				});
 			}
 		});
+	}
+
+	@Override
+	public boolean hasRenderStage(RenderStage renderStage) {
+		if (!ensurePrecomputed()) {
+			return true;
+		}
+		return stageParts[renderStage.ordinal()].length > 0;
+	}
+
+	@Override
+	protected boolean hasTextDisplays() {
+		if (!ensurePrecomputed()) {
+			return true;
+		}
+		return hasTextDisplaysCache;
+	}
+
+	/**
+	 * Lazily builds a per-render-stage description of the JSON parts. This has to be lazy: ANTE injects into the
+	 * constructor at TAIL and replaces {@code parts} / the parts array, and the resource pack creator may edit the
+	 * properties. The parts array identity is used as a cheap version fingerprint.
+	 */
+	private boolean ensurePrecomputed() {
+		if (precomputeUnsupported) {
+			return false;
+		}
+		final JsonArray partsArray;
+		try {
+			partsArray = properties.getAsJsonArray(KEY_PROPERTIES_PARTS);
+		} catch (Exception e) {
+			precomputeUnsupported = true;
+			return false;
+		}
+		if (precomputed && precomputedPartsArray == partsArray) {
+			return true;
+		}
+
+		try {
+			final List<List<RenderPart>> byStage = new ArrayList<>();
+			for (int i = 0; i < RenderStage.values().length; i++) {
+				byStage.add(new ArrayList<>());
+			}
+			boolean anyTextDisplays = false;
+
+			for (final JsonElement element : partsArray) {
+				final JsonObject partObject = element.getAsJsonObject();
+				final String partName = partObject.get(KEY_PROPERTIES_NAME).getAsString();
+				final Object partValue = parts.get(partName);
+				if (partValue != null && !(partValue instanceof ModelMapper)) {
+					precomputeUnsupported = true;
+					precomputed = false;
+					return false;
+				}
+
+				final RenderStage stage = parseRenderStage(partObject.get(KEY_PROPERTIES_STAGE).getAsString());
+				if (stage == null) {
+					continue;
+				}
+				final ResourcePackCreatorProperties.RenderCondition renderCondition = EnumHelper.valueOf(ResourcePackCreatorProperties.RenderCondition.ALL, partObject.get(KEY_PROPERTIES_RENDER_CONDITION).getAsString());
+				final ResourcePackCreatorProperties.DoorOffset doorOffset = EnumHelper.valueOf(ResourcePackCreatorProperties.DoorOffset.NONE, partObject.get(KEY_PROPERTIES_DOOR_OFFSET).getAsString());
+				final boolean mirror = partObject.get(KEY_PROPERTIES_MIRROR).getAsBoolean();
+				final boolean skipRenderingIfTooFar = partObject.get(KEY_PROPERTIES_SKIP_RENDERING_IF_TOO_FAR).getAsBoolean();
+				final JsonArray positionsArray = partObject.getAsJsonArray(KEY_PROPERTIES_POSITIONS);
+				final float[] positionsX = new float[positionsArray.size()];
+				final float[] positionsZ = new float[positionsArray.size()];
+				for (int i = 0; i < positionsArray.size(); i++) {
+					final JsonArray position = positionsArray.get(i).getAsJsonArray();
+					positionsX[i] = position.get(0).getAsFloat();
+					positionsZ[i] = position.get(1).getAsFloat();
+				}
+
+				byStage.get(stage.ordinal()).add(new RenderPart(
+						(ModelMapper) partValue, renderCondition, doorOffset, mirror, skipRenderingIfTooFar, positionsX, positionsZ,
+						partObject.get(KEY_PROPERTIES_WHITELISTED_CARS).getAsString(),
+						partObject.get(KEY_PROPERTIES_BLACKLISTED_CARS).getAsString()
+				));
+
+				if (partObject.has(KEY_PROPERTIES_DISPLAY) && partsInfo.containsKey(partName)) {
+					anyTextDisplays = true;
+				}
+			}
+
+			final RenderPart[][] newStageParts = new RenderPart[RenderStage.values().length][];
+			for (int i = 0; i < newStageParts.length; i++) {
+				newStageParts[i] = byStage.get(i).toArray(new RenderPart[0]);
+			}
+			stageParts = newStageParts;
+			hasTextDisplaysCache = anyTextDisplays;
+			precomputedPartsArray = partsArray;
+			precomputed = true;
+			return true;
+		} catch (Exception e) {
+			precomputeUnsupported = true;
+			precomputed = false;
+			return false;
+		}
 	}
 
 	@Override
@@ -357,7 +496,11 @@ public class DynamicTrainModel extends ModelTrainBase implements IResourcePackCr
 	}
 
 	private boolean shouldSkipRender(JsonObject partObject) {
-		switch (EnumHelper.valueOf(ResourcePackCreatorProperties.RenderCondition.ALL, partObject.get(KEY_PROPERTIES_RENDER_CONDITION).getAsString())) {
+		return shouldSkipRender(EnumHelper.valueOf(ResourcePackCreatorProperties.RenderCondition.ALL, partObject.get(KEY_PROPERTIES_RENDER_CONDITION).getAsString()));
+	}
+
+	private boolean shouldSkipRender(ResourcePackCreatorProperties.RenderCondition renderCondition) {
+		switch (renderCondition) {
 			case DOORS_OPEN:
 				return doorLeftZ == 0 && doorRightZ == 0;
 			case DOORS_CLOSED:
@@ -380,7 +523,11 @@ public class DynamicTrainModel extends ModelTrainBase implements IResourcePackCr
 	}
 
 	private float getOffsetX(JsonObject partObject) {
-		switch (EnumHelper.valueOf(ResourcePackCreatorProperties.DoorOffset.NONE, partObject.get(KEY_PROPERTIES_DOOR_OFFSET).getAsString())) {
+		return getOffsetX(EnumHelper.valueOf(ResourcePackCreatorProperties.DoorOffset.NONE, partObject.get(KEY_PROPERTIES_DOOR_OFFSET).getAsString()));
+	}
+
+	private float getOffsetX(ResourcePackCreatorProperties.DoorOffset doorOffset) {
+		switch (doorOffset) {
 			case LEFT_POSITIVE:
 			case LEFT_NEGATIVE:
 				return -doorLeftX;
@@ -393,7 +540,11 @@ public class DynamicTrainModel extends ModelTrainBase implements IResourcePackCr
 	}
 
 	private float getOffsetZ(JsonObject partObject) {
-		switch (EnumHelper.valueOf(ResourcePackCreatorProperties.DoorOffset.NONE, partObject.get(KEY_PROPERTIES_DOOR_OFFSET).getAsString())) {
+		return getOffsetZ(EnumHelper.valueOf(ResourcePackCreatorProperties.DoorOffset.NONE, partObject.get(KEY_PROPERTIES_DOOR_OFFSET).getAsString()));
+	}
+
+	private float getOffsetZ(ResourcePackCreatorProperties.DoorOffset doorOffset) {
+		switch (doorOffset) {
 			case LEFT_POSITIVE:
 				return doorLeftZ;
 			case RIGHT_POSITIVE:
@@ -404,6 +555,61 @@ public class DynamicTrainModel extends ModelTrainBase implements IResourcePackCr
 				return -doorRightZ;
 			default:
 				return 0;
+		}
+	}
+
+	private static RenderStage parseRenderStage(String value) {
+		final String upperCase = value.toUpperCase(Locale.ENGLISH);
+		for (final RenderStage renderStage : RenderStage.values()) {
+			if (renderStage.name().equals(upperCase)) {
+				return renderStage;
+			}
+		}
+		return null;
+	}
+
+	/**
+	 * Pre-parsed descriptor of one JSON part. Only used by the cached render path; the legacy path keeps reading the
+	 * JSON directly so that unexpected addon modifications still work.
+	 */
+	private final class RenderPart {
+
+		private final ModelMapper part;
+		private final ResourcePackCreatorProperties.RenderCondition renderCondition;
+		private final ResourcePackCreatorProperties.DoorOffset doorOffset;
+		private final boolean mirror;
+		private final boolean skipRenderingIfTooFar;
+		private final float[] positionsX;
+		private final float[] positionsZ;
+		private final String whitelistedCars;
+		private final String blacklistedCars;
+		private boolean[] skipByCar;
+		private int skipByCarCount = -1;
+
+		private RenderPart(ModelMapper part, ResourcePackCreatorProperties.RenderCondition renderCondition, ResourcePackCreatorProperties.DoorOffset doorOffset, boolean mirror, boolean skipRenderingIfTooFar, float[] positionsX, float[] positionsZ, String whitelistedCars, String blacklistedCars) {
+			this.part = part;
+			this.renderCondition = renderCondition;
+			this.doorOffset = doorOffset;
+			this.mirror = mirror;
+			this.skipRenderingIfTooFar = skipRenderingIfTooFar;
+			this.positionsX = positionsX;
+			this.positionsZ = positionsZ;
+			this.whitelistedCars = whitelistedCars;
+			this.blacklistedCars = blacklistedCars;
+		}
+
+		private boolean shouldSkipCar(int currentCar, int trainCars) {
+			if (skipByCarCount != trainCars) {
+				final int cars = Math.max(1, trainCars);
+				skipByCar = new boolean[cars];
+				skipByCarCount = trainCars;
+				final String[] whitelistedCarsFilters = whitelistedCars.split(",");
+				final String[] blacklistedCarsFilters = blacklistedCars.split(",");
+				for (int i = 0; i < cars; i++) {
+					skipByCar[i] = matchesFilter(blacklistedCarsFilters, i, trainCars) > matchesFilter(whitelistedCarsFilters, i, trainCars);
+				}
+			}
+			return currentCar >= 0 && currentCar < skipByCar.length && skipByCar[currentCar];
 		}
 	}
 

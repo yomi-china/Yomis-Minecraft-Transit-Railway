@@ -76,6 +76,10 @@ public class RenderTrains extends EntityRendererMapper<EntitySeat> implements IG
 	private static int prevPlatformCount;
 	private static int prevSidingCount;
 	private static UUID renderedUuid;
+	private static Vec3 cachedCameraPosition;
+	private static boolean cameraPositionValid;
+	private static final Map<UUID, RailType> RENDERED_RAIL_MAP = new HashMap<>();
+	private static final QueuedRenderLayer[] QUEUED_RENDER_LAYERS = QueuedRenderLayer.values();
 
 	public static final int PLAYER_RENDER_OFFSET = 1000;
 
@@ -98,7 +102,7 @@ public class RenderTrains extends EntityRendererMapper<EntitySeat> implements IG
 
 	static {
 		for (int i = 0; i < TOTAL_RENDER_STAGES; i++) {
-			final int renderStageCount = QueuedRenderLayer.values().length;
+			final int renderStageCount = QUEUED_RENDER_LAYERS.length;
 			final List<Map<ResourceLocation, Set<BiConsumer<PoseStack, VertexConsumer>>>> rendersList = new ArrayList<>(renderStageCount);
 			final List<Map<ResourceLocation, Set<BiConsumer<PoseStack, VertexConsumer>>>> currentRendersList = new ArrayList<>(renderStageCount);
 
@@ -173,6 +177,10 @@ public class RenderTrains extends EntityRendererMapper<EntitySeat> implements IG
 
 		maxRailRenderDistance = Config.getRailRenderDistanceBlocks();
 
+		final Entity cameraEntity = client.cameraEntity;
+		cachedCameraPosition = cameraEntity == null ? null : cameraEntity.position();
+		cameraPositionValid = true;
+
 		if (!backupRendering) {
 			matrices.popPose();
 			matrices.pushPose();
@@ -182,7 +190,8 @@ public class RenderTrains extends EntityRendererMapper<EntitySeat> implements IG
 		matrices.pushPose();
 
 		TrainRendererBase.setupStaticInfo(matrices, vertexConsumers, entity, tickDelta);
-		TrainRendererBase.setBatch(false);
+		try {
+			TrainRendererBase.setBatch(false);
 		ClientData.TRAINS.forEach(train -> train.simulateTrain(world, newLastFrameDuration, (speed, stopIndex, routeIds) -> {
 			final Route thisRoute = train.getThisRoute();
 			final Station thisStation = train.getThisStation();
@@ -274,7 +283,9 @@ public class RenderTrains extends EntityRendererMapper<EntitySeat> implements IG
 		}));
 		if (!Config.hideTranslucentParts()) {
 			TrainRendererBase.setBatch(true);
-			ClientData.TRAINS.forEach(TrainClient::renderTranslucent);
+			for (final TrainClient train : ClientData.TRAINS) {
+				train.renderTranslucent();
+			}
 		}
 
 		ClientData.LIFTS.forEach(lift -> lift.tickClient(world, (x, y, z, frontDoorValue, backDoorValue) -> {
@@ -310,7 +321,8 @@ public class RenderTrains extends EntityRendererMapper<EntitySeat> implements IG
 		// ANTE 距离 = max(实体渲染距离 × 16, 滑块轨道距离)：UtilitiesClient.getRenderDistance() 已按滑块放大，此处保持一致
 		anteFallbackActive = isAnteInstalled() && getAnteRailRenderLevel() >= 2;
 		anteFallbackMaxDistance = MTRClient.isReplayMod() ? 64 * 16 : Math.max(Minecraft.getInstance().options.renderDistance().get() * 16, maxRailRenderDistance);
-		final Map<UUID, RailType> renderedRailMap = new HashMap<>();
+		RENDERED_RAIL_MAP.clear();
+		final Map<UUID, RailType> renderedRailMap = RENDERED_RAIL_MAP;
 		ClientData.RAILS.forEach((startPos, railMap) -> railMap.forEach((endPos, rail) -> {
 			if (!RailwayData.isBetween(player.getX(), startPos.getX(), endPos.getX(), maxRailDistance) || !RailwayData.isBetween(player.getZ(), startPos.getZ(), endPos.getZ(), maxRailDistance)) {
 				return;
@@ -371,7 +383,7 @@ public class RenderTrains extends EntityRendererMapper<EntitySeat> implements IG
 
 		if (lastRenderedTick != MTRClient.getGameTick()) {
 			for (int i = 0; i < TOTAL_RENDER_STAGES; i++) {
-				for (int j = 0; j < QueuedRenderLayer.values().length; j++) {
+				for (int j = 0; j < QUEUED_RENDER_LAYERS.length; j++) {
 					CURRENT_RENDERS.get(i).get(j).clear();
 					CURRENT_RENDERS.get(i).get(j).putAll(RENDERS.get(i).get(j));
 					RENDERS.get(i).get(j).clear();
@@ -380,8 +392,8 @@ public class RenderTrains extends EntityRendererMapper<EntitySeat> implements IG
 		}
 
 		for (int i = 0; i < TOTAL_RENDER_STAGES; i++) {
-			for (int j = 0; j < QueuedRenderLayer.values().length; j++) {
-				final QueuedRenderLayer queuedRenderLayer = QueuedRenderLayer.values()[j];
+			for (int j = 0; j < QUEUED_RENDER_LAYERS.length; j++) {
+				final QueuedRenderLayer queuedRenderLayer = QUEUED_RENDER_LAYERS[j];
 				CURRENT_RENDERS.get(i).get(j).forEach((key, value) -> {
 					final RenderType renderType;
 					switch (queuedRenderLayer) {
@@ -411,9 +423,24 @@ public class RenderTrains extends EntityRendererMapper<EntitySeat> implements IG
 		prevSidingCount = ClientData.SIDINGS.size();
 		ClientData.DATA_CACHE.clearDataIfNeeded();
 		lastRenderedTick = MTRClient.getGameTick();
+		} finally {
+			TrainRendererBase.endRenderFrame();
+		}
+	}
+
+	/**
+	 * Effective distance used by station decorations (signs, PIDS, lift panels). Vehicles intentionally do NOT use
+	 * this value: tying vehicles to the frame-rate adaptive distance makes whole cars pop out when a heavy frame
+	 * halves the distance, so vehicle culling keeps using the user configured distance instead.
+	 */
+	public static int getEffectiveTrainRenderDistance() {
+		return maxTrainRenderDistance > 0 ? maxTrainRenderDistance : Config.getTrainRenderDistanceBlocks();
 	}
 
 	public static boolean shouldNotRender(BlockPos pos, int maxDistance, Direction facing) {
+		if (cameraPositionValid) {
+			return shouldNotRender(cachedCameraPosition, pos, maxDistance, facing);
+		}
 		final Entity camera = Minecraft.getInstance().cameraEntity;
 		return shouldNotRender(camera == null ? null : camera.position(), pos, maxDistance, facing);
 	}

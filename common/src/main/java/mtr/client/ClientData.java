@@ -46,6 +46,12 @@ public final class ClientData {
 	public static String EXIT_PARENTS_SEARCH = "";
 	public static String EXIT_DESTINATIONS_SEARCH = "";
 
+	/**
+	 * Cached copy of the server's global redstone door control switch, sent when the dashboard is
+	 * opened. Defaults to enabled so the option reads correctly before the first sync.
+	 */
+	public static boolean REDSTONE_DOOR_CONTROL = true;
+
 	private static boolean pressingAccelerate = false;
 	private static boolean pressingBrake = false;
 	private static boolean pressingDoors = false;

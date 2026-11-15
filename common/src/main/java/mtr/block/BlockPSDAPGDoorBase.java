@@ -1,6 +1,7 @@
 package mtr.block;
 
 import mtr.data.IGui;
+import mtr.data.RailwayData;
 import mtr.mappings.BlockEntityClientSerializableMapper;
 import mtr.mappings.EntityBlockMapper;
 import mtr.mappings.Text;
@@ -17,6 +18,7 @@ import net.minecraft.world.level.LevelAccessor;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.level.block.entity.BlockEntityTicker;
 import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.StateDefinition;
@@ -97,6 +99,21 @@ public abstract class BlockPSDAPGDoorBase extends BlockPSDAPGBase implements Ent
 		builder.add(END, FACING, HALF, SIDE, UNLOCKED);
 	}
 
+	@Override
+	public <T extends BlockEntity> BlockEntityTicker<T> getTicker(Level level, BlockState blockState, BlockEntityType<T> type) {
+		// The redstone state is only needed on the logical server; skipping the client avoids
+		// ticking every door block entity while rendering.
+		if (level.isClientSide) {
+			return null;
+		}
+
+		return (world, pos, state, blockEntity) -> {
+			if (blockEntity instanceof TileEntityPSDAPGDoorBase) {
+				((TileEntityPSDAPGDoorBase) blockEntity).redstoneTick();
+			}
+		};
+	}
+
 	private static void lockDoor(Level world, BlockPos pos, BlockState state, boolean unlocked) {
 		final Direction facing = IBlock.getStatePropertySafe(state, FACING);
 		final BlockPos leftPos = pos.relative(facing.getCounterClockWise());
@@ -121,8 +138,20 @@ public abstract class BlockPSDAPGDoorBase extends BlockPSDAPGBase implements Ent
 
 		private int open;
 		private float openClient;
+		/**
+		 * Cached redstone state, refreshed by {@link #redstoneTick()} once per tick on the bottom half.
+		 * External writes (trains, lifts, the scheduled close tick) read this instead of querying the
+		 * world, which keeps {@link #setOpen(int)} allocation-free and cheap.
+		 */
+		private boolean redstonePowered;
+		private boolean firstTick = true;
+		private long lastExternalTick = -1000;
 
 		private static final String KEY_OPEN = "open";
+
+		private static final int REDSTONE_OPEN_STEP = 2;
+		private static final int REDSTONE_DETECT_DEPTH = 3;
+		private static final int EXTERNAL_GRACE_TICKS = 2;
 
 		public TileEntityPSDAPGDoorBase(BlockEntityType<?> type, BlockPos pos, BlockState state) {
 			super(type, pos, state);
@@ -143,11 +172,107 @@ public abstract class BlockPSDAPGDoorBase extends BlockPSDAPGBase implements Ent
 		}
 
 		public void setOpen(int open) {
+			lastExternalTick = level == null ? 0 : level.getGameTime();
+			// While a redstone signal holds the door open, trains/lifts/scheduled ticks must not close it.
+			if (redstonePowered) {
+				return;
+			}
+			applyOpen(open);
+		}
+
+		private void applyOpen(int open) {
 			if (open != this.open) {
 				this.open = open;
 				setChanged();
 				syncData();
 			}
+		}
+
+		/**
+		 * Called server-side once per tick for every door block entity. Only the bottom half does the
+		 * redstone scan and drives both halves, so the detection cost is paid once per door.
+		 */
+		public void redstoneTick() {
+			final Level world = level;
+			if (world == null) {
+				return;
+			}
+
+			if (IBlock.getStatePropertySafe(getBlockState(), BlockPSDAPGDoorBase.HALF) == DoubleBlockHalf.UPPER) {
+				return;
+			}
+
+			final boolean enabled = RailwayData.isRedstoneDoorControlEnabled();
+			final boolean wasFirstTick = firstTick;
+			firstTick = false;
+
+			if (!enabled) {
+				// Feature off: behave like before the feature existed. The only leftovers are doors
+				// this feature had opened when the switch was flipped or when the chunk was reloaded,
+				// so release those once and otherwise stay completely inert (no world lookups).
+				if (redstonePowered || wasFirstTick) {
+					redstonePowered = false;
+					final TileEntityPSDAPGDoorBase upperBlockEntity = getUpperBlockEntity(world);
+					if (upperBlockEntity != null) {
+						upperBlockEntity.redstonePowered = false;
+					}
+					if (open > 0 && world.getGameTime() - lastExternalTick > EXTERNAL_GRACE_TICKS) {
+						applyOpen(0);
+						if (upperBlockEntity != null) {
+							upperBlockEntity.applyOpen(0);
+						}
+					}
+				}
+				return;
+			}
+
+			final TileEntityPSDAPGDoorBase upperBlockEntity = getUpperBlockEntity(world);
+			redstonePowered = isRedstonePowered(world);
+			if (upperBlockEntity != null) {
+				upperBlockEntity.redstonePowered = redstonePowered;
+			}
+
+			if (redstonePowered) {
+				stepDoor(upperBlockEntity, MAX_OPEN_VALUE);
+			} else if (world.getGameTime() - lastExternalTick > EXTERNAL_GRACE_TICKS) {
+				stepDoor(upperBlockEntity, 0);
+			}
+		}
+
+		private void stepDoor(TileEntityPSDAPGDoorBase upperBlockEntity, int target) {
+			final int newOpen = open < target ? Math.min(target, open + REDSTONE_OPEN_STEP) : Math.max(target, open - REDSTONE_OPEN_STEP);
+			applyOpen(newOpen);
+			if (upperBlockEntity != null) {
+				// Always write through so a half that was changed externally while the bottom was
+				// held open gets pulled back in sync (applyOpen ignores unchanged values).
+				upperBlockEntity.applyOpen(newOpen);
+			}
+		}
+
+		private TileEntityPSDAPGDoorBase getUpperBlockEntity(Level world) {
+			final BlockEntity blockEntity = world.getBlockEntity(worldPosition.above());
+			return blockEntity instanceof TileEntityPSDAPGDoorBase ? (TileEntityPSDAPGDoorBase) blockEntity : null;
+		}
+
+		private boolean isRedstonePowered(Level world) {
+			final BlockState state = getBlockState();
+			if (!IBlock.getStatePropertySafe(state, BlockPSDAPGDoorBase.UNLOCKED)) {
+				return false;
+			}
+
+			final Direction sideDirection = IBlock.getSideDirection(state);
+			for (int i = 1; i <= REDSTONE_DETECT_DEPTH; i++) {
+				final BlockPos checkPos = worldPosition.below(i);
+				if (isPowered(world, checkPos) || isPowered(world, checkPos.relative(sideDirection))) {
+					return true;
+				}
+			}
+
+			return false;
+		}
+
+		private static boolean isPowered(Level world, BlockPos pos) {
+			return world.hasNeighborSignal(pos) || world.getSignal(pos, Direction.UP) > 0;
 		}
 
 		public float getOpen(float lastFrameDuration) {

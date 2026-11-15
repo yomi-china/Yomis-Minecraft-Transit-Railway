@@ -106,6 +106,11 @@ public class PacketTrainDataGuiClient extends PacketTrainDataBase {
 		});
 	}
 
+	public static void receiveRedstoneDoorControlS2C(Minecraft minecraftClient, FriendlyByteBuf packet) {
+		final boolean redstoneDoorControl = packet.readBoolean();
+		minecraftClient.execute(() -> ClientData.REDSTONE_DOOR_CONTROL = redstoneDoorControl);
+	}
+
 	public static void openRailwaySignScreenS2C(Minecraft minecraftClient, FriendlyByteBuf packet) {
 		final BlockPos pos = packet.readBlockPos();
 		minecraftClient.execute(() -> {
@@ -480,5 +485,12 @@ public class PacketTrainDataGuiClient extends PacketTrainDataBase {
 		final FriendlyByteBuf packet = new FriendlyByteBuf(Unpooled.buffer());
 		packet.writeBoolean(useTimeAndWindSync);
 		RegistryClient.sendToServer(PACKET_USE_TIME_AND_WIND_SYNC, packet);
+	}
+
+	public static void sendRedstoneDoorControlC2S(boolean redstoneDoorControl) {
+		ClientData.REDSTONE_DOOR_CONTROL = redstoneDoorControl;
+		final FriendlyByteBuf packet = new FriendlyByteBuf(Unpooled.buffer());
+		packet.writeBoolean(redstoneDoorControl);
+		RegistryClient.sendToServer(PACKET_REDSTONE_DOOR_CONTROL, packet);
 	}
 }

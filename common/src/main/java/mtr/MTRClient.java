@@ -281,6 +281,7 @@ public class MTRClient implements IPacket {
 		RegistryClient.registerNetworkReceiver(PACKET_VERSION_CHECK, packet -> PacketTrainDataGuiClient.openVersionCheckS2C(Minecraft.getInstance(), packet));
 		RegistryClient.registerNetworkReceiver(PACKET_CHUNK_S2C, packet -> PacketTrainDataGuiClient.receiveChunk(Minecraft.getInstance(), packet));
 		RegistryClient.registerNetworkReceiver(PACKET_OPEN_DASHBOARD_SCREEN, packet -> PacketTrainDataGuiClient.openDashboardScreenS2C(Minecraft.getInstance(), packet));
+		RegistryClient.registerNetworkReceiver(PACKET_REDSTONE_DOOR_CONTROL_SYNC, packet -> PacketTrainDataGuiClient.receiveRedstoneDoorControlS2C(Minecraft.getInstance(), packet));
 		RegistryClient.registerNetworkReceiver(PACKET_WEB_DASHBOARD_LOGIN_TOKEN, packet -> PacketWebDashboardClient.openWebDashboard(Minecraft.getInstance(), packet));
 		RegistryClient.registerNetworkReceiver(PACKET_WEB_DASHBOARD_TUNNEL_S2C, WebDashboardTunnelClient::handle);
 		RegistryClient.registerNetworkReceiver(PACKET_OPEN_RAIL_DATA_EDITOR, packet -> RailDataEditorClient.open(packet.readBlockPos()));
