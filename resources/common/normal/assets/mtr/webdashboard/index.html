@@ -6,9 +6,9 @@
 	<meta name="color-scheme" content="light dark">
 	<meta name="robots" content="noindex">
 	<title>MTR Web Dashboard</title>
-	<link rel="stylesheet" href="index.css?v=43">
-	<link rel="stylesheet" href="welcome.css?v=43">
-	<script type="module" src="app.js?v=43"></script>
+	<link rel="stylesheet" href="index.css?v=49">
+	<link rel="stylesheet" href="welcome.css?v=49">
+	<script type="module" src="app.js?v=49"></script>
 </head>
 <body data-view="checking" data-theme="dark">
 <script>
@@ -124,6 +124,11 @@
 						<path d="M12 8a4 4 0 1 0 4 4 4 4 0 0 0-4-4zm8.94 3A8.99 8.99 0 0 0 13 3.06V1h-2v2.06A8.99 8.99 0 0 0 3.06 11H1v2h2.06A8.99 8.99 0 0 0 11 20.94V23h2v-2.06A8.99 8.99 0 0 0 20.94 13H23v-2zM12 19a7 7 0 1 1 7-7 7 7 0 0 1-7 7z"/>
 					</svg>
 				</button>
+				<button class="icon-button" id="map-tracks" type="button" data-i18n-title="mapTracks" data-i18n-aria-label="mapTracks" aria-label="Track overlay" aria-pressed="false" hidden>
+					<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false">
+						<path d="m12 16 7.36-5.73L21 9l-9-7-9 7 1.63 1.27L12 16zm0-2.54L6.26 9 12 4.53 17.74 9 12 13.46zm-7.37 4.81L3 14.07l9 7 9-7-1.63-1.27L12 18.54l-7.37-5.74z"/>
+					</svg>
+				</button>
 			</div>
 
 			<div class="map-editing-bar" id="map-editing-bar" hidden>
@@ -211,8 +216,11 @@
 				<button class="settings__nav-item is-active" type="button" data-category="personalization" aria-current="page">
 					<span data-i18n="personalization">Personalization</span>
 				</button>
+				<button class="settings__nav-item" type="button" data-category="tracks">
+					<span data-i18n="trackSettings">Track overlay</span>
+				</button>
 			</nav>
-			<div class="settings__panel">
+			<div class="settings__panel" data-panel="personalization">
 				<h3 class="settings__heading" data-i18n="personalization">Personalization</h3>
 
 				<div class="settings__row">
@@ -234,8 +242,68 @@
 
 				<p class="settings__footnote" data-i18n="settingsSaved">Changes are saved in this browser automatically.</p>
 			</div>
+			<div class="settings__panel" data-panel="tracks" hidden>
+				<h3 class="settings__heading" data-i18n="trackSettings">Track overlay</h3>
+
+				<div class="settings__row settings__row--stack">
+					<div class="settings__label">
+						<span id="track-min-scale-label" data-i18n="trackMinScale">Minimum zoom for tracks</span>
+						<span class="settings__hint" data-i18n="trackMinScaleHint">Smaller values show tracks further out.</span>
+					</div>
+					<div class="settings__range-row">
+						<input class="settings__range" id="track-min-scale" type="range" min="0.01" max="2" step="0.01" aria-labelledby="track-min-scale-label">
+						<output class="settings__range-value" id="track-min-scale-value">0.35×</output>
+					</div>
+				</div>
+
+				<div class="settings__row settings__row--stack">
+					<div class="settings__label">
+						<span id="track-thickness-label" data-i18n="trackThickness">Track line thickness</span>
+						<span class="settings__hint" data-i18n="trackThicknessHint">Scales every drawn track and route line.</span>
+					</div>
+					<div class="settings__range-row">
+						<input class="settings__range" id="track-thickness" type="range" min="0.5" max="3" step="0.1" aria-labelledby="track-thickness-label">
+						<output class="settings__range-value" id="track-thickness-value">1×</output>
+					</div>
+				</div>
+
+				<div class="settings__row">
+					<div class="settings__label">
+						<span id="track-colors-label" data-i18n="trackShowColors">Show track colours</span>
+						<span class="settings__hint" data-i18n="trackShowColorsHint">Turn off for a single white colour.</span>
+					</div>
+					<label class="switch">
+						<input class="switch__input" id="track-colors" type="checkbox" aria-labelledby="track-colors-label">
+						<span class="switch__track" aria-hidden="true"><span class="switch__thumb"></span></span>
+					</label>
+				</div>
+
+				<p class="settings__footnote" data-i18n="settingsSaved">Changes are saved in this browser automatically.</p>
+			</div>
 		</div>
 	</section>
+</div>
+
+<div class="overlay-toast" id="overlay-toast" role="dialog" aria-modal="false" aria-labelledby="overlay-toast-title" hidden>
+	<header class="overlay-toast__header">
+		<h3 class="overlay-toast__title" id="overlay-toast-title" data-i18n="mapTracks">Track overlay</h3>
+		<button class="overlay-toast__close" id="overlay-toast-close" type="button" aria-label="Close" data-i18n-aria-label="editClose">×</button>
+	</header>
+	<div class="overlay-toast__row">
+		<span class="overlay-toast__label" id="overlay-toast-enabled-label" data-i18n="trackOverlayShow">Show track overlay</span>
+		<label class="switch">
+			<input class="switch__input" id="overlay-toast-enabled" type="checkbox" aria-labelledby="overlay-toast-enabled-label">
+			<span class="switch__track" aria-hidden="true"><span class="switch__thumb"></span></span>
+		</label>
+	</div>
+	<div class="overlay-toast__row">
+		<span class="overlay-toast__label" id="overlay-toast-colors-label" data-i18n="trackShowColors">Show track colours</span>
+		<label class="switch">
+			<input class="switch__input" id="overlay-toast-colors" type="checkbox" aria-labelledby="overlay-toast-colors-label">
+			<span class="switch__track" aria-hidden="true"><span class="switch__thumb"></span></span>
+		</label>
+	</div>
+	<button class="overlay-toast__more" id="overlay-toast-settings" type="button" data-i18n="trackMoreSettings">More settings</button>
 </div>
 </body>
 </html>

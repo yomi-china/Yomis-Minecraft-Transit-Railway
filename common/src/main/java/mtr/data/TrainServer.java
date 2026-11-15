@@ -152,7 +152,7 @@ public class TrainServer extends Train {
 			double prevCarX, double prevCarY, double prevCarZ, float prevCarYaw, float prevCarPitch,
 			boolean doorLeftOpen, boolean doorRightOpen, double realSpacing
 	) {
-		VehicleRidingServer.mountRider(world, ridingEntities, id, routeId, carX, carY, carZ, realSpacing, width, carYaw, carPitch, doorLeftOpen || doorRightOpen, isManualAllowed || doorLeftOpen || doorRightOpen, ridingCar, PACKET_UPDATE_TRAIN_PASSENGERS, player -> !isManualAllowed || doorLeftOpen || doorRightOpen || Train.isHoldingKey(player) || Train.isHoldingOnboardTool(player), player -> {
+		VehicleRidingServer.mountRider(world, ridingEntities, id, routeId, carX, carY, carZ, realSpacing, width, carYaw, carPitch, doorLeftOpen || doorRightOpen, true, ridingCar, PACKET_UPDATE_TRAIN_PASSENGERS, player -> doorLeftOpen || doorRightOpen || (isManualAllowed && Train.isHoldingKey(player)) || Train.isHoldingOnboardTool(player), player -> {
 			if (isHoldingKey(player)) {
 				manualCoolDown = 0;
 			}

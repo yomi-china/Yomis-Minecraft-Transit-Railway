@@ -58,7 +58,7 @@ public class WebDashboardAsyncServlet extends HttpServlet {
 	}
 
 	private void buildAndWrite(AsyncContext asyncContext, MinecraftServer server, HttpServletRequest request) {
-		String json;
+		final String json;
 		try {
 			json = responseBuilder.apply(server);
 		} catch (Exception e) {
@@ -68,6 +68,13 @@ public class WebDashboardAsyncServlet extends HttpServlet {
 			return;
 		}
 
-		WebDashboardServletHandler.completeWith(asyncContext, HttpServletResponse.SC_OK, json);
+		// Writing (and now gzip compression) must not run on the game thread: the response can be
+		// hundreds of kilobytes and compressing it there would become a tick spike. Hand the finished
+		// body to a container thread; fall back to writing here only if the async context is gone.
+		try {
+			asyncContext.start(() -> WebDashboardServletHandler.completeWith(asyncContext, HttpServletResponse.SC_OK, json));
+		} catch (Exception e) {
+			WebDashboardServletHandler.completeWith(asyncContext, HttpServletResponse.SC_OK, json);
+		}
 	}
 }

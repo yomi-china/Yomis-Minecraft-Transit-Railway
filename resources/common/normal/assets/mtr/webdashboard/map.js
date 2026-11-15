@@ -26,9 +26,9 @@ import {
 	snapAreaCorners,
 	FLY_DURATION_MS,
 	interpolateView
-} from './mapview.js?v=43';
-import { beginEdit, cancelEdit, dragToEdit, endEditDrag, getDraftBounds, isEditing } from './mapedit.js?v=43';
-import { planFocus, sameView } from './focus.js?v=43';
+} from './mapview.js?v=49';
+import { beginEdit, cancelEdit, dragToEdit, endEditDrag, getDraftBounds, isEditing } from './mapedit.js?v=49';
+import { planFocus, sameView } from './focus.js?v=49';
 
 const DRAG_THRESHOLD_PX = 4;
 const THEME_EVENT = 'mtr-themechange';
@@ -426,11 +426,31 @@ export function redraw() {
 
 	drawTerrain();
 	drawAreas();
+	drawOverlay();
 	drawSavedRails();
 	drawDraft();
 	drawLabels();
 	drawPlayers();
 	drawFocusMarker();
+	notifyViewChange();
+}
+
+function drawOverlay() {
+	if (handlers.drawOverlay) {
+		handlers.drawOverlay(context, view, mapTheme);
+	}
+}
+
+function notifyViewChange() {
+	if (handlers.onViewChange) {
+		handlers.onViewChange({
+			centerX: view.centerX,
+			centerZ: view.centerZ,
+			scale: view.scale,
+			width: view.width,
+			height: view.height
+		});
+	}
 }
 
 function devicePixelRatio() {

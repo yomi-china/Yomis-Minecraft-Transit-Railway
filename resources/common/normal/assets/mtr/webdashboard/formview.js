@@ -1,7 +1,7 @@
-import { createColorPicker } from './colorpicker.js?v=43';
-import { createSelect } from './select.js?v=43';
-import { isFieldVisible } from './editor.js?v=43';
-import { t } from './i18n.js?v=43';
+import { createColorPicker } from './colorpicker.js?v=49';
+import { createSelect } from './select.js?v=49';
+import { isFieldVisible } from './editor.js?v=49';
+import { t } from './i18n.js?v=49';
 
 const FAILURE_STATUS_KEYS = {
 	editor_offline: 'editEditorOffline',

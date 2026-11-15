@@ -1,5 +1,5 @@
-import { f, t } from './i18n.js?v=43';
-import { MODE_ALL, MODES, countForMode } from './lists.js?v=43';
+import { f, t } from './i18n.js?v=49';
+import { MODE_ALL, MODES, countForMode } from './lists.js?v=49';
 
 const el = {
 	body: document.body,
@@ -21,6 +21,7 @@ const el = {
 	mapZoomIn: document.getElementById('map-zoom-in'),
 	mapZoomOut: document.getElementById('map-zoom-out'),
 	mapFocusPlayer: document.getElementById('map-focus-player'),
+	mapTracks: document.getElementById('map-tracks'),
 	mapCancelEdit: document.getElementById('map-cancel-edit'),
 };
 
@@ -97,9 +98,44 @@ export function getMapButtons() {
 		zoomIn: el.mapZoomIn,
 		zoomOut: el.mapZoomOut,
 		focusPlayer: el.mapFocusPlayer,
+		tracks: el.mapTracks,
 		cancelEdit: el.mapCancelEdit,
 		saveEdit: el.mapSaveEdit
 	};
+}
+
+export function setTracksAvailable(available) {
+	if (!el.mapTracks) {
+		return;
+	}
+	el.mapTracks.hidden = !available;
+	el.mapTracks.disabled = !available;
+}
+
+export function setTracksEnabled(enabled) {
+	if (!el.mapTracks) {
+		return;
+	}
+	el.mapTracks.classList.toggle('is-active', enabled);
+	el.mapTracks.setAttribute('aria-pressed', enabled ? 'true' : 'false');
+}
+
+export function setTracksBusy(busy) {
+	if (!el.mapTracks) {
+		return;
+	}
+	el.mapTracks.classList.toggle('is-loading', busy);
+	el.mapTracks.setAttribute('aria-busy', busy ? 'true' : 'false');
+}
+
+export function setTracksDegraded(degraded) {
+	if (!el.mapTracks) {
+		return;
+	}
+	const title = degraded ? t('mapTracksDegraded') : t('mapTracks');
+	el.mapTracks.title = title;
+	el.mapTracks.setAttribute('aria-label', title);
+	el.mapTracks.dataset.degraded = degraded ? 'true' : 'false';
 }
 
 export function setFocusPlayerEnabled(enabled) {

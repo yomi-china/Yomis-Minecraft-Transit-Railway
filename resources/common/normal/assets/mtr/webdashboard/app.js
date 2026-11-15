@@ -1,16 +1,18 @@
-import { t, applyTranslations } from './i18n.js?v=43';
-import { SessionError, SessionFailure, clearTokenFromUrl, fetchSession, fetchStatus, login, logout, readTokenFromUrl } from './session.js?v=43';
-import { DataErrorKind, DataFailure, fetchData, fetchMeta, patch, selectWorld } from './api.js?v=43';
-import { MODE_ALL, buildIndex, buildRows, compareByDisplayName } from './lists.js?v=43';
-import * as views from './views.js?v=43';
-import * as map from './map.js?v=43';
-import * as popover from './popover.js?v=43';
-import { CHILD_KINDS, contextFor } from './editor.js?v=43';
-import { hasOriginCorner } from './areafit.js?v=43';
-import * as welcome from './welcome.js?v=43';
-import { initSettings } from './settings.js?v=43';
-import './theme.js?v=43';
-import './fx.js?v=43';
+import { t, applyTranslations } from './i18n.js?v=49';
+import { SessionError, SessionFailure, clearTokenFromUrl, fetchSession, fetchStatus, login, logout, readTokenFromUrl } from './session.js?v=49';
+import { DataErrorKind, DataFailure, fetchData, fetchMeta, patch, selectWorld } from './api.js?v=49';
+import { MODE_ALL, buildIndex, buildRows, compareByDisplayName } from './lists.js?v=49';
+import * as views from './views.js?v=49';
+import * as map from './map.js?v=49';
+import * as tracks from './tracks.js?v=49';
+import * as popover from './popover.js?v=49';
+import { CHILD_KINDS, contextFor } from './editor.js?v=49';
+import { hasOriginCorner } from './areafit.js?v=49';
+import * as welcome from './welcome.js?v=49';
+import { initSettings } from './settings.js?v=49';
+import { initOverlayToast } from './overlay-toast.js?v=49';
+import './theme.js?v=49';
+import './fx.js?v=49';
 
 const EDITABLE_KINDS = new Set(['station', 'route', 'depot']);
 
@@ -79,6 +81,7 @@ function setAccount(username) {
 }
 
 function setServiceMeta(status) {
+	tracks.setAvailable(Boolean(status && status.features && status.features.tracks === true));
 	if (!elements.meta) {
 		return;
 	}
@@ -128,6 +131,8 @@ function render() {
 		}
 		const playerCount = state.world && Array.isArray(state.world.players) ? state.world.players.length : 0;
 		views.setFocusPlayerEnabled(playerCount > 0);
+		tracks.setWorld(state.world);
+		tracks.setMode(state.mode);
 		map.setWorld(state.world, state.index);
 		map.setMode(state.mode);
 		map.setTab(state.tab);
@@ -242,6 +247,7 @@ function exposeDiagnostics(session) {
 		},
 		raw: () => state.world,
 		map: () => ({ view: map.getView(), editing: map.isAreaEditing(), draft: map.getAreaDraft() }),
+		tracks: () => tracks.getDebugState(),
 		show: tab => {
 			state.tab = tab;
 			render();
@@ -281,6 +287,27 @@ function initMap() {
 		},
 		onPointerMove: point => {
 			views.setMapReadout(point);
+		},
+		drawOverlay: (context, mapView, mapTheme) => {
+			tracks.draw(context, mapView, mapTheme);
+		},
+		onViewChange: mapView => {
+			tracks.onViewChange(mapView);
+		}
+	});
+
+	tracks.init({
+		redraw: () => map.redraw(),
+		onState: tracksState => {
+			views.setTracksAvailable(tracksState.available);
+			views.setTracksEnabled(tracksState.enabled);
+			views.setTracksBusy(tracksState.busy);
+			views.setTracksDegraded(tracksState.degraded);
+		},
+		onAuthFailure: () => {
+			console.warn('[MTR-WebDashboard] the track overlay lost its session; returning to read-only');
+			tracks.setAvailable(false);
+			renderReadOnly();
 		}
 	});
 
@@ -334,6 +361,9 @@ function wireMapControls() {
 			const players = state.world && Array.isArray(state.world.players) ? state.world.players : [];
 			map.focusOnPlayer(players.length > 0 ? players[0] : null);
 		});
+	}
+	if (buttons.tracks) {
+		buttons.tracks.setAttribute('aria-expanded', 'false');
 	}
 	if (buttons.cancelEdit) {
 		buttons.cancelEdit.addEventListener('click', () => {
@@ -439,6 +469,7 @@ function bindSidebar() {
 			selectFromList(id);
 		},
 		onRefresh: () => {
+			tracks.invalidate();
 			loadData();
 		}
 	});
@@ -638,6 +669,7 @@ async function main() {
 	applyTranslations(document);
 	welcome.init();
 	initSettings();
+	initOverlayToast();
 	setStatus('loading', 'statusLoading');
 	bindSidebar();
 	bindViewSwitch();

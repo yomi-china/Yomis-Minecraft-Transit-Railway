@@ -1,5 +1,6 @@
-import { t } from './i18n.js?v=43';
-import { ACCENTS, THEME_EVENT, getTheme, setAccent, setMode } from './theme.js?v=43';
+import { t } from './i18n.js?v=49';
+import { ACCENTS, THEME_EVENT, getTheme, setAccent, setMode } from './theme.js?v=49';
+import { getOverlaySettings, setOverlaySetting, OVERLAY_EVENT } from './overlay-settings.js?v=49';
 
 let backdrop = null;
 let dialog = null;
@@ -7,6 +8,14 @@ let closeButton = null;
 let settingsButton = null;
 let modeGroup = null;
 let themeGrid = null;
+let nav = null;
+let panels = [];
+let trackMinScale = null;
+let trackMinScaleValue = null;
+let trackThickness = null;
+let trackThicknessValue = null;
+let trackColors = null;
+let activeCategory = 'personalization';
 let lastFocus = null;
 let isOpen = false;
 let closeTimer = 0;
@@ -24,6 +33,51 @@ function syncSelection() {
 		for (const button of themeGrid.querySelectorAll('[data-accent]')) {
 			button.setAttribute('aria-checked', String(button.dataset.accent === current.accentId));
 		}
+	}
+}
+
+function formatMultiplier(value) {
+	const rounded = Math.round(value * 100) / 100;
+	return String(rounded).replace(/\.?0+$/, '') + '×';
+}
+
+function syncTrackControls() {
+	const settings = getOverlaySettings();
+	if (trackMinScale) {
+		trackMinScale.value = String(settings.minScale);
+	}
+	if (trackMinScaleValue) {
+		trackMinScaleValue.textContent = formatMultiplier(settings.minScale);
+	}
+	if (trackThickness) {
+		trackThickness.value = String(settings.thickness);
+	}
+	if (trackThicknessValue) {
+		trackThicknessValue.textContent = formatMultiplier(settings.thickness);
+	}
+	if (trackColors) {
+		trackColors.checked = settings.colors;
+	}
+}
+
+function selectCategory(category) {
+	activeCategory = category === 'tracks' ? 'tracks' : 'personalization';
+	if (nav) {
+		for (const button of nav.querySelectorAll('[data-category]')) {
+			const selected = button.dataset.category === activeCategory;
+			button.classList.toggle('is-active', selected);
+			if (selected) {
+				button.setAttribute('aria-current', 'page');
+			} else {
+				button.removeAttribute('aria-current');
+			}
+		}
+	}
+	for (const panel of panels) {
+		panel.hidden = panel.dataset.panel !== activeCategory;
+	}
+	if (activeCategory === 'tracks') {
+		syncTrackControls();
 	}
 }
 
@@ -135,6 +189,11 @@ function close() {
 	}
 }
 
+export function openSettings(category = 'personalization') {
+	selectCategory(category);
+	open();
+}
+
 export function initSettings() {
 	backdrop = document.getElementById('settings-backdrop');
 	dialog = document.getElementById('settings-dialog');
@@ -142,7 +201,14 @@ export function initSettings() {
 	settingsButton = document.getElementById('settings');
 	modeGroup = document.getElementById('settings-mode');
 	themeGrid = document.getElementById('theme-grid');
-	if (!backdrop || !dialog || !closeButton || !settingsButton || !modeGroup || !themeGrid) {
+	nav = dialog ? dialog.querySelector('.settings__nav') : null;
+	panels = dialog ? Array.from(dialog.querySelectorAll('[data-panel]')) : [];
+	trackMinScale = document.getElementById('track-min-scale');
+	trackMinScaleValue = document.getElementById('track-min-scale-value');
+	trackThickness = document.getElementById('track-thickness');
+	trackThicknessValue = document.getElementById('track-thickness-value');
+	trackColors = document.getElementById('track-colors');
+	if (!backdrop || !dialog || !closeButton || !settingsButton || !modeGroup || !themeGrid || !nav) {
 		return;
 	}
 
@@ -151,6 +217,7 @@ export function initSettings() {
 	settingsButton.setAttribute('aria-expanded', 'false');
 	dialog.tabIndex = -1;
 	buildThemeChoices();
+	selectCategory('personalization');
 
 	for (const button of modeGroup.querySelectorAll('[data-mode]')) {
 		button.addEventListener('click', () => {
@@ -159,7 +226,30 @@ export function initSettings() {
 		});
 	}
 
-	settingsButton.addEventListener('click', open);
+	for (const button of nav.querySelectorAll('[data-category]')) {
+		button.addEventListener('click', () => selectCategory(button.dataset.category));
+	}
+
+	if (trackMinScale) {
+		trackMinScale.addEventListener('input', () => {
+			setOverlaySetting('minScale', Number(trackMinScale.value));
+			syncTrackControls();
+		});
+	}
+	if (trackThickness) {
+		trackThickness.addEventListener('input', () => {
+			setOverlaySetting('thickness', Number(trackThickness.value));
+			syncTrackControls();
+		});
+	}
+	if (trackColors) {
+		trackColors.addEventListener('change', () => {
+			setOverlaySetting('colors', trackColors.checked);
+			syncTrackControls();
+		});
+	}
+
+	settingsButton.addEventListener('click', () => openSettings('personalization'));
 	closeButton.addEventListener('click', close);
 	backdrop.addEventListener('click', event => {
 		if (event.target === backdrop) {
@@ -168,5 +258,7 @@ export function initSettings() {
 	});
 	dialog.addEventListener('keydown', onKeydown);
 	window.addEventListener(THEME_EVENT, syncSelection);
+	window.addEventListener(OVERLAY_EVENT, syncTrackControls);
 	syncSelection();
+	syncTrackControls();
 }

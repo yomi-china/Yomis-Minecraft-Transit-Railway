@@ -12,11 +12,13 @@ import mtr.webdashboard.servlet.LogoutServletHandler;
 import mtr.webdashboard.servlet.RootIndexFilter;
 import mtr.webdashboard.servlet.SessionServletHandler;
 import mtr.webdashboard.servlet.StatusServletHandler;
+import mtr.webdashboard.servlet.TracksServletHandler;
 import mtr.webdashboard.servlet.WebDashboardAsyncServlet;
 import mtr.webdashboard.servlet.WebDashboardWriteServlet;
 import org.eclipse.jetty.server.Connector;
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.server.ServerConnector;
+import org.eclipse.jetty.server.handler.gzip.GzipHandler;
 import org.eclipse.jetty.servlet.DefaultServlet;
 import org.eclipse.jetty.servlet.FilterHolder;
 import org.eclipse.jetty.servlet.ServletContextHandler;
@@ -45,6 +47,7 @@ public final class WebDashboardServer {
 		if (server != null && server.isRunning()) {
 			return;
 		}
+		TracksServletHandler.reset();
 
 		final WebDashboardSettings settings = WebDashboardSettings.get();
 		final Server newServer = new Server(new QueuedThreadPool(THREAD_POOL_MAX, THREAD_POOL_MIN, THREAD_POOL_IDLE_TIMEOUT_MS));
@@ -54,7 +57,6 @@ public final class WebDashboardServer {
 		newServer.setConnectors(new Connector[]{newConnector});
 
 		final ServletContextHandler context = new ServletContextHandler();
-		newServer.setHandler(context);
 
 		final URL resourceRoot = MTR.class.getResource(WebDashboardAssets.RESOURCE_ROOT);
 		if (resourceRoot == null) {
@@ -87,6 +89,7 @@ public final class WebDashboardServer {
 		context.addServlet(new ServletHolder(new LogoutServletHandler()), LogoutServletHandler.PATH);
 		context.addServlet(new ServletHolder(new WebDashboardAsyncServlet(serverObject -> WebDashboardDataService.buildMeta(serverObject).toString())), "/api/meta");
 		context.addServlet(new ServletHolder(new WebDashboardAsyncServlet(serverObject -> WebDashboardDataService.buildData(serverObject).toString())), "/api/data");
+		context.addServlet(new ServletHolder(new TracksServletHandler()), TracksServletHandler.PATH);
 
 		context.addServlet(new ServletHolder(new WebDashboardWriteServlet("station", IPacket.PACKET_UPDATE_STATION)), "/api/station/*");
 		context.addServlet(new ServletHolder(new WebDashboardWriteServlet("route", IPacket.PACKET_UPDATE_ROUTE)), "/api/route/*");
@@ -97,10 +100,19 @@ public final class WebDashboardServer {
 		context.addServlet(staticHolder, "/");
 		context.addFilter(new FilterHolder(new RootIndexFilter()), "/*", EnumSet.of(DispatcherType.REQUEST));
 
+		// Track responses are large JSON documents. Compress only JSON so static resources and the
+		// existing no-store behaviour are untouched; the response itself is written off the game
+		// thread by the async servlets.
+		final GzipHandler gzipHandler = new GzipHandler();
+		gzipHandler.setMinGzipSize(1024);
+		gzipHandler.setIncludedMimeTypes("application/json");
+		gzipHandler.setHandler(context);
+		newServer.setHandler(gzipHandler);
+
 		System.out.println("[MTR-WebDashboard] Registered API paths: "
 				+ StatusServletHandler.PATH + ", " + HealthServletHandler.PATH + ", " + SessionServletHandler.PATH
 				+ ", " + LoginServletHandler.PATH + ", " + LogoutServletHandler.PATH
-				+ ", /api/meta, /api/data"
+				+ ", /api/meta, /api/data, " + TracksServletHandler.PATH
 				+ "; writing: PATCH /api/station/<id>, /api/route/<id>, /api/depot/<id>, /api/platform/<id>, /api/siding/<id>"
 				+ "; everything else is served as a static file.");
 
@@ -123,6 +135,7 @@ public final class WebDashboardServer {
 	}
 
 	public static synchronized void stop() {
+		TracksServletHandler.reset();
 		if (server != null) {
 			try {
 				server.stop();
