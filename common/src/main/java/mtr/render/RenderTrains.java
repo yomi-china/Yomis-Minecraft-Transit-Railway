@@ -557,10 +557,10 @@ public class RenderTrains extends EntityRendererMapper<EntitySeat> implements IG
 	}
 
 	private static void renderRailStandard(Level world, Rail rail, float yOffset, boolean renderColors, float railWidth, String texture, float u1, float v1, float u2, float v2) {
-		renderRailStandardInternal(world, rail, yOffset, renderColors, railWidth, texture, u1, v1, u2, v2);
+		renderRailStandard(world, rail, yOffset, renderColors, railWidth, texture, u1, v1, u2, v2, false);
 	}
 
-	private static void renderRailStandardInternal(Level world, Rail rail, float yOffset, boolean renderColors, float railWidth, String texture, float u1, float v1, float u2, float v2) {
+	private static void renderRailStandard(Level world, Rail rail, float yOffset, boolean renderColors, float railWidth, String texture, float u1, float v1, float u2, float v2, boolean bypassAnteRenderHook) {
 		final int maxRailDistance = maxRailRenderDistance;
 
 		rail.render((x1, z1, x2, z2, x3, z3, x4, z4, y1, y2) -> {
@@ -586,6 +586,10 @@ public class RenderTrains extends EntityRendererMapper<EntitySeat> implements IG
 				});
 			}
 		}, -railWidth, railWidth);
+	}
+
+	private static void renderRailStandardInternal(Level world, Rail rail, float yOffset, boolean renderColors, float railWidth, String texture, float u1, float v1, float u2, float v2) {
+		renderRailStandard(world, rail, yOffset, renderColors, railWidth, texture, u1, v1, u2, v2, true);
 	}
 
 	private static void renderRailStandardSafe(Level world, Rail rail, float yOffset, boolean renderColors, float railWidth) {

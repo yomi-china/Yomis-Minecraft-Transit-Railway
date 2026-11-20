@@ -57,6 +57,7 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -350,13 +351,29 @@ public class PacketTrainDataGuiServer extends PacketTrainDataBase {
 		// The broadcast, cache refresh and external-map refresh live in DataUpdateBroadcast because the web
 		// dashboard's edit path needs precisely the same three things. Two copies would drift, and the
 		// symptom would be an edit that looks applied to its author and invisible to everyone else.
-		final PacketCallback packetCallback = (updatePacket, fullPacket) -> DataUpdateBroadcast.broadcastDataUpdate(world, packetId, fullPacket, player.getUUID());
+		final PacketCallback packetCallback = createUpdatePacketCallback(world, player, packetId, railwayData);
 
 		if (isDelete) {
-			deleteData(dataSet.apply(railwayData), cacheMap.apply(railwayData), minecraftServer, packet, packetCallback, data -> railwayData.railwayDataLoggingModule.addEvent(player, data.getClass(), data.id, data.name, RailwayDataLoggingModule.getData(data), new ArrayList<>()));
+			deleteData(dataSet.apply(railwayData), cacheMap.apply(railwayData), minecraftServer, packet, packetCallback, createDeletionLogger(railwayData, player));
 		} else {
-			updateData(dataSet.apply(railwayData), cacheMap.apply(railwayData), minecraftServer, packet, packetCallback, createDataWithId, (data, oldData) -> railwayData.railwayDataLoggingModule.addEvent(player, data.getClass(), data.id, data.name, oldData, RailwayDataLoggingModule.getData(data)));
+			updateData(dataSet.apply(railwayData), cacheMap.apply(railwayData), minecraftServer, packet, packetCallback, createDataWithId, createUpdateLogger(railwayData, player));
 		}
+	}
+
+	private static PacketCallback createUpdatePacketCallback(Level world, ServerPlayer player, ResourceLocation packetId, RailwayData railwayData) {
+		return (updatePacket, fullPacket) -> lambda$receiveUpdateOrDeleteC2S$9(world, player, packetId, railwayData, updatePacket, fullPacket);
+	}
+
+	private static <T extends NameColorDataBase> Consumer<T> createDeletionLogger(RailwayData railwayData, ServerPlayer player) {
+		return data -> railwayData.railwayDataLoggingModule.addEvent(player, data.getClass(), data.id, data.name, RailwayDataLoggingModule.getData(data), new ArrayList<>());
+	}
+
+	private static <T extends NameColorDataBase> BiConsumer<T, List<String>> createUpdateLogger(RailwayData railwayData, ServerPlayer player) {
+		return (data, oldData) -> railwayData.railwayDataLoggingModule.addEvent(player, data.getClass(), data.id, data.name, oldData, RailwayDataLoggingModule.getData(data));
+	}
+
+	private static void lambda$receiveUpdateOrDeleteC2S$9(Level world, ServerPlayer player, ResourceLocation packetId, RailwayData railwayData, FriendlyByteBuf updatePacket, FriendlyByteBuf fullPacket) {
+		DataUpdateBroadcast.broadcastDataUpdate(world, packetId, fullPacket, player.getUUID());
 	}
 
 	/**

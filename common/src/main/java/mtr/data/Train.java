@@ -48,6 +48,9 @@ public abstract class Train extends NameColorDataBase implements IPacket {
 	protected int manualNotch;
 	protected boolean useLegacyManualNotch = true;
 
+	private int doorScanCarIndex;
+	private int doorScanSide;
+
 	public final long sidingId;
 	public final String trainId;
 	public final String baseTrainType;
@@ -666,7 +669,8 @@ public abstract class Train extends NameColorDataBase implements IPacket {
 				}
 			} else {
 				final float newAcceleration = accelerationConstant * ticksElapsed;
-				final float newDeceleration = decelerationConstant * ticksElapsed;
+				final float legacyDeceleration = accelerationConstant * ticksElapsed;
+				final float newDeceleration = legacyDeceleration == newAcceleration ? decelerationConstant * ticksElapsed : legacyDeceleration;
 
 				if (railProgress >= distances.get(distances.size() - 1) - (railLength - trainCars * spacing) / 2) {
 					isOnRoute = false;
@@ -970,8 +974,11 @@ public abstract class Train extends NameColorDataBase implements IPacket {
 			final double realSpacing = pos2.distanceTo(pos1);
 			final float yaw = (float) Mth.atan2(pos2.x - pos1.x, pos2.z - pos1.z);
 			final float pitch = realSpacing == 0 ? 0 : (float) asin((pos2.y - pos1.y) / realSpacing);
-			final boolean doorLeftOpen = scanDoorsForRender(world, x, y, z, (float) Math.PI + yaw, pitch, realSpacing / 2, dwellTicks, index, 0, doorValue) && doorValue > 0;
-			final boolean doorRightOpen = scanDoorsForRender(world, x, y, z, yaw, pitch, realSpacing / 2, dwellTicks, index, 1, doorValue) && doorValue > 0;
+			doorScanCarIndex = index;
+			doorScanSide = 0;
+			final boolean doorLeftOpen = scanDoors(world, x, y, z, (float) Math.PI + yaw, pitch, realSpacing / 2, dwellTicks) && doorValue > 0;
+			doorScanSide = 1;
+			final boolean doorRightOpen = scanDoors(world, x, y, z, yaw, pitch, realSpacing / 2, dwellTicks) && doorValue > 0;
 
 			calculateCarCallback.calculateCarCallback(x, y, z, yaw, pitch, realSpacing, doorLeftOpen, doorRightOpen);
 		}
@@ -1088,15 +1095,15 @@ public abstract class Train extends NameColorDataBase implements IPacket {
 		return path.get(index).rail.getPosition(tempRailProgress - (index == 0 ? 0 : distances.get(index - 1))).add(0, transportMode.railOffset, 0);
 	}
 
+	private boolean scanDoors(Level world, double trainX, double trainY, double trainZ, float checkYaw, float pitch, double halfSpacing, int dwellTicks) {
+		return scanDoorsForRender(world, trainX, trainY, trainZ, checkYaw, pitch, halfSpacing, dwellTicks, doorScanCarIndex, doorScanSide, doorValue);
+	}
+
 	/**
 	 * Rendering-side door scan hook. The default implementation always scans (server behaviour is unchanged);
 	 * the client overrides this to merge repeated scans within the same game tick.
 	 */
 	protected boolean scanDoorsForRender(Level world, double trainX, double trainY, double trainZ, float checkYaw, float pitch, double halfSpacing, int dwellTicks, int carIndex, int side, float doorValue) {
-		return scanDoors(world, trainX, trainY, trainZ, checkYaw, pitch, halfSpacing, dwellTicks);
-	}
-
-	private boolean scanDoors(Level world, double trainX, double trainY, double trainZ, float checkYaw, float pitch, double halfSpacing, int dwellTicks) {
 		if (skipScanBlocks(world, trainX, trainY, trainZ)) {
 			return false;
 		}

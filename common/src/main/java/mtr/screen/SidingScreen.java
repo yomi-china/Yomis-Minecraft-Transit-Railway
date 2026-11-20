@@ -3,6 +3,7 @@ package mtr.screen;
 import com.google.gson.JsonObject;
 import mtr.Icons;
 import mtr.Patreon;
+import mtr.client.AnteCompat;
 import mtr.client.ClientData;
 import mtr.client.IDrawing;
 import mtr.client.TrainClientRegistry;
@@ -261,6 +262,12 @@ public class SidingScreen extends SavedRailScreenBase<Siding> implements Icons {
 		final int dwellTime = (int) ((second + minutes * SECONDS_PER_MINUTE) * 2);
 		savedRailBase.setEnablePredictiveBraking(enablePredictiveBraking);
 		savedRailBase.setEnableDelayedAcceleration(enableDelayedAcceleration);
+		// MTR-34's SidingScreenMixin injects at the pre-split setUnlimitedTrains signature on this exact call
+		// site (it stores its own speed-limit / braking settings before the call). Keep that call shape alive;
+		// it is idempotent, because the modern call right below writes the final values, and it clears no trains.
+		if (AnteCompat.isMtr34()) {
+			savedRailBase.setUnlimitedTrains(buttonUnlimitedTrains.selected(), maxTrains, isManual, maxManualSpeed, accelerationConstant, dwellTime, false, packet -> PacketTrainDataGuiClient.sendUpdate(getPacketIdentifier(), packet));
+		}
 		savedRailBase.setUnlimitedTrains(buttonUnlimitedTrains.selected(), maxTrains, isManual, maxManualSpeed, enablePredictiveBraking, accelerationConstant, decelerationConstant, dwellTime, oldAcceleration != accelerationConstant || oldDeceleration != decelerationConstant || oldIsManual != isManual || oldMaxManualSpeed != maxManualSpeed || oldDwellTime != dwellTime, packet -> PacketTrainDataGuiClient.sendUpdate(getPacketIdentifier(), packet));
 		super.onClose();
 	}

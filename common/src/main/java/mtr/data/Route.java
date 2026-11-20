@@ -212,15 +212,9 @@ public final class Route extends NameColorDataBase implements IGui {
 	public void writePacket(FriendlyByteBuf packet) {
 		super.writePacket(packet);
 		packet.writeInt(platformIds.size());
-		platformIds.forEach(routePlatform -> {
-			packet.writeLong(routePlatform.platformId);
-			packet.writeUtf(routePlatform.customDestination);
-			packet.writeBoolean(routePlatform.stopWithoutOpeningDoors);
-			packet.writeBoolean(routePlatform.customDwellTime);
-			packet.writeInt(routePlatform.dwellTime);
-			packet.writeBoolean(routePlatform.customAdcTime);
-			packet.writeInt(routePlatform.adcTime);
-		});
+		for (final RoutePlatform routePlatform : platformIds) {
+			lambda$writePacket$2(packet, routePlatform);
+		}
 
 		packet.writeUtf(routeType.toString());
 		packet.writeBoolean(isLightRailRoute);
@@ -274,15 +268,9 @@ public final class Route extends NameColorDataBase implements IGui {
 		packet.writeUtf(transportMode.toString());
 		packet.writeUtf(KEY_PLATFORM_IDS);
 		packet.writeInt(platformIds.size());
-		platformIds.forEach(routePlatform -> {
-			packet.writeLong(routePlatform.platformId);
-			packet.writeUtf(routePlatform.customDestination);
-			packet.writeBoolean(routePlatform.stopWithoutOpeningDoors);
-			packet.writeBoolean(routePlatform.customDwellTime);
-			packet.writeInt(routePlatform.dwellTime);
-			packet.writeBoolean(routePlatform.customAdcTime);
-			packet.writeInt(routePlatform.adcTime);
-		});
+		for (final RoutePlatform routePlatform : platformIds) {
+			lambda$setPlatformIds$3(packet, routePlatform);
+		}
 		sendPacket.accept(packet);
 	}
 
@@ -342,6 +330,26 @@ public final class Route extends NameColorDataBase implements IGui {
 
 	public static boolean destinationIsReset(String destination) {
 		return destination.equals("\\r") || destination.equals("\\reset");
+	}
+
+	private static void lambda$writePacket$2(FriendlyByteBuf packet, RoutePlatform routePlatform) {
+		packet.writeLong(routePlatform.platformId);
+		packet.writeUtf(routePlatform.customDestination);
+		packet.writeBoolean(routePlatform.stopWithoutOpeningDoors);
+		packet.writeBoolean(routePlatform.customDwellTime);
+		packet.writeInt(routePlatform.dwellTime);
+		packet.writeBoolean(routePlatform.customAdcTime);
+		packet.writeInt(routePlatform.adcTime);
+	}
+
+	private static void lambda$setPlatformIds$3(FriendlyByteBuf packet, RoutePlatform routePlatform) {
+		packet.writeLong(routePlatform.platformId);
+		packet.writeUtf(routePlatform.customDestination);
+		packet.writeBoolean(routePlatform.stopWithoutOpeningDoors);
+		packet.writeBoolean(routePlatform.customDwellTime);
+		packet.writeInt(routePlatform.dwellTime);
+		packet.writeBoolean(routePlatform.customAdcTime);
+		packet.writeInt(routePlatform.adcTime);
 	}
 
 	public static class RoutePlatform {

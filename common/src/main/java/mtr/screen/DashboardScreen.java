@@ -25,6 +25,9 @@ public class DashboardScreen extends ScreenMapper implements IGui, IPacket {
 	private SelectedTab selectedTab;
 	private AreaBase editingArea;
 	private Route editingRoute;
+
+	private int editingRoutePlatformIndex = -1;
+
 	private boolean isNew;
 
 	private final TransportMode transportMode;
@@ -302,6 +305,26 @@ public class DashboardScreen extends ScreenMapper implements IGui, IPacket {
 		dashboardList.clearSearch();
 	}
 
+	private void startEditingRouteDestination(int index) {
+		if (minecraft == null || editingRoute == null || index < 0 || index >= editingRoute.platformIds.size()) {
+			return;
+		}
+		final Route.RoutePlatform rp = editingRoute.platformIds.get(index);
+		final Platform platform = ClientData.DATA_CACHE.platformIdMap.get(rp.platformId);
+		final Station station = ClientData.DATA_CACHE.platformIdToStation.get(platform != null ? platform.id : 0);
+		final String stationName = station != null ? station.name : "?";
+		final String platformName = platform != null ? platform.name : "?";
+		UtilitiesClient.setScreen(minecraft, new RoutePlatformScreen(
+				editingRoute, index,
+				editingRoute.name,
+				stationName, platformName,
+				editingRoute.color,
+				() -> editingRoute.setPlatformIds(packet ->
+						PacketTrainDataGuiClient.sendUpdate(PACKET_UPDATE_ROUTE, packet)),
+				this
+		));
+	}
+
 	private void onEdit(NameColorDataBase data, int index) {
 		if (minecraft != null) {
 			switch (selectedTab) {
@@ -320,20 +343,7 @@ public class DashboardScreen extends ScreenMapper implements IGui, IPacket {
 					if (editingRoute == null && data instanceof Route) {
 						UtilitiesClient.setScreen(minecraft, new EditRouteScreen((Route) data, this));
 					} else if (editingRoute != null && index >= 0 && index < editingRoute.platformIds.size()) {
-						final Route.RoutePlatform rp = editingRoute.platformIds.get(index);
-						final Platform platform = ClientData.DATA_CACHE.platformIdMap.get(rp.platformId);
-						final Station station = ClientData.DATA_CACHE.platformIdToStation.get(platform != null ? platform.id : 0);
-						final String stationName = station != null ? station.name : "?";
-						final String platformName = platform != null ? platform.name : "?";
-						UtilitiesClient.setScreen(minecraft, new RoutePlatformScreen(
-								editingRoute, index,
-								editingRoute.name,
-								stationName, platformName,
-								editingRoute.color,
-								() -> editingRoute.setPlatformIds(packet ->
-										PacketTrainDataGuiClient.sendUpdate(PACKET_UPDATE_ROUTE, packet)),
-								this
-						));
+						startEditingRouteDestination(index);
 					}
 					break;
 				case DEPOTS:
