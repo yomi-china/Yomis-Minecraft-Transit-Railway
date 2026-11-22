@@ -8,6 +8,8 @@ import mtr.data.DataCache;
 import mtr.data.Depot;
 import mtr.data.IGui;
 import mtr.data.Platform;
+import mtr.data.Rail;
+import mtr.data.RailType;
 import mtr.data.RailwayData;
 import mtr.data.Route;
 import mtr.data.RouteType;
@@ -184,6 +186,7 @@ public final class WebDashboardDataService {
 				world.add("routes", buildRoutes(railwayData, dataCache));
 				world.add("depots", buildDepots(railwayData));
 				world.add("sidings", buildSidings(railwayData));
+				world.add("railStats", buildRailStats(railwayData));
 				world.add("players", buildPlayers(level));
 
 				final JsonObject depotToSidings = new JsonObject();
@@ -257,7 +260,7 @@ public final class WebDashboardDataService {
 		final JsonArray platforms = new JsonArray();
 		for (final Platform platform : railwayData.platforms) {
 			try {
-				platforms.add(platformJson(platform, dataCache));
+				platforms.add(platformJson(platform, dataCache, railwayData.getRailsMap()));
 			} catch (Exception e) {
 				System.out.println("[MTR-WebDashboard] Skipping platform " + platform.id + ": " + e);
 			}
@@ -265,11 +268,46 @@ public final class WebDashboardDataService {
 		return platforms;
 	}
 
-	static JsonObject platformJson(Platform platform, DataCache dataCache) {
+	static JsonObject platformJson(Platform platform, DataCache dataCache, Map<BlockPos, Map<BlockPos, Rail>> rails) {
 		final JsonObject object = savedRailJson(platform, dataCache);
 		object.addProperty("stopWithoutOpeningDoors", platform.getStopWithoutOpeningDoors());
 		object.addProperty("psdDisplayMode", platform.getPsdDisplayMode());
+		object.addProperty("length", platformLength(rails, platform));
 		return object;
+	}
+
+	/**
+	 * A platform is stored as the two ends of the rail it was created on, so the rail map holds the exact
+	 * length. The endpoint distance is only a fallback for a platform whose rail has since been removed.
+	 */
+	private static double platformLength(Map<BlockPos, Map<BlockPos, Rail>> rails, Platform platform) {
+		final List<BlockPos> positions = platform.getOrderedPositions(RailwayData.newBlockPos(0, 0, 0), false);
+		if (positions.size() < 2) {
+			return 0;
+		}
+
+		final BlockPos pos1 = positions.get(0);
+		final BlockPos pos2 = positions.get(1);
+		final Rail rail = railBetween(rails, pos1, pos2);
+		if (rail != null) {
+			final double length = rail.getLength();
+			if (Double.isFinite(length) && length > 0) {
+				return round(length, 3);
+			}
+		}
+		return round(Math.hypot(pos1.getX() - pos2.getX(), pos1.getZ() - pos2.getZ()), 3);
+	}
+
+	private static Rail railBetween(Map<BlockPos, Map<BlockPos, Rail>> rails, BlockPos pos1, BlockPos pos2) {
+		final Map<BlockPos, Rail> forward = rails.get(pos1);
+		final Rail rail = forward == null ? null : forward.get(pos2);
+		if (rail != null && rail.railType != RailType.NONE) {
+			return rail;
+		}
+
+		final Map<BlockPos, Rail> backwards = rails.get(pos2);
+		final Rail reverse = backwards == null ? null : backwards.get(pos1);
+		return reverse != null && reverse.railType != RailType.NONE ? reverse : null;
 	}
 
 	/** The siding shape, shared by {@code /api/data} and the PATCH response. See {@link #platformJson}. */
@@ -435,6 +473,52 @@ public final class WebDashboardDataService {
 			}
 		}
 		return sidings;
+	}
+
+	/**
+	 * Rail totals per transport mode, taken from the rail map the server already holds. A two-way connection
+	 * is stored twice (once per direction), so only the canonical direction is counted; this keeps the count
+	 * in step with what the track overlay draws.
+	 */
+	private static JsonObject buildRailStats(RailwayData railwayData) {
+		final Map<BlockPos, Map<BlockPos, Rail>> rails = railwayData.getRailsMap();
+		final Map<TransportMode, Integer> counts = new HashMap<>();
+		final Map<TransportMode, Double> longest = new HashMap<>();
+
+		for (final Map.Entry<BlockPos, Map<BlockPos, Rail>> outer : rails.entrySet()) {
+			final BlockPos start = outer.getKey();
+			final Map<BlockPos, Rail> connections = outer.getValue();
+			if (start == null || connections == null) {
+				continue;
+			}
+			for (final Map.Entry<BlockPos, Rail> inner : connections.entrySet()) {
+				final Rail rail = inner.getValue();
+				final BlockPos end = inner.getKey();
+				if (rail == null || end == null || rail.railType == RailType.NONE || WebDashboardTrackService.isReverseDuplicate(rails, start, end)) {
+					continue;
+				}
+
+				counts.merge(rail.transportMode, 1, Integer::sum);
+				final double length = rail.getLength();
+				if (Double.isFinite(length) && length > 0) {
+					longest.merge(rail.transportMode, length, Math::max);
+				}
+			}
+		}
+
+		final JsonObject stats = new JsonObject();
+		for (final TransportMode mode : TransportMode.values()) {
+			final Integer count = counts.get(mode);
+			if (count == null) {
+				continue;
+			}
+			final Double maxLength = longest.get(mode);
+			final JsonObject modeStats = new JsonObject();
+			modeStats.addProperty("count", count);
+			modeStats.addProperty("longest", maxLength == null ? null : round(maxLength, 3));
+			stats.add(mode.toString(), modeStats);
+		}
+		return stats;
 	}
 
 	private static JsonArray buildPlayers(ServerLevel level) {

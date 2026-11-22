@@ -1,11 +1,14 @@
-import { getOverlaySettings, setOverlaySetting, OVERLAY_EVENT } from './overlay-settings.js?v=49';
-import { openSettings } from './settings.js?v=49';
+import { getOverlaySettings, setOverlaySetting, OVERLAY_EVENT } from './overlay-settings.js?v=64';
+import { getTrainSettings, setTrainSetting, TRAIN_EVENT } from './train-settings.js?v=64';
+import { openSettings } from './settings.js?v=64';
 
 let button = null;
 let toast = null;
 let closeButton = null;
 let enabledInput = null;
 let colorsInput = null;
+let trainsRow = null;
+let trainsInput = null;
 let settingsButton = null;
 let lastFocus = null;
 let isOpen = false;
@@ -19,6 +22,17 @@ function sync() {
 	if (colorsInput) {
 		colorsInput.checked = settings.colors;
 	}
+	if (trainsInput) {
+		trainsInput.checked = getTrainSettings().enabled;
+	}
+}
+
+export function setTrainsAvailable(available) {
+	if (!trainsRow || !trainsInput) {
+		return;
+	}
+	trainsRow.hidden = !available;
+	trainsInput.disabled = !available;
 }
 
 function position() {
@@ -98,8 +112,10 @@ export function initOverlayToast() {
 	closeButton = document.getElementById('overlay-toast-close');
 	enabledInput = document.getElementById('overlay-toast-enabled');
 	colorsInput = document.getElementById('overlay-toast-colors');
+	trainsRow = document.getElementById('overlay-toast-trains-row');
+	trainsInput = document.getElementById('overlay-toast-trains');
 	settingsButton = document.getElementById('overlay-toast-settings');
-	if (!button || !toast || !closeButton || !enabledInput || !colorsInput || !settingsButton) {
+	if (!button || !toast || !closeButton || !enabledInput || !colorsInput || !trainsRow || !trainsInput || !settingsButton) {
 		return;
 	}
 
@@ -124,6 +140,10 @@ export function initOverlayToast() {
 		setOverlaySetting('colors', colorsInput.checked);
 		sync();
 	});
+	trainsInput.addEventListener('change', () => {
+		setTrainSetting('enabled', trainsInput.checked);
+		sync();
+	});
 	settingsButton.addEventListener('click', () => {
 		close(false);
 		openSettings('tracks');
@@ -145,5 +165,6 @@ export function initOverlayToast() {
 	});
 	window.addEventListener('resize', position);
 	window.addEventListener(OVERLAY_EVENT, sync);
+	window.addEventListener(TRAIN_EVENT, sync);
 	sync();
 }

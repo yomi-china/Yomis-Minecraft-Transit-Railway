@@ -279,6 +279,21 @@ public class TrainServer extends Train {
 		return TrigCache.asin(value);
 	}
 
+	public long getRouteId() {
+		return routeId;
+	}
+
+	/**
+	 * The platform the train is heading to, for read-only dashboard displays.
+	 */
+	public long getNextStopPlatformId() {
+		if (path == null || nextStoppingIndex < 0 || nextStoppingIndex >= path.size()) {
+			return 0;
+		}
+		final PathData pathData = path.get(nextStoppingIndex);
+		return pathData == null ? 0 : pathData.savedRailBaseId;
+	}
+
 	public boolean simulateTrain(Level world, float ticksElapsed, Depot depot, DataCache dataCache, List<Map<UUID, Long>> trainPositions, Map<Player, Set<TrainServer>> trainsInPlayerRange, Map<Long, List<ScheduleEntry>> schedulesForPlatform, Map<Long, Map<BlockPos, TrainDelay>> trainDelays) {
 		this.trainPositions = trainPositions;
 		this.trainsInPlayerRange = trainsInPlayerRange;

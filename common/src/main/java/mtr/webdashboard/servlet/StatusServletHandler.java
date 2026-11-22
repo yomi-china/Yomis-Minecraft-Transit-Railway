@@ -24,6 +24,7 @@ public class StatusServletHandler extends HttpServlet {
 		features.addProperty("terrain", false);
 		features.addProperty("editing", canEdit);
 		features.addProperty("tracks", true);
+		features.addProperty("trains", true);
 
 		final JsonObject body = new JsonObject();
 		body.addProperty("version", Keys.MOD_VERSION);

@@ -133,7 +133,7 @@ public final class WebDashboardEdits {
 
 		final JsonObject objectJson;
 		if (object instanceof Platform platform) {
-			objectJson = WebDashboardDataService.platformJson(platform, railwayData.dataCache);
+			objectJson = WebDashboardDataService.platformJson(platform, railwayData.dataCache, railwayData.getRailsMap());
 		} else if (object instanceof Siding siding) {
 			objectJson = WebDashboardDataService.sidingJson(siding, railwayData.dataCache);
 		} else {

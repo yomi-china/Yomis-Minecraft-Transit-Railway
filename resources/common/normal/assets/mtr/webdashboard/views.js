@@ -1,5 +1,6 @@
-import { f, t } from './i18n.js?v=49';
-import { MODE_ALL, MODES, countForMode } from './lists.js?v=49';
+import { f, t } from './i18n.js?v=64';
+import { MODE_ALL, MODES, countForMode } from './lists.js?v=64';
+import { getTrainSettings } from './train-settings.js?v=64';
 
 const el = {
 	body: document.body,
@@ -132,7 +133,7 @@ export function setTracksDegraded(degraded) {
 	if (!el.mapTracks) {
 		return;
 	}
-	const title = degraded ? t('mapTracksDegraded') : t('mapTracks');
+	const title = degraded ? t('mapTracksDegraded') : t('mapOverlays');
 	el.mapTracks.title = title;
 	el.mapTracks.setAttribute('aria-label', title);
 	el.mapTracks.dataset.degraded = degraded ? 'true' : 'false';
@@ -332,6 +333,28 @@ function renderRow(row, position, context) {
 		item.appendChild(mode);
 	}
 
+	if (context.rowKind === 'route' || context.rowKind === 'depot') {
+		const settings = getTrainSettings();
+		const active = (context.rowKind === 'route' ? settings.route : settings.depot) === String(row.id);
+		if (active) {
+			item.classList.add('row--filtered');
+		}
+		const filter = document.createElement('button');
+		filter.type = 'button';
+		filter.className = 'row__filter' + (active ? ' is-active' : '');
+		filter.dataset.action = 'filter';
+		filter.dataset.kind = context.rowKind;
+		filter.dataset.id = row.id;
+		filter.setAttribute('aria-pressed', String(active));
+		const labelKey = context.rowKind === 'route'
+			? (active ? 'trainFilterRouteClear' : 'trainFilterRoute')
+			: (active ? 'trainFilterDepotClear' : 'trainFilterDepot');
+		filter.title = f(labelKey, row.name || t('untitled'));
+		filter.setAttribute('aria-label', filter.title);
+		filter.appendChild(iconFilter());
+		item.appendChild(filter);
+	}
+
 	if (context.canEdit && context.editableKinds && context.editableKinds.has(context.rowKind)) {
 		const edit = document.createElement('button');
 		edit.type = 'button';
@@ -344,6 +367,19 @@ function renderRow(row, position, context) {
 	}
 
 	return item;
+}
+
+function iconFilter() {
+	const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+	svg.setAttribute('viewBox', '0 0 24 24');
+	svg.setAttribute('width', '18');
+	svg.setAttribute('height', '18');
+	svg.setAttribute('aria-hidden', 'true');
+	svg.setAttribute('focusable', 'false');
+	const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+	path.setAttribute('d', 'M4 5h16l-6.5 7.3V19l-3-1.5v-5.2L4 5z');
+	svg.appendChild(path);
+	return svg;
 }
 
 function iconPencil() {
@@ -507,6 +543,14 @@ export function bindSidebar(handlers) {
 
 	if (el.list) {
 		el.list.addEventListener('click', event => {
+			const filter = event.target.closest('.row__filter');
+			if (filter) {
+				event.stopPropagation();
+				if (handlers.onFilter) {
+					handlers.onFilter(filter.dataset.kind, filter.dataset.id);
+				}
+				return;
+			}
 			const row = event.target.closest('.row');
 			if (!row) {
 				return;

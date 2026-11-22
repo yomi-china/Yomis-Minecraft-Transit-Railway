@@ -632,6 +632,13 @@ public class Siding extends SavedRailBase implements IPacket, IReducedSaveData {
 		trains.clear();
 	}
 
+	/**
+	 * Read-only view for the web dashboard; the simulation keeps ownership of the set.
+	 */
+	public Set<TrainServer> getTrains() {
+		return Collections.unmodifiableSet(trains);
+	}
+
 	private void setTrainDetails() {
 		for (final TrainType trainType : TrainType.values()) {
 			if (TrainType.getTransportMode(trainType.baseTrainType) == transportMode && isValidVehicle(TrainType.getSpacing(trainType.baseTrainType))) {

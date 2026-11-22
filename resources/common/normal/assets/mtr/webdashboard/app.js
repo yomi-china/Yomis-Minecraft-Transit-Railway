@@ -1,18 +1,22 @@
-import { t, applyTranslations } from './i18n.js?v=49';
-import { SessionError, SessionFailure, clearTokenFromUrl, fetchSession, fetchStatus, login, logout, readTokenFromUrl } from './session.js?v=49';
-import { DataErrorKind, DataFailure, fetchData, fetchMeta, patch, selectWorld } from './api.js?v=49';
-import { MODE_ALL, buildIndex, buildRows, compareByDisplayName } from './lists.js?v=49';
-import * as views from './views.js?v=49';
-import * as map from './map.js?v=49';
-import * as tracks from './tracks.js?v=49';
-import * as popover from './popover.js?v=49';
-import { CHILD_KINDS, contextFor } from './editor.js?v=49';
-import { hasOriginCorner } from './areafit.js?v=49';
-import * as welcome from './welcome.js?v=49';
-import { initSettings } from './settings.js?v=49';
-import { initOverlayToast } from './overlay-toast.js?v=49';
-import './theme.js?v=49';
-import './fx.js?v=49';
+import { t, applyTranslations } from './i18n.js?v=64';
+import { SessionError, SessionFailure, clearTokenFromUrl, fetchSession, fetchStatus, login, logout, readTokenFromUrl } from './session.js?v=64';
+import { DataErrorKind, DataFailure, fetchData, fetchMeta, patch, selectWorld } from './api.js?v=64';
+import { MODE_ALL, buildIndex, buildRows, compareByDisplayName } from './lists.js?v=64';
+import * as views from './views.js?v=64';
+import * as map from './map.js?v=64';
+import * as tracks from './tracks.js?v=64';
+import * as trains from './trains.js?v=64';
+import * as trainToast from './train-toast.js?v=64';
+import * as popover from './popover.js?v=64';
+import { CHILD_KINDS, contextFor } from './editor.js?v=64';
+import { hasOriginCorner } from './areafit.js?v=64';
+import * as welcome from './welcome.js?v=64';
+import { initSettings } from './settings.js?v=64';
+import { initStatistics } from './stats.js?v=64';
+import * as overlayToast from './overlay-toast.js?v=64';
+import { getTrainSettings, setTrainSetting } from './train-settings.js?v=64';
+import './theme.js?v=64';
+import './fx.js?v=64';
 
 const EDITABLE_KINDS = new Set(['station', 'route', 'depot']);
 
@@ -53,6 +57,7 @@ function selectedKind() {
 let canEdit = false;
 let editingArea = false;
 let childFocusId = null;
+let trainAnchor = null;
 
 function activeMapSelection() {
 	return childFocusId || selectedId();
@@ -81,7 +86,10 @@ function setAccount(username) {
 }
 
 function setServiceMeta(status) {
-	tracks.setAvailable(Boolean(status && status.features && status.features.tracks === true));
+	const features = status && status.features ? status.features : {};
+	tracks.setAvailable(features.tracks === true);
+	trains.setAvailable(features.trains === true);
+	overlayToast.setTrainsAvailable(features.trains === true);
 	if (!elements.meta) {
 		return;
 	}
@@ -133,6 +141,11 @@ function render() {
 		views.setFocusPlayerEnabled(playerCount > 0);
 		tracks.setWorld(state.world);
 		tracks.setMode(state.mode);
+		trains.setWorld(state.world);
+		trainToast.setIndex(state.index);
+		if (state.world) {
+			keepTrainFilterValid();
+		}
 		map.setWorld(state.world, state.index);
 		map.setMode(state.mode);
 		map.setTab(state.tab);
@@ -140,6 +153,16 @@ function render() {
 	} catch (error) {
 		console.error('[MTR-WebDashboard] render failed for state', { ...state }, error);
 		throw error;
+	}
+}
+
+function keepTrainFilterValid() {
+	const settings = getTrainSettings();
+	if (settings.route !== 'all' && !state.index.routeById.has(settings.route)) {
+		setTrainSetting('route', 'all');
+	}
+	if (settings.depot !== 'all' && !state.index.depotById.has(settings.depot)) {
+		setTrainSetting('depot', 'all');
 	}
 }
 
@@ -221,6 +244,8 @@ function keepSelectionIfStillPresent() {
 }
 
 function renderReadOnly() {
+	trains.setAvailable(false);
+	trainToast.hide();
 	setStatus('readonly', 'statusReadOnly');
 	setView('readonly');
 }
@@ -248,6 +273,7 @@ function exposeDiagnostics(session) {
 		raw: () => state.world,
 		map: () => ({ view: map.getView(), editing: map.isAreaEditing(), draft: map.getAreaDraft() }),
 		tracks: () => tracks.getDebugState(),
+		trains: () => trains.getDebugState(),
 		show: tab => {
 			state.tab = tab;
 			render();
@@ -274,8 +300,8 @@ function initMap() {
 	canvas.dataset.initialised = 'true';
 
 	map.init(canvas, {
-		onSelect: id => {
-			selectOnMap(id);
+		onSelect: (id, detail) => {
+			selectOnMap(id, detail);
 		},
 		onEditArea: area => {
 			state.draftArea = area;
@@ -291,8 +317,12 @@ function initMap() {
 		drawOverlay: (context, mapView, mapTheme) => {
 			tracks.draw(context, mapView, mapTheme);
 		},
+		drawTrains: (context, mapView, mapTheme) => {
+			trains.draw(context, mapView, mapTheme);
+		},
 		onViewChange: mapView => {
 			tracks.onViewChange(mapView);
+			trains.onViewChange(mapView);
 		}
 	});
 
@@ -307,7 +337,68 @@ function initMap() {
 		onAuthFailure: () => {
 			console.warn('[MTR-WebDashboard] the track overlay lost its session; returning to read-only');
 			tracks.setAvailable(false);
+			trains.setAvailable(false);
+			overlayToast.setTrainsAvailable(false);
+			trainToast.hide();
 			renderReadOnly();
+		}
+	});
+
+	trains.init({
+		redraw: () => map.redraw(),
+		onSelect: record => {
+			if (!record) {
+				trainToast.hide();
+				return;
+			}
+			if (trainToast.isOpen() && trainToast.getTrainId() === record.id) {
+				trainToast.update(record);
+			} else {
+				trainToast.show(record, trainAnchor);
+			}
+		},
+		onTracking: record => {
+			if (!record) {
+				return;
+			}
+			if (trainToast.getTrainId() !== record.id) {
+				trainToast.show(record, trainAnchor);
+			}
+			trainToast.update(record);
+			trainToast.setTracked(true);
+		},
+		onTrackingLost: () => {
+			trainToast.setTracked(false);
+			trainToast.hide();
+		},
+		onTrackingMove: (x, y) => {
+			const canvas = document.getElementById('map');
+			if (!canvas) {
+				return;
+			}
+			const rect = canvas.getBoundingClientRect();
+			trainToast.moveTo({ clientX: rect.left + x, clientY: rect.top + y });
+		},
+		focus: (x, z, scale, durationMs) => {
+			map.flyTo({ ...map.getView(), centerX: x, centerZ: z, scale }, durationMs);
+		},
+		follow: (x, z) => map.followTo(x, z, 0.22),
+		onAuthFailure: () => {
+			console.warn('[MTR-WebDashboard] the train overlay lost its session; returning to read-only');
+			trains.setAvailable(false);
+			tracks.setAvailable(false);
+			overlayToast.setTrainsAvailable(false);
+			trainToast.hide();
+			renderReadOnly();
+		}
+	});
+
+	trainToast.init({
+		onTrack: id => trains.track(id),
+		onStop: () => trains.stopTracking(),
+		onClose: () => {
+			trains.stopTracking();
+			trains.clearSelection();
 		}
 	});
 
@@ -468,8 +559,24 @@ function bindSidebar() {
 		onSelect: id => {
 			selectFromList(id);
 		},
+		onFilter: (kind, id) => {
+			if (!trains.isAvailable() || (kind !== 'route' && kind !== 'depot')) {
+				return;
+			}
+			const settings = getTrainSettings();
+			const key = kind === 'route' ? 'route' : 'depot';
+			const other = kind === 'route' ? 'depot' : 'route';
+			const next = settings[key] === String(id) ? 'all' : String(id);
+			setTrainSetting('enabled', true);
+			if (next !== 'all') {
+				setTrainSetting(other, 'all');
+			}
+			setTrainSetting(key, next);
+			render();
+		},
 		onRefresh: () => {
 			tracks.invalidate();
+			trains.invalidate();
 			loadData();
 		}
 	});
@@ -489,6 +596,11 @@ function selectFromList(id) {
 	if (!popover.close()) {
 		return;
 	}
+	trainToast.hide();
+	if (trains.isTracking()) {
+		trains.stopTracking();
+	}
+	trains.clearSelection();
 
 	const kind = kindForId(id);
 	if (!kind) {
@@ -501,8 +613,19 @@ function selectFromList(id) {
 	}
 }
 
-function selectOnMap(id) {
+function selectOnMap(id, detail) {
+	if (detail) {
+		trainAnchor = detail;
+	}
+	if (detail && trains.trySelect(detail)) {
+		return;
+	}
 	if (id) {
+		trainToast.hide();
+		if (trains.isTracking()) {
+			trains.stopTracking();
+		}
+		trains.clearSelection();
 		map.setSelectedId(id);
 		return;
 	}
@@ -515,6 +638,11 @@ function clearSelection() {
 		return false;
 	}
 	state.editing = null;
+	trainToast.hide();
+	if (trains.isTracking()) {
+		trains.stopTracking();
+	}
+	trains.clearSelection();
 	return true;
 }
 
@@ -669,7 +797,10 @@ async function main() {
 	applyTranslations(document);
 	welcome.init();
 	initSettings();
-	initOverlayToast();
+	initStatistics({
+		getData: () => ({ world: state.world, index: state.index })
+	});
+	overlayToast.initOverlayToast();
 	setStatus('loading', 'statusLoading');
 	bindSidebar();
 	bindViewSwitch();
