@@ -26,9 +26,9 @@ import {
 	snapAreaCorners,
 	FLY_DURATION_MS,
 	interpolateView
-} from './mapview.js?v=49';
-import { beginEdit, cancelEdit, dragToEdit, endEditDrag, getDraftBounds, isEditing } from './mapedit.js?v=49';
-import { planFocus, sameView } from './focus.js?v=49';
+} from './mapview.js?v=64';
+import { beginEdit, cancelEdit, dragToEdit, endEditDrag, getDraftBounds, isEditing } from './mapedit.js?v=64';
+import { planFocus, sameView } from './focus.js?v=64';
 
 const DRAG_THRESHOLD_PX = 4;
 const THEME_EVENT = 'mtr-themechange';
@@ -319,13 +319,12 @@ export function focusOnPlayer(player) {
 	if (!player || !isSanePoint(player.x, player.z)) {
 		return false;
 	}
-	applyView({
+	return flyTo({
 		...view,
 		centerX: player.x,
 		centerZ: player.z,
 		scale: clampScale(Math.max(view.scale, FOCUS_PLAYER_SCALE))
-	});
-	return true;
+	}, FLY_DURATION_MS);
 }
 
 export function getView() {
@@ -431,6 +430,7 @@ export function redraw() {
 	drawDraft();
 	drawLabels();
 	drawPlayers();
+	drawTrains();
 	drawFocusMarker();
 	notifyViewChange();
 }
@@ -438,6 +438,12 @@ export function redraw() {
 function drawOverlay() {
 	if (handlers.drawOverlay) {
 		handlers.drawOverlay(context, view, mapTheme);
+	}
+}
+
+function drawTrains() {
+	if (handlers.drawTrains) {
+		handlers.drawTrains(context, view, mapTheme);
 	}
 }
 
@@ -938,10 +944,18 @@ function onPointerUp(event) {
 	}
 
 	if (state.kind === 'pan' && !state.moved && event.button === 0) {
-		const world = screenToWorld(view, toCanvasPoint(event).x, toCanvasPoint(event).y);
+		const point = toCanvasPoint(event);
+		const world = screenToWorld(view, point.x, point.y);
 		const hit = hitTestSavedRails(savedRailGroups, world.x, world.z);
 		if (handlers.onSelect) {
-			handlers.onSelect(hit ? hit.item.id : null);
+			handlers.onSelect(hit ? hit.item.id : null, {
+				clientX: event.clientX,
+				clientY: event.clientY,
+				x: point.x,
+				y: point.y,
+				worldX: world.x,
+				worldZ: world.z
+			});
 		}
 	}
 }
@@ -1047,6 +1061,19 @@ export function cancelFlight() {
 		cancelAnimationFrame(flightAnimation);
 		flightAnimation = null;
 	}
+}
+
+/** Smoothly recentres the map while a train is tracked; the caller repeats this each frame. */
+export function followTo(worldX, worldZ, damping) {
+	if (flightAnimation != null || !isSanePoint(worldX, worldZ)) {
+		return false;
+	}
+	const factor = damping == null ? 0.18 : damping;
+	view.centerX += (worldX - view.centerX) * factor;
+	view.centerZ += (worldZ - view.centerZ) * factor;
+	viewHasBeenPlaced = true;
+	redraw();
+	return true;
 }
 
 export function focusOnTarget(kind, object, index) {

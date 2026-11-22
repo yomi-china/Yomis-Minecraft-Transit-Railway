@@ -223,13 +223,13 @@ public final class WebDashboardTrackService {
 	}
 
 	/**
-	 * MTR stores a two-way connection twice, once per direction. Drawing both would double every
-	 * rail and any tiny sampling difference between the two curve parameterisations would look like
+	 * MTR stores a two-way connection twice, once per direction. Counting or drawing both would double
+	 * every rail and any tiny sampling difference between the two curve parameterisations would look like
 	 * two precision levels drawn on top of each other. Keep one representative per connection:
 	 * the canonical direction when both are drawable, or the only non-NONE direction for one-way
 	 * track.
 	 */
-	private static boolean isReverseDuplicate(Map<BlockPos, Map<BlockPos, Rail>> rails, BlockPos start, BlockPos end) {
+	static boolean isReverseDuplicate(Map<BlockPos, Map<BlockPos, Rail>> rails, BlockPos start, BlockPos end) {
 		if (start.asLong() < end.asLong()) {
 			return false;
 		}

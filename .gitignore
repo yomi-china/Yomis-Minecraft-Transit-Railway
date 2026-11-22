@@ -53,3 +53,4 @@ forge/server
 
 .architectury-transformer/
 /common/src/main/resources/assets/mtr/webdashboard/
+/forge/src/main/LevelRendererMixinTemplate.java

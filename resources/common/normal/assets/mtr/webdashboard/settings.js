@@ -1,6 +1,7 @@
-import { t } from './i18n.js?v=49';
-import { ACCENTS, THEME_EVENT, getTheme, setAccent, setMode } from './theme.js?v=49';
-import { getOverlaySettings, setOverlaySetting, OVERLAY_EVENT } from './overlay-settings.js?v=49';
+import { t } from './i18n.js?v=64';
+import { ACCENTS, THEME_EVENT, getTheme, setAccent, setMode } from './theme.js?v=64';
+import { getOverlaySettings, setOverlaySetting, OVERLAY_EVENT } from './overlay-settings.js?v=64';
+import { getTrainSettings, setTrainSetting, TRAIN_EVENT } from './train-settings.js?v=64';
 
 let backdrop = null;
 let dialog = null;
@@ -15,6 +16,14 @@ let trackMinScaleValue = null;
 let trackThickness = null;
 let trackThicknessValue = null;
 let trackColors = null;
+let trainEnabled = null;
+let trainConsistGroup = null;
+let trainInterval = null;
+let trainIntervalValue = null;
+let trainMax = null;
+let trainMaxValue = null;
+let trainMinScale = null;
+let trainMinScaleValue = null;
 let activeCategory = 'personalization';
 let lastFocus = null;
 let isOpen = false;
@@ -60,8 +69,38 @@ function syncTrackControls() {
 	}
 }
 
+function syncTrainControls() {
+	const settings = getTrainSettings();
+	if (trainEnabled) {
+		trainEnabled.checked = settings.enabled;
+	}
+	if (trainConsistGroup) {
+		for (const button of trainConsistGroup.querySelectorAll('[data-consist]')) {
+			button.setAttribute('aria-checked', String(button.dataset.consist === settings.consist));
+		}
+	}
+	if (trainInterval) {
+		trainInterval.value = String(settings.interval);
+	}
+	if (trainIntervalValue) {
+		trainIntervalValue.textContent = settings.interval + 's';
+	}
+	if (trainMax) {
+		trainMax.value = String(settings.max);
+	}
+	if (trainMaxValue) {
+		trainMaxValue.textContent = String(settings.max);
+	}
+	if (trainMinScale) {
+		trainMinScale.value = String(settings.minScale);
+	}
+	if (trainMinScaleValue) {
+		trainMinScaleValue.textContent = formatMultiplier(settings.minScale);
+	}
+}
+
 function selectCategory(category) {
-	activeCategory = category === 'tracks' ? 'tracks' : 'personalization';
+	activeCategory = category === 'tracks' || category === 'trains' ? category : 'personalization';
 	if (nav) {
 		for (const button of nav.querySelectorAll('[data-category]')) {
 			const selected = button.dataset.category === activeCategory;
@@ -78,6 +117,8 @@ function selectCategory(category) {
 	}
 	if (activeCategory === 'tracks') {
 		syncTrackControls();
+	} else if (activeCategory === 'trains') {
+		syncTrainControls();
 	}
 }
 
@@ -208,6 +249,14 @@ export function initSettings() {
 	trackThickness = document.getElementById('track-thickness');
 	trackThicknessValue = document.getElementById('track-thickness-value');
 	trackColors = document.getElementById('track-colors');
+	trainEnabled = document.getElementById('train-enabled');
+	trainConsistGroup = document.getElementById('train-consist');
+	trainInterval = document.getElementById('train-interval');
+	trainIntervalValue = document.getElementById('train-interval-value');
+	trainMax = document.getElementById('train-max');
+	trainMaxValue = document.getElementById('train-max-value');
+	trainMinScale = document.getElementById('train-min-scale');
+	trainMinScaleValue = document.getElementById('train-min-scale-value');
 	if (!backdrop || !dialog || !closeButton || !settingsButton || !modeGroup || !themeGrid || !nav) {
 		return;
 	}
@@ -249,6 +298,39 @@ export function initSettings() {
 		});
 	}
 
+	if (trainEnabled) {
+		trainEnabled.addEventListener('change', () => {
+			setTrainSetting('enabled', trainEnabled.checked);
+			syncTrainControls();
+		});
+	}
+	if (trainConsistGroup) {
+		for (const button of trainConsistGroup.querySelectorAll('[data-consist]')) {
+			button.addEventListener('click', () => {
+				setTrainSetting('consist', button.dataset.consist);
+				syncTrainControls();
+			});
+		}
+	}
+	if (trainInterval) {
+		trainInterval.addEventListener('input', () => {
+			setTrainSetting('interval', Number(trainInterval.value));
+			syncTrainControls();
+		});
+	}
+	if (trainMax) {
+		trainMax.addEventListener('input', () => {
+			setTrainSetting('max', Number(trainMax.value));
+			syncTrainControls();
+		});
+	}
+	if (trainMinScale) {
+		trainMinScale.addEventListener('input', () => {
+			setTrainSetting('minScale', Number(trainMinScale.value));
+			syncTrainControls();
+		});
+	}
+
 	settingsButton.addEventListener('click', () => openSettings('personalization'));
 	closeButton.addEventListener('click', close);
 	backdrop.addEventListener('click', event => {
@@ -259,6 +341,8 @@ export function initSettings() {
 	dialog.addEventListener('keydown', onKeydown);
 	window.addEventListener(THEME_EVENT, syncSelection);
 	window.addEventListener(OVERLAY_EVENT, syncTrackControls);
+	window.addEventListener(TRAIN_EVENT, syncTrainControls);
 	syncSelection();
 	syncTrackControls();
+	syncTrainControls();
 }

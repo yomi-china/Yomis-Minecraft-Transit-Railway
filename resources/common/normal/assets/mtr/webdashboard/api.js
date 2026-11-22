@@ -1,9 +1,11 @@
 const DATA_ENDPOINT = '/api/data';
 const META_ENDPOINT = '/api/meta';
 const TRACKS_ENDPOINT = '/api/tracks';
+const TRAINS_ENDPOINT = '/api/trains';
 
 const REQUEST_TIMEOUT_MS = 12000;
 const TRACKS_TIMEOUT_MS = 6000;
+const TRAINS_TIMEOUT_MS = 6000;
 
 export const DataErrorKind = {
 	AUTH: 'auth',
@@ -220,6 +222,95 @@ export async function fetchTracks(options) {
 	}
 	if (!body || typeof body !== 'object') {
 		throw new DataFailure(DataErrorKind.BAD_REQUEST, 'malformed tracks JSON', body);
+	}
+	return body;
+}
+
+/**
+ * Live train snapshot. Polling is driven by the caller; this helper only owns the request lifetime
+ * and the busy/timeout mapping so the overlay can back off instead of retrying immediately.
+ *
+ * @throws {DataFailure}
+ */
+export async function fetchTrains(options) {
+	const params = new URLSearchParams();
+	params.set('world', options.world);
+	params.set('limit', String(options.limit));
+	if (options.route && options.route !== 'all') {
+		params.set('route', options.route);
+	}
+	if (options.depot && options.depot !== 'all') {
+		params.set('depot', options.depot);
+	}
+
+	const controller = new AbortController();
+	let timedOut = false;
+	const timer = setTimeout(() => {
+		timedOut = true;
+		controller.abort();
+	}, TRAINS_TIMEOUT_MS);
+	const externalSignal = options.signal;
+	const relayAbort = () => controller.abort();
+	if (externalSignal) {
+		if (externalSignal.aborted) {
+			controller.abort();
+		} else {
+			externalSignal.addEventListener('abort', relayAbort, { once: true });
+		}
+	}
+
+	let response;
+	try {
+		response = await fetch(TRAINS_ENDPOINT + '?' + params.toString(), {
+			cache: 'no-store',
+			credentials: 'same-origin',
+			signal: controller.signal
+		});
+	} catch (error) {
+		if (externalSignal && externalSignal.aborted) {
+			throw new DataFailure(DataErrorKind.ABORTED, 'aborted');
+		}
+		if (timedOut) {
+			throw new DataFailure(DataErrorKind.TIMEOUT, 'the trains request timed out');
+		}
+		throw new DataFailure(DataErrorKind.UNREACHABLE, error && error.message);
+	} finally {
+		clearTimeout(timer);
+		if (externalSignal) {
+			externalSignal.removeEventListener('abort', relayAbort);
+		}
+	}
+
+	let body = null;
+	try {
+		body = await response.json();
+	} catch (error) {
+		body = null;
+	}
+
+	if (response.status === 401) {
+		throw new DataFailure(DataErrorKind.AUTH, 'HTTP 401', body);
+	}
+	if (response.status === 403) {
+		throw new DataFailure(DataErrorKind.FORBIDDEN, 'HTTP 403', body);
+	}
+	if (response.status === 404 && body && body.error === 'world_not_found') {
+		throw new DataFailure(DataErrorKind.NOT_FOUND, 'world_not_found', body);
+	}
+	if (response.status === 429 || (body && body.error === 'trains_busy')) {
+		throw new DataFailure(DataErrorKind.BUSY, 'trains_busy', body);
+	}
+	if (response.status === 504 || (body && body.error === 'trains_timeout')) {
+		throw new DataFailure(DataErrorKind.TIMEOUT, 'trains_timeout', body);
+	}
+	if (response.status === 503) {
+		throw new DataFailure(DataErrorKind.NO_SERVER, 'HTTP 503', body);
+	}
+	if (!response.ok) {
+		throw new DataFailure(DataErrorKind.BAD_REQUEST, 'HTTP ' + response.status, body);
+	}
+	if (!body || typeof body !== 'object' || !Array.isArray(body.trains)) {
+		throw new DataFailure(DataErrorKind.BAD_REQUEST, 'malformed trains JSON', body);
 	}
 	return body;
 }

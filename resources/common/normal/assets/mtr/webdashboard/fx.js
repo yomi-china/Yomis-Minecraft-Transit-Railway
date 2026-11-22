@@ -5,14 +5,14 @@
  * Magnetic: hold the control down and drag away; it follows the pointer up to 24px and springs back on
  * release. Hovering alone never moves it.
  *
- * Both are deliberately scoped to action controls (`.button`, `.icon-button`, `.row__edit`, `.welcome-help`):
+ * Both are deliberately scoped to action controls (`.button`, `.icon-button`, `.row__edit`, `.row__filter`, `.welcome-help`):
  * tabs, chips, list rows and form fields keep their own behaviour. The select trigger is a field, not a button.
  *
  * The magnetic part uses the CSS `translate` property instead of `transform`, so it composes with the
  * existing `:active { transform: scale(...) }` instead of overwriting it.
  */
 
-const SELECTOR = '.button, .icon-button, .row__edit, .welcome-help';
+const SELECTOR = '.button, .icon-button, .row__edit, .row__filter, .welcome-help';
 const MAGNET_REACH = 120;
 const MAGNET_LIMIT = 10;
 const MAGNET_EASE = 0.18;

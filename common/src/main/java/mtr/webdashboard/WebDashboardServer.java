@@ -13,6 +13,7 @@ import mtr.webdashboard.servlet.RootIndexFilter;
 import mtr.webdashboard.servlet.SessionServletHandler;
 import mtr.webdashboard.servlet.StatusServletHandler;
 import mtr.webdashboard.servlet.TracksServletHandler;
+import mtr.webdashboard.servlet.TrainsServletHandler;
 import mtr.webdashboard.servlet.WebDashboardAsyncServlet;
 import mtr.webdashboard.servlet.WebDashboardWriteServlet;
 import org.eclipse.jetty.server.Connector;
@@ -48,6 +49,7 @@ public final class WebDashboardServer {
 			return;
 		}
 		TracksServletHandler.reset();
+		TrainsServletHandler.reset();
 
 		final WebDashboardSettings settings = WebDashboardSettings.get();
 		final Server newServer = new Server(new QueuedThreadPool(THREAD_POOL_MAX, THREAD_POOL_MIN, THREAD_POOL_IDLE_TIMEOUT_MS));
@@ -90,6 +92,7 @@ public final class WebDashboardServer {
 		context.addServlet(new ServletHolder(new WebDashboardAsyncServlet(serverObject -> WebDashboardDataService.buildMeta(serverObject).toString())), "/api/meta");
 		context.addServlet(new ServletHolder(new WebDashboardAsyncServlet(serverObject -> WebDashboardDataService.buildData(serverObject).toString())), "/api/data");
 		context.addServlet(new ServletHolder(new TracksServletHandler()), TracksServletHandler.PATH);
+		context.addServlet(new ServletHolder(new TrainsServletHandler()), TrainsServletHandler.PATH);
 
 		context.addServlet(new ServletHolder(new WebDashboardWriteServlet("station", IPacket.PACKET_UPDATE_STATION)), "/api/station/*");
 		context.addServlet(new ServletHolder(new WebDashboardWriteServlet("route", IPacket.PACKET_UPDATE_ROUTE)), "/api/route/*");
@@ -112,7 +115,7 @@ public final class WebDashboardServer {
 		System.out.println("[MTR-WebDashboard] Registered API paths: "
 				+ StatusServletHandler.PATH + ", " + HealthServletHandler.PATH + ", " + SessionServletHandler.PATH
 				+ ", " + LoginServletHandler.PATH + ", " + LogoutServletHandler.PATH
-				+ ", /api/meta, /api/data, " + TracksServletHandler.PATH
+				+ ", /api/meta, /api/data, " + TracksServletHandler.PATH + ", " + TrainsServletHandler.PATH
 				+ "; writing: PATCH /api/station/<id>, /api/route/<id>, /api/depot/<id>, /api/platform/<id>, /api/siding/<id>"
 				+ "; everything else is served as a static file.");
 
@@ -136,6 +139,7 @@ public final class WebDashboardServer {
 
 	public static synchronized void stop() {
 		TracksServletHandler.reset();
+		TrainsServletHandler.reset();
 		if (server != null) {
 			try {
 				server.stop();

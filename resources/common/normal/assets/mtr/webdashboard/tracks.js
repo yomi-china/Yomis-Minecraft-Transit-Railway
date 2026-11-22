@@ -1,6 +1,6 @@
-import { DataErrorKind, DataFailure, fetchTracks } from './api.js?v=49';
-import { argbToRgba, visibleWorldBounds } from './mapview.js?v=49';
-import { getOverlaySettings, setOverlaySetting, OVERLAY_EVENT, OVERLAY_DEFAULTS } from './overlay-settings.js?v=49';
+import { DataErrorKind, DataFailure, fetchTracks } from './api.js?v=64';
+import { argbToRgba, visibleWorldBounds } from './mapview.js?v=64';
+import { getOverlaySettings, setOverlaySetting, OVERLAY_EVENT, OVERLAY_DEFAULTS } from './overlay-settings.js?v=64';
 
 /**
  * Track overlay: viewport-scoped rail geometry.
@@ -23,6 +23,7 @@ export const MAX_CACHE_BYTES = 8 * 1024 * 1024;
 export const MAX_CACHE_ENTRIES = 6;
 export const CACHE_TTL_MS = 30000;
 export const VIEW_DEBOUNCE_MS = 180;
+const MAX_VIEW_DEFER_MS = 450;
 
 const BOUNDS_GRID = 256;
 const DIRECT_DRAW_MAX_SEGMENTS = 2000;
@@ -41,6 +42,7 @@ let cache = new Map();
 let current = null;
 let inFlight = null;
 let debounceTimer = null;
+let debounceStartedAt = 0;
 let requestSequence = 0;
 let lastError = null;
 let degraded = false;
@@ -412,11 +414,27 @@ function schedule() {
 	if (inFlight && inFlight.key === key) {
 		return;
 	}
+	if (inFlight) {
+		// A moving camera should not abort a request that is already on its way; the response still
+		// carries the margin around the old viewport. Ask again as soon as it settles.
+		return;
+	}
 	if (debounceTimer != null) {
+		const deferredFor = debounceStartedAt > 0 ? Date.now() - debounceStartedAt : 0;
 		clearTimeout(debounceTimer);
+		debounceTimer = null;
+		if (deferredFor >= MAX_VIEW_DEFER_MS) {
+			debounceStartedAt = 0;
+			request(bounds, detail, key, { retried: false });
+			return;
+		}
+	}
+	if (debounceStartedAt === 0) {
+		debounceStartedAt = Date.now();
 	}
 	debounceTimer = setTimeout(() => {
 		debounceTimer = null;
+		debounceStartedAt = 0;
 		request(bounds, detail, key, { retried: false });
 	}, VIEW_DEBOUNCE_MS);
 }
@@ -759,6 +777,11 @@ export function isEnabled() {
 
 export function isAvailable() {
 	return available;
+}
+
+/** True only while detailed tracks are actually painted, so trains cannot float over trunks. */
+export function isShowingTracks() {
+	return initialized && enabled && available && lastLayer === 'tracks';
 }
 
 export function invalidate() {

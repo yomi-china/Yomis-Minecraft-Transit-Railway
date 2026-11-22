@@ -6,9 +6,9 @@
 	<meta name="color-scheme" content="light dark">
 	<meta name="robots" content="noindex">
 	<title>MTR Web Dashboard</title>
-	<link rel="stylesheet" href="index.css?v=49">
-	<link rel="stylesheet" href="welcome.css?v=49">
-	<script type="module" src="app.js?v=49"></script>
+	<link rel="stylesheet" href="index.css?v=64">
+	<link rel="stylesheet" href="welcome.css?v=64">
+	<script type="module" src="app.js?v=64"></script>
 </head>
 <body data-view="checking" data-theme="dark">
 <script>
@@ -43,6 +43,11 @@
 					<path d="M15.41 7.41 14 6l-6 6 6 6 1.41-1.41L10.83 12z"/>
 				</svg>
 				<span class="topbar-home__label" data-i18n="home">Home</span>
+			</button>
+			<button class="icon-button" id="statistics" type="button" data-i18n-title="statistics" data-i18n-aria-label="statistics" aria-label="Statistics">
+				<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false">
+					<path d="M5 9.2h3V19H5zM10.6 5h2.8v14h-2.8zm5.6 8H19v6h-2.8z"/>
+				</svg>
 			</button>
 			<button class="icon-button" id="settings" type="button" data-i18n-title="settings" data-i18n-aria-label="settings" aria-label="Settings">
 				<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false">
@@ -124,7 +129,7 @@
 						<path d="M12 8a4 4 0 1 0 4 4 4 4 0 0 0-4-4zm8.94 3A8.99 8.99 0 0 0 13 3.06V1h-2v2.06A8.99 8.99 0 0 0 3.06 11H1v2h2.06A8.99 8.99 0 0 0 11 20.94V23h2v-2.06A8.99 8.99 0 0 0 20.94 13H23v-2zM12 19a7 7 0 1 1 7-7 7 7 0 0 1-7 7z"/>
 					</svg>
 				</button>
-				<button class="icon-button" id="map-tracks" type="button" data-i18n-title="mapTracks" data-i18n-aria-label="mapTracks" aria-label="Track overlay" aria-pressed="false" hidden>
+				<button class="icon-button" id="map-tracks" type="button" data-i18n-title="mapOverlays" data-i18n-aria-label="mapOverlays" aria-label="Map overlays" aria-pressed="false" hidden>
 					<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false">
 						<path d="m12 16 7.36-5.73L21 9l-9-7-9 7 1.63 1.27L12 16zm0-2.54L6.26 9 12 4.53 17.74 9 12 13.46zm-7.37 4.81L3 14.07l9 7 9-7-1.63-1.27L12 18.54l-7.37-5.74z"/>
 					</svg>
@@ -219,6 +224,9 @@
 				<button class="settings__nav-item" type="button" data-category="tracks">
 					<span data-i18n="trackSettings">Track overlay</span>
 				</button>
+				<button class="settings__nav-item" type="button" data-category="trains">
+					<span data-i18n="trainSettings">Trains</span>
+				</button>
 			</nav>
 			<div class="settings__panel" data-panel="personalization">
 				<h3 class="settings__heading" data-i18n="personalization">Personalization</h3>
@@ -280,19 +288,117 @@
 
 				<p class="settings__footnote" data-i18n="settingsSaved">Changes are saved in this browser automatically.</p>
 			</div>
+			<div class="settings__panel" data-panel="trains" hidden>
+				<h3 class="settings__heading" data-i18n="trainSettings">Trains</h3>
+
+				<div class="settings__row">
+					<div class="settings__label">
+						<span id="train-enabled-label" data-i18n="trainOverlayShow">Show trains</span>
+						<span class="settings__hint" data-i18n="trainOverlayHint">Runs only while detailed tracks are visible.</span>
+					</div>
+					<label class="switch">
+						<input class="switch__input" id="train-enabled" type="checkbox" aria-labelledby="train-enabled-label">
+						<span class="switch__track" aria-hidden="true"><span class="switch__thumb"></span></span>
+					</label>
+				</div>
+
+				<div class="settings__row settings__row--stack">
+					<div class="settings__label"><span data-i18n="trainConsist">Formation</span></div>
+					<div class="settings__mode" id="train-consist" role="radiogroup" aria-label="Formation" data-i18n-aria-label="trainConsist">
+						<button type="button" data-consist="consist" role="radio" aria-checked="false">
+							<span data-i18n="trainConsistFull">Full consist</span>
+						</button>
+						<button type="button" data-consist="block" role="radio" aria-checked="false">
+							<span data-i18n="trainConsistBlock">Single block</span>
+						</button>
+					</div>
+				</div>
+
+				<div class="settings__row settings__row--stack">
+					<div class="settings__label">
+						<span id="train-interval-label" data-i18n="trainInterval">Update interval</span>
+						<span class="settings__hint" data-i18n="trainIntervalHint">Positions are interpolated between updates.</span>
+					</div>
+					<div class="settings__range-row">
+						<input class="settings__range" id="train-interval" type="range" min="0.5" max="10" step="0.5" aria-labelledby="train-interval-label">
+						<output class="settings__range-value" id="train-interval-value">1s</output>
+					</div>
+				</div>
+
+				<div class="settings__row settings__row--stack">
+					<div class="settings__label"><span id="train-max-label" data-i18n="trainMax">Maximum trains</span></div>
+					<div class="settings__range-row">
+						<input class="settings__range" id="train-max" type="range" min="1" max="256" step="1" aria-labelledby="train-max-label">
+						<output class="settings__range-value" id="train-max-value">16</output>
+					</div>
+				</div>
+
+				<div class="settings__row settings__row--stack">
+					<div class="settings__label">
+						<span id="train-min-scale-label" data-i18n="trainMinScale">Minimum zoom for trains</span>
+						<span class="settings__hint" data-i18n="trainMinScaleHint">Trains stay hidden below this zoom.</span>
+					</div>
+					<div class="settings__range-row">
+						<input class="settings__range" id="train-min-scale" type="range" min="0.1" max="4" step="0.1" aria-labelledby="train-min-scale-label">
+						<output class="settings__range-value" id="train-min-scale-value">0.6×</output>
+					</div>
+				</div>
+
+				<p class="settings__footnote" data-i18n="settingsSaved">Changes are saved in this browser automatically.</p>
+			</div>
 		</div>
 	</section>
 </div>
 
+<div class="settings-backdrop" id="stats-backdrop" hidden>
+	<section class="settings stats" id="stats-dialog" role="dialog" aria-modal="true" aria-labelledby="stats-title">
+		<header class="settings__header">
+			<h2 class="settings__title" id="stats-title" data-i18n="statistics">Statistics</h2>
+			<button class="settings__close" id="stats-close" type="button" data-i18n-title="editClose" data-i18n-aria-label="editClose" aria-label="Close">×</button>
+		</header>
+		<div class="settings__panel stats__body" id="stats-body"></div>
+	</section>
+</div>
+
+<div class="overlay-toast train-toast" id="train-toast" role="dialog" aria-modal="false" aria-labelledby="train-toast-title" hidden>
+	<header class="overlay-toast__header">
+		<h3 class="overlay-toast__title train-toast__title">
+			<span id="train-toast-title">Train</span>
+		</h3>
+		<button class="overlay-toast__close" id="train-toast-close" type="button" aria-label="Close" data-i18n-aria-label="editClose">×</button>
+	</header>
+	<div class="train-toast__status">
+		<span class="train-toast__chip" id="train-toast-status"></span>
+		<span class="train-toast__speed" id="train-toast-speed"></span>
+		<span class="train-toast__speed" id="train-toast-formation"></span>
+	</div>
+	<dl class="train-toast__facts">
+		<div><dt data-i18n="trainRoute">Route</dt><dd id="train-toast-route"></dd></div>
+		<div><dt data-i18n="trainDepot">Depot</dt><dd id="train-toast-depot"></dd></div>
+		<div><dt data-i18n="trainOrigin">Origin</dt><dd id="train-toast-origin"></dd></div>
+		<div><dt data-i18n="trainDestination">Destination</dt><dd id="train-toast-destination"></dd></div>
+		<div><dt data-i18n="trainNextStop">Next stop</dt><dd id="train-toast-next"></dd></div>
+		<div><dt data-i18n="trainId">ID</dt><dd id="train-toast-id"></dd></div>
+	</dl>
+	<button class="button button--filled button--small train-toast__action" id="train-toast-action" type="button">Track train</button>
+</div>
+
 <div class="overlay-toast" id="overlay-toast" role="dialog" aria-modal="false" aria-labelledby="overlay-toast-title" hidden>
 	<header class="overlay-toast__header">
-		<h3 class="overlay-toast__title" id="overlay-toast-title" data-i18n="mapTracks">Track overlay</h3>
+		<h3 class="overlay-toast__title" id="overlay-toast-title" data-i18n="overlayTitle">Map overlays</h3>
 		<button class="overlay-toast__close" id="overlay-toast-close" type="button" aria-label="Close" data-i18n-aria-label="editClose">×</button>
 	</header>
 	<div class="overlay-toast__row">
 		<span class="overlay-toast__label" id="overlay-toast-enabled-label" data-i18n="trackOverlayShow">Show track overlay</span>
 		<label class="switch">
 			<input class="switch__input" id="overlay-toast-enabled" type="checkbox" aria-labelledby="overlay-toast-enabled-label">
+			<span class="switch__track" aria-hidden="true"><span class="switch__thumb"></span></span>
+		</label>
+	</div>
+	<div class="overlay-toast__row" id="overlay-toast-trains-row" hidden>
+		<span class="overlay-toast__label" id="overlay-toast-trains-label" data-i18n="trainOverlayShow">Show trains</span>
+		<label class="switch">
+			<input class="switch__input" id="overlay-toast-trains" type="checkbox" aria-labelledby="overlay-toast-trains-label">
 			<span class="switch__track" aria-hidden="true"><span class="switch__thumb"></span></span>
 		</label>
 	</div>
@@ -305,5 +411,7 @@
 	</div>
 	<button class="overlay-toast__more" id="overlay-toast-settings" type="button" data-i18n="trackMoreSettings">More settings</button>
 </div>
+
+<div class="train-banner" id="train-banner" role="status" aria-live="polite" hidden></div>
 </body>
 </html>
