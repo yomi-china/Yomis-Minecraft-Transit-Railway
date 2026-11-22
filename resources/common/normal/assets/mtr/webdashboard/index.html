@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<meta name="color-scheme" content="light dark">
+	<meta name="robots" content="noindex">
+	<title>MTR Web Dashboard</title>
+	<link rel="stylesheet" href="index.css?v=64">
+	<link rel="stylesheet" href="welcome.css?v=64">
+	<script type="module" src="app.js?v=64"></script>
+</head>
+<body data-view="checking" data-theme="dark">
+<script>
+	try {
+		const saved = JSON.parse(localStorage.getItem('mtr-webdashboard-theme') || 'null');
+		if (saved && (saved.mode === 'dark' || saved.mode === 'light')) {
+			document.body.dataset.theme = saved.mode;
+		}
+		if (saved && saved.accent) {
+			document.body.style.setProperty('--ui-accent', saved.accent);
+			document.body.style.setProperty('--welcome-primary', saved.accent);
+		}
+	} catch (error) {
+		// localStorage may be unavailable in a locked-down WebView.
+	}
+</script>
+<noscript>
+	<p class="noscript-notice">This dashboard requires JavaScript.</p>
+</noscript>
+
+<div class="shell">
+	<header class="topbar">
+		<div class="topbar__brand">
+			<h1 class="topbar__title" data-i18n="title">Web Dashboard</h1>
+			<span class="badge badge--muted" id="readonly-badge" hidden data-i18n="readOnlyBadge">Read-only</span>
+			<span class="topbar__world" id="world-label" hidden></span>
+		</div>
+
+		<div class="topbar__actions">
+			<button class="welcome-help topbar-home" id="home" type="button" data-i18n-title="home" data-i18n-aria-label="home" aria-label="Home">
+				<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+					<path d="M15.41 7.41 14 6l-6 6 6 6 1.41-1.41L10.83 12z"/>
+				</svg>
+				<span class="topbar-home__label" data-i18n="home">Home</span>
+			</button>
+			<button class="icon-button" id="statistics" type="button" data-i18n-title="statistics" data-i18n-aria-label="statistics" aria-label="Statistics">
+				<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false">
+					<path d="M5 9.2h3V19H5zM10.6 5h2.8v14h-2.8zm5.6 8H19v6h-2.8z"/>
+				</svg>
+			</button>
+			<button class="icon-button" id="settings" type="button" data-i18n-title="settings" data-i18n-aria-label="settings" aria-label="Settings">
+				<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false">
+					<path d="M19.14 12.94c.04-.3.06-.61.06-.94s-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.49.49 0 0 0-.59-.22l-2.39.96a7.03 7.03 0 0 0-1.62-.94L14.4 2.81a.48.48 0 0 0-.48-.41h-3.84a.48.48 0 0 0-.48.41L9.25 5.35c-.59.24-1.13.55-1.62.94l-2.39-.96a.49.49 0 0 0-.59.22L2.73 8.87a.48.48 0 0 0 .12.61l2.03 1.58c-.05.3-.07.63-.07.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.3.59.22l2.39-.96c.5.39 1.03.7 1.62.94l.36 2.54c.04.24.25.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32a.48.48 0 0 0-.12-.61l-2.01-1.58zM12 15.6A3.6 3.6 0 1 1 12 8.4a3.6 3.6 0 0 1 0 7.2z"/>
+				</svg>
+			</button>
+			<button class="icon-button" id="refresh" type="button" data-i18n-title="refresh" data-i18n-aria-label="refreshAriaLabel" aria-label="Refresh">
+				<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false">
+					<path d="M12 5V2L7 6l5 4V7a5 5 0 1 1-5 5H5a7 7 0 1 0 7-7z"/>
+				</svg>
+			</button>
+			<span class="badge" id="status-badge" data-state="loading">
+				<span class="badge__dot" aria-hidden="true"></span>
+				<span data-i18n="statusLoading">Checking service…</span>
+			</span>
+			<span class="badge badge--account" id="account-badge" hidden>
+				<span class="badge__avatar" aria-hidden="true">
+					<svg viewBox="0 0 24 24" width="12" height="12" focusable="false">
+						<path d="M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4zm0 2c-3.3 0-6 1.7-6 3.8V20h12v-2.2c0-2.1-2.7-3.8-6-3.8z"/>
+					</svg>
+				</span>
+				<span id="account-name"></span>
+			</span>
+			<button class="button button--text" id="sign-out" type="button" data-i18n="signOut">Sign out</button>
+		</div>
+	</header>
+
+	<div class="content">
+		<aside class="sidebar" data-i18n-aria-label="sidebarLabel" aria-label="Railway data">
+			<div class="sidebar__tabs">
+				<div class="tabs" id="tabs" role="tablist"></div>
+			</div>
+
+			<div class="sidebar__filters" id="sidebar-filters">
+				<div class="chips" id="modes" role="group"></div>
+			</div>
+
+			<div class="sidebar__search">
+				<span class="search__icon" aria-hidden="true">
+					<svg viewBox="0 0 24 24" width="18" height="18" focusable="false">
+						<path d="M15.5 14h-.79l-.28-.27a6.5 6.5 0 1 0-.7.7l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0A4.5 4.5 0 1 1 14 9.5 4.5 4.5 0 0 1 9.5 14z"/>
+					</svg>
+				</span>
+				<input class="search__input" id="search" type="search" autocomplete="off"
+				       data-i18n-placeholder="searchPlaceholder" placeholder="Search…"
+				       data-i18n-aria-label="searchAriaLabel" aria-label="Search">
+				<button class="icon-button icon-button--small" id="search-clear" type="button" hidden
+				        data-i18n-title="clearSearch" data-i18n-aria-label="clearSearch" aria-label="Clear search">
+					<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
+						<path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+					</svg>
+				</button>
+			</div>
+
+			<div class="sidebar__list" id="list" role="listbox" data-i18n-aria-label="listLabel" aria-label="Railway data list"></div>
+
+			<div class="empty" id="list-empty" hidden>
+				<p class="empty__title" data-empty-title></p>
+				<p class="empty__body" data-empty-body hidden></p>
+			</div>
+		</aside>
+
+		<section class="map-area" id="map-area" data-i18n-aria-label="mapLabel" aria-label="Map">
+			<canvas id="map"></canvas>
+
+			<div class="map-controls">
+				<button class="icon-button" id="map-zoom-in" type="button" data-i18n-title="mapZoomIn" data-i18n-aria-label="mapZoomIn" aria-label="Zoom in">
+					<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false">
+						<path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6z"/>
+					</svg>
+				</button>
+				<button class="icon-button" id="map-zoom-out" type="button" data-i18n-title="mapZoomOut" data-i18n-aria-label="mapZoomOut" aria-label="Zoom out">
+					<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false">
+						<path d="M19 13H5v-2h14z"/>
+					</svg>
+				</button>
+				<button class="icon-button" id="map-focus-player" type="button" data-i18n-title="mapFocusPlayer" data-i18n-aria-label="mapFocusPlayer" aria-label="Focus on player">
+					<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false">
+						<path d="M12 8a4 4 0 1 0 4 4 4 4 0 0 0-4-4zm8.94 3A8.99 8.99 0 0 0 13 3.06V1h-2v2.06A8.99 8.99 0 0 0 3.06 11H1v2h2.06A8.99 8.99 0 0 0 11 20.94V23h2v-2.06A8.99 8.99 0 0 0 20.94 13H23v-2zM12 19a7 7 0 1 1 7-7 7 7 0 0 1-7 7z"/>
+					</svg>
+				</button>
+				<button class="icon-button" id="map-tracks" type="button" data-i18n-title="mapOverlays" data-i18n-aria-label="mapOverlays" aria-label="Map overlays" aria-pressed="false" hidden>
+					<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false">
+						<path d="m12 16 7.36-5.73L21 9l-9-7-9 7 1.63 1.27L12 16zm0-2.54L6.26 9 12 4.53 17.74 9 12 13.46zm-7.37 4.81L3 14.07l9 7 9-7-1.63-1.27L12 18.54l-7.37-5.74z"/>
+					</svg>
+				</button>
+			</div>
+
+			<div class="map-editing-bar" id="map-editing-bar" hidden>
+				<span class="map-editing-bar__hint" data-i18n="mapEditingHint">Drag on the map to draw the new area</span>
+				<span class="map-editing-bar__size" id="map-editing-size"></span>
+				<span class="map-editing-bar__actions">
+					<button class="button button--text button--small" id="map-cancel-edit" type="button" data-i18n="mapCancelEdit">Cancel</button>
+					<button class="button button--filled button--small" id="map-save-edit" type="button" data-i18n="mapSaveEdit">Save</button>
+				</span>
+			</div>
+
+			<div class="map-readout" id="map-readout"></div>
+		</section>
+	</div>
+</div>
+
+<canvas id="welcome-canvas" class="welcome-canvas" aria-hidden="true"></canvas>
+<div class="welcome-atmosphere" aria-hidden="true"></div>
+
+<header class="welcome-appbar">
+	<div class="welcome-appbar__inner">
+		<span class="welcome-appbar__brand">YMTR</span>
+		<nav class="welcome-tabs">
+			<span class="welcome-tab" aria-current="page" data-i18n="title">Web Dashboard</span>
+		</nav>
+		<span class="welcome-state" id="welcome-state" data-state="checking">
+			<span class="welcome-state__dot" aria-hidden="true"></span>
+			<span id="welcome-state-label" data-i18n="statusLoading">Checking service…</span>
+		</span>
+	</div>
+</header>
+
+<p class="welcome-notice" id="lan-warning" hidden data-i18n="lanWarning">This service is open to the local network over plain HTTP, so sign-in tokens can be read by anyone on the same network. Restart with allowLanAccess turned off to avoid that.</p>
+
+<main class="welcome-sheet" id="welcome-sheet" aria-labelledby="welcome-title">
+	<div class="welcome-sheet__inner">
+		<div class="welcome-copy">
+			<h1 class="welcome-title" id="welcome-title"><span id="welcome-title-text"></span></h1>
+			<p class="welcome-subtitle" id="welcome-subtitle"></p>
+		</div>
+
+		<div class="welcome-actions">
+			<div class="welcome-help-wrap" id="welcome-help-wrap">
+				<button class="welcome-help" id="welcome-help" type="button" aria-expanded="false" aria-controls="welcome-help-bubble">
+					<span data-i18n="welcomeHelp">How do I get edit access?</span>
+					<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false">
+						<path d="M7.41 8.59 12 13.17l4.59-4.58L18 10l-6 6-6-6z"/>
+					</svg>
+				</button>
+				<div class="welcome-bubble" id="welcome-help-bubble" role="dialog" aria-modal="false" aria-labelledby="welcome-help" data-open="false" aria-hidden="true">
+					<p data-i18n="readOnlyBody">Open this dashboard from the in-game Web Dashboard button to sign in, or ask an operator to grant you access.</p>
+					<button class="welcome-bubble__close" id="welcome-help-close" type="button" data-i18n-aria-label="editClose" data-i18n-title="editClose" aria-label="Close">×</button>
+				</div>
+			</div>
+
+			<button class="welcome-help welcome-enter" id="welcome-enter" type="button" hidden>
+				<span data-i18n="enterDashboard">Enter dashboard</span>
+				<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false">
+					<path d="M8.59 16.59 13.17 12 8.59 7.41 10 6l6 6-6 6z"/>
+				</svg>
+			</button>
+
+			<dl class="welcome-meta" id="meta" hidden>
+				<div>
+					<dt data-i18n="versionLabel">YMTR version</dt>
+					<dd id="meta-version">—</dd>
+				</div>
+				<div>
+					<dt data-i18n="portLabel">Port</dt>
+					<dd id="meta-port">—</dd>
+				</div>
+			</dl>
+		</div>
+	</div>
+</main>
+
+<div class="settings-backdrop" id="settings-backdrop" hidden>
+	<section class="settings" id="settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+		<header class="settings__header">
+			<h2 class="settings__title" id="settings-title" data-i18n="settings">Settings</h2>
+			<button class="settings__close" id="settings-close" type="button" data-i18n-title="editClose" data-i18n-aria-label="editClose" aria-label="Close">×</button>
+		</header>
+		<div class="settings__body">
+			<nav class="settings__nav" aria-label="Settings categories" data-i18n-aria-label="settingsCategories">
+				<button class="settings__nav-item is-active" type="button" data-category="personalization" aria-current="page">
+					<span data-i18n="personalization">Personalization</span>
+				</button>
+				<button class="settings__nav-item" type="button" data-category="tracks">
+					<span data-i18n="trackSettings">Track overlay</span>
+				</button>
+				<button class="settings__nav-item" type="button" data-category="trains">
+					<span data-i18n="trainSettings">Trains</span>
+				</button>
+			</nav>
+			<div class="settings__panel" data-panel="personalization">
+				<h3 class="settings__heading" data-i18n="personalization">Personalization</h3>
+
+				<div class="settings__row">
+					<div class="settings__label"><span data-i18n="appearanceMode">Appearance mode</span></div>
+					<div class="settings__mode" id="settings-mode" role="radiogroup" aria-label="Appearance mode" data-i18n-aria-label="appearanceMode">
+						<button type="button" data-mode="dark" role="radio" aria-checked="false">
+							<span data-i18n="darkMode">Dark</span>
+						</button>
+						<button type="button" data-mode="light" role="radio" aria-checked="false">
+							<span data-i18n="lightMode">Light</span>
+						</button>
+					</div>
+				</div>
+
+				<div class="settings__row settings__row--stack">
+					<div class="settings__label"><span data-i18n="accentColor">Accent color</span></div>
+					<div class="theme-grid" id="theme-grid" role="radiogroup" aria-label="Accent color" data-i18n-aria-label="accentColor"></div>
+				</div>
+
+				<p class="settings__footnote" data-i18n="settingsSaved">Changes are saved in this browser automatically.</p>
+			</div>
+			<div class="settings__panel" data-panel="tracks" hidden>
+				<h3 class="settings__heading" data-i18n="trackSettings">Track overlay</h3>
+
+				<div class="settings__row settings__row--stack">
+					<div class="settings__label">
+						<span id="track-min-scale-label" data-i18n="trackMinScale">Minimum zoom for tracks</span>
+						<span class="settings__hint" data-i18n="trackMinScaleHint">Smaller values show tracks further out.</span>
+					</div>
+					<div class="settings__range-row">
+						<input class="settings__range" id="track-min-scale" type="range" min="0.01" max="2" step="0.01" aria-labelledby="track-min-scale-label">
+						<output class="settings__range-value" id="track-min-scale-value">0.35×</output>
+					</div>
+				</div>
+
+				<div class="settings__row settings__row--stack">
+					<div class="settings__label">
+						<span id="track-thickness-label" data-i18n="trackThickness">Track line thickness</span>
+						<span class="settings__hint" data-i18n="trackThicknessHint">Scales every drawn track and route line.</span>
+					</div>
+					<div class="settings__range-row">
+						<input class="settings__range" id="track-thickness" type="range" min="0.5" max="3" step="0.1" aria-labelledby="track-thickness-label">
+						<output class="settings__range-value" id="track-thickness-value">1×</output>
+					</div>
+				</div>
+
+				<div class="settings__row">
+					<div class="settings__label">
+						<span id="track-colors-label" data-i18n="trackShowColors">Show track colours</span>
+						<span class="settings__hint" data-i18n="trackShowColorsHint">Turn off for a single white colour.</span>
+					</div>
+					<label class="switch">
+						<input class="switch__input" id="track-colors" type="checkbox" aria-labelledby="track-colors-label">
+						<span class="switch__track" aria-hidden="true"><span class="switch__thumb"></span></span>
+					</label>
+				</div>
+
+				<p class="settings__footnote" data-i18n="settingsSaved">Changes are saved in this browser automatically.</p>
+			</div>
+			<div class="settings__panel" data-panel="trains" hidden>
+				<h3 class="settings__heading" data-i18n="trainSettings">Trains</h3>
+
+				<div class="settings__row">
+					<div class="settings__label">
+						<span id="train-enabled-label" data-i18n="trainOverlayShow">Show trains</span>
+						<span class="settings__hint" data-i18n="trainOverlayHint">Runs only while detailed tracks are visible.</span>
+					</div>
+					<label class="switch">
+						<input class="switch__input" id="train-enabled" type="checkbox" aria-labelledby="train-enabled-label">
+						<span class="switch__track" aria-hidden="true"><span class="switch__thumb"></span></span>
+					</label>
+				</div>
+
+				<div class="settings__row settings__row--stack">
+					<div class="settings__label"><span data-i18n="trainConsist">Formation</span></div>
+					<div class="settings__mode" id="train-consist" role="radiogroup" aria-label="Formation" data-i18n-aria-label="trainConsist">
+						<button type="button" data-consist="consist" role="radio" aria-checked="false">
+							<span data-i18n="trainConsistFull">Full consist</span>
+						</button>
+						<button type="button" data-consist="block" role="radio" aria-checked="false">
+							<span data-i18n="trainConsistBlock">Single block</span>
+						</button>
+					</div>
+				</div>
+
+				<div class="settings__row settings__row--stack">
+					<div class="settings__label">
+						<span id="train-interval-label" data-i18n="trainInterval">Update interval</span>
+						<span class="settings__hint" data-i18n="trainIntervalHint">Positions are interpolated between updates.</span>
+					</div>
+					<div class="settings__range-row">
+						<input class="settings__range" id="train-interval" type="range" min="0.5" max="10" step="0.5" aria-labelledby="train-interval-label">
+						<output class="settings__range-value" id="train-interval-value">1s</output>
+					</div>
+				</div>
+
+				<div class="settings__row settings__row--stack">
+					<div class="settings__label"><span id="train-max-label" data-i18n="trainMax">Maximum trains</span></div>
+					<div class="settings__range-row">
+						<input class="settings__range" id="train-max" type="range" min="1" max="256" step="1" aria-labelledby="train-max-label">
+						<output class="settings__range-value" id="train-max-value">16</output>
+					</div>
+				</div>
+
+				<div class="settings__row settings__row--stack">
+					<div class="settings__label">
+						<span id="train-min-scale-label" data-i18n="trainMinScale">Minimum zoom for trains</span>
+						<span class="settings__hint" data-i18n="trainMinScaleHint">Trains stay hidden below this zoom.</span>
+					</div>
+					<div class="settings__range-row">
+						<input class="settings__range" id="train-min-scale" type="range" min="0.1" max="4" step="0.1" aria-labelledby="train-min-scale-label">
+						<output class="settings__range-value" id="train-min-scale-value">0.6×</output>
+					</div>
+				</div>
+
+				<p class="settings__footnote" data-i18n="settingsSaved">Changes are saved in this browser automatically.</p>
+			</div>
+		</div>
+	</section>
+</div>
+
+<div class="settings-backdrop" id="stats-backdrop" hidden>
+	<section class="settings stats" id="stats-dialog" role="dialog" aria-modal="true" aria-labelledby="stats-title">
+		<header class="settings__header">
+			<h2 class="settings__title" id="stats-title" data-i18n="statistics">Statistics</h2>
+			<button class="settings__close" id="stats-close" type="button" data-i18n-title="editClose" data-i18n-aria-label="editClose" aria-label="Close">×</button>
+		</header>
+		<div class="settings__panel stats__body" id="stats-body"></div>
+	</section>
+</div>
+
+<div class="overlay-toast train-toast" id="train-toast" role="dialog" aria-modal="false" aria-labelledby="train-toast-title" hidden>
+	<header class="overlay-toast__header">
+		<h3 class="overlay-toast__title train-toast__title">
+			<span id="train-toast-title">Train</span>
+		</h3>
+		<button class="overlay-toast__close" id="train-toast-close" type="button" aria-label="Close" data-i18n-aria-label="editClose">×</button>
+	</header>
+	<div class="train-toast__status">
+		<span class="train-toast__chip" id="train-toast-status"></span>
+		<span class="train-toast__speed" id="train-toast-speed"></span>
+		<span class="train-toast__speed" id="train-toast-formation"></span>
+	</div>
+	<dl class="train-toast__facts">
+		<div><dt data-i18n="trainRoute">Route</dt><dd id="train-toast-route"></dd></div>
+		<div><dt data-i18n="trainDepot">Depot</dt><dd id="train-toast-depot"></dd></div>
+		<div><dt data-i18n="trainOrigin">Origin</dt><dd id="train-toast-origin"></dd></div>
+		<div><dt data-i18n="trainDestination">Destination</dt><dd id="train-toast-destination"></dd></div>
+		<div><dt data-i18n="trainNextStop">Next stop</dt><dd id="train-toast-next"></dd></div>
+		<div><dt data-i18n="trainId">ID</dt><dd id="train-toast-id"></dd></div>
+	</dl>
+	<button class="button button--filled button--small train-toast__action" id="train-toast-action" type="button">Track train</button>
+</div>
+
+<div class="overlay-toast" id="overlay-toast" role="dialog" aria-modal="false" aria-labelledby="overlay-toast-title" hidden>
+	<header class="overlay-toast__header">
+		<h3 class="overlay-toast__title" id="overlay-toast-title" data-i18n="overlayTitle">Map overlays</h3>
+		<button class="overlay-toast__close" id="overlay-toast-close" type="button" aria-label="Close" data-i18n-aria-label="editClose">×</button>
+	</header>
+	<div class="overlay-toast__row">
+		<span class="overlay-toast__label" id="overlay-toast-enabled-label" data-i18n="trackOverlayShow">Show track overlay</span>
+		<label class="switch">
+			<input class="switch__input" id="overlay-toast-enabled" type="checkbox" aria-labelledby="overlay-toast-enabled-label">
+			<span class="switch__track" aria-hidden="true"><span class="switch__thumb"></span></span>
+		</label>
+	</div>
+	<div class="overlay-toast__row" id="overlay-toast-trains-row" hidden>
+		<span class="overlay-toast__label" id="overlay-toast-trains-label" data-i18n="trainOverlayShow">Show trains</span>
+		<label class="switch">
+			<input class="switch__input" id="overlay-toast-trains" type="checkbox" aria-labelledby="overlay-toast-trains-label">
+			<span class="switch__track" aria-hidden="true"><span class="switch__thumb"></span></span>
+		</label>
+	</div>
+	<div class="overlay-toast__row">
+		<span class="overlay-toast__label" id="overlay-toast-colors-label" data-i18n="trackShowColors">Show track colours</span>
+		<label class="switch">
+			<input class="switch__input" id="overlay-toast-colors" type="checkbox" aria-labelledby="overlay-toast-colors-label">
+			<span class="switch__track" aria-hidden="true"><span class="switch__thumb"></span></span>
+		</label>
+	</div>
+	<button class="overlay-toast__more" id="overlay-toast-settings" type="button" data-i18n="trackMoreSettings">More settings</button>
+</div>
+
+<div class="train-banner" id="train-banner" role="status" aria-live="polite" hidden></div>
+</body>
+</html>

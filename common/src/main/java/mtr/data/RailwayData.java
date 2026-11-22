@@ -8,7 +8,6 @@ import mtr.Registry;
 import mtr.block.BlockNode;
 import mtr.mappings.PersistentStateMapper;
 import mtr.mappings.Utilities;
-import mtr.packet.*;
 import mtr.packet.IPacket;
 import mtr.packet.PacketTrainDataGuiServer;
 import mtr.packet.UpdateBlueMap;
@@ -39,7 +38,6 @@ import org.msgpack.value.Value;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
-import java.util.*;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Collection;
@@ -75,6 +73,13 @@ public class RailwayData extends PersistentStateMapper implements IPacket {
 	private int prevSidingCount;
 	private boolean useTimeAndWindSync;
 
+	/**
+	 * Global redstone door control switch. Kept static so that door block entities can read it
+	 * once per tick without touching the (per-dimension) saved data. It is loaded from and saved
+	 * to the world's {@link RailwayData}; worlds that predate this option default to enabled.
+	 */
+	private static boolean redstoneDoorControlEnabled = true;
+
 	private final Level world;
 	private final Map<BlockPos, Map<BlockPos, Rail>> rails = new HashMap<>();
 	private final SignalBlocks signalBlocks = new SignalBlocks();
@@ -109,10 +114,14 @@ public class RailwayData extends PersistentStateMapper implements IPacket {
 	private static final String KEY_RAILS = "rails";
 	private static final String KEY_SIGNAL_BLOCKS = "signal_blocks";
 	private static final String KEY_USE_TIME_AND_WIND_SYNC = "use_time_and_wind_sync";
+	private static final String KEY_REDSTONE_DOOR_CONTROL = "redstone_door_control";
 
 	public RailwayData(Level world) {
 		super(NAME);
 		this.world = world;
+		// A brand new world does not go through load(), so reset the shared switch to its default
+		// here; loading an existing world overwrites this right after construction.
+		redstoneDoorControlEnabled = true;
 
 		trainPositions.add(new HashMap<>());
 		trainPositions.add(new HashMap<>());
@@ -245,6 +254,7 @@ public class RailwayData extends PersistentStateMapper implements IPacket {
 		signalBlocks.writeCache();
 
 		useTimeAndWindSync = compoundTag.getBoolean(KEY_USE_TIME_AND_WIND_SYNC);
+		redstoneDoorControlEnabled = !compoundTag.contains(KEY_REDSTONE_DOOR_CONTROL) || compoundTag.getBoolean(KEY_REDSTONE_DOOR_CONTROL);
 		runRealTimeSync();
 
 		try {
@@ -283,11 +293,17 @@ public class RailwayData extends PersistentStateMapper implements IPacket {
 	@Override
 	public CompoundTag save(CompoundTag compoundTag) {
 		compoundTag.putBoolean(KEY_USE_TIME_AND_WIND_SYNC, useTimeAndWindSync);
+		compoundTag.putBoolean(KEY_REDSTONE_DOOR_CONTROL, redstoneDoorControlEnabled);
 		return compoundTag;
 	}
 
 	public void simulateTrains() {
 		final List<? extends Player> players = world.players();
+		// A player who left this dimension would otherwise keep a stale entry here, and coming back to
+		// within 16 blocks of where they left would suppress the next snapshot. That snapshot is what
+		// repopulates their rail cache after the dimension they went to cleared it, so the entry has to
+		// go: every dimension change then resends immediately.
+		playerLastUpdatedPositions.keySet().retainAll(players);
 		players.forEach(player -> {
 			final BlockPos playerBlockPos = player.blockPosition();
 			final Vec3 playerPos = player.position();
@@ -512,12 +528,36 @@ public class RailwayData extends PersistentStateMapper implements IPacket {
 		runRealTimeSync();
 	}
 
+	public boolean getRedstoneDoorControl() {
+		return redstoneDoorControlEnabled;
+	}
+
+	public void setRedstoneDoorControl(boolean redstoneDoorControl) {
+		redstoneDoorControlEnabled = redstoneDoorControl;
+		setDirty();
+	}
+
+	public static boolean isRedstoneDoorControlEnabled() {
+		return redstoneDoorControlEnabled;
+	}
+
 	private void sendRailsInChunks(ServerPlayer player, Map<BlockPos, Map<BlockPos, Rail>> railsToAdd) {
+		final long packetId = ++railsPacketIdCounter;
+
+		// An empty snapshot still has to be sent. ClientData.RAILS is only ever replaced by this
+		// packet, so skipping it leaves the client rendering the rails it was last given - from
+		// another dimension, another world or another server - until a non-empty snapshot happens
+		// to arrive. Same format as the chunked path below: one packet, chunk 0 of 1, no entries.
 		if (railsToAdd.isEmpty()) {
+			final FriendlyByteBuf packet = new FriendlyByteBuf(Unpooled.buffer());
+			packet.writeLong(packetId);
+			packet.writeInt(1);
+			packet.writeInt(0);
+			packet.writeInt(0);
+			Registry.sendToPlayer(player, PACKET_WRITE_RAILS, packet);
 			return;
 		}
 
-		final long packetId = ++railsPacketIdCounter;
 		final int MAX_SAFE = Math.min(MAX_PACKET_BYTES - 4096, RAIL_CHUNK_SIZE);
 		final List<Map.Entry<BlockPos, Map<BlockPos, Rail>>> entries = new ArrayList<>(railsToAdd.entrySet());
 		final List<List<Map.Entry<BlockPos, Map<BlockPos, Rail>>>> chunks = new ArrayList<>();
@@ -937,4 +977,3 @@ public class RailwayData extends PersistentStateMapper implements IPacket {
 		void routeAndStationsCallback(int currentStationIndex, Route thisRoute, Route nextRoute, Station thisStation, Station nextStation, Station lastStation);
 	}
 }
-

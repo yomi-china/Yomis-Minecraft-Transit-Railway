@@ -16,6 +16,7 @@ import mtr.data.LiftClient;
 import mtr.data.NameColorDataBase;
 import mtr.data.Rail;
 import mtr.data.RailwayData;
+import mtr.data.SerializedDataBase;
 import mtr.data.Siding;
 import mtr.data.Train;
 import mtr.data.TransportMode;
@@ -49,6 +50,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -102,6 +104,11 @@ public class PacketTrainDataGuiClient extends PacketTrainDataBase {
 				UtilitiesClient.setScreen(minecraftClient, new DashboardScreen(transportMode, useTimeAndWindSync));
 			}
 		});
+	}
+
+	public static void receiveRedstoneDoorControlS2C(Minecraft minecraftClient, FriendlyByteBuf packet) {
+		final boolean redstoneDoorControl = packet.readBoolean();
+		minecraftClient.execute(() -> ClientData.REDSTONE_DOOR_CONTROL = redstoneDoorControl);
 	}
 
 	public static void openRailwaySignScreenS2C(Minecraft minecraftClient, FriendlyByteBuf packet) {
@@ -191,6 +198,7 @@ public class PacketTrainDataGuiClient extends PacketTrainDataBase {
 		final String message = packet.readUtf();
 		final String soundIdString = packet.readUtf();
 		minecraftClient.execute(() -> {
+			System.out.println("[MTR-NetworkAudio] announce received: '" + soundIdString + "'");
 			IDrawing.narrateOrAnnounce(message);
 			final ClientLevel world = minecraftClient.level;
 			final LocalPlayer player = minecraftClient.player;
@@ -198,16 +206,44 @@ public class PacketTrainDataGuiClient extends PacketTrainDataBase {
 				return;
 			}
 
-			if (soundIdString.startsWith("http://") || soundIdString.startsWith("https://")) {
-				NetworkAudioPlayer.playAsync(soundIdString, () -> {
-					System.err.println("Failed to play network audio: " + soundIdString);
-				});
+			if (isNetworkAudioUrl(soundIdString)) {
+				NetworkAudioPlayer.playAsync(soundIdString, getNetworkAudioStatusCallback(minecraftClient));
+			} else if (soundIdString.startsWith("mtr_server_audio:")) {
+				final String serverFileName = soundIdString.substring("mtr_server_audio:".length()).trim();
+				if (!serverFileName.isEmpty()) {
+					NetworkAudioPlayer.playServerFile(serverFileName, getNetworkAudioStatusCallback(minecraftClient));
+				}
 			} else {
 				world.playLocalSound(player.blockPosition(),
 						RegistryUtilities.createSoundEvent(new ResourceLocation(soundIdString)),
 						SoundSource.BLOCKS, 1000000, 1, false);
 			}
 		});
+	}
+
+	private static NetworkAudioPlayer.StatusCallback getNetworkAudioStatusCallback(Minecraft minecraftClient) {
+		return (status, statusMessage) -> minecraftClient.execute(() -> {
+			if (minecraftClient.player != null && statusMessage != null) {
+				minecraftClient.player.displayClientMessage(statusMessage, true);
+			}
+		});
+	}
+
+	public static void receiveServerAudioChunkS2C(Minecraft minecraftClient, FriendlyByteBuf packet) {
+		final String fileName = packet.readUtf(255);
+		final int requestId = packet.readInt();
+		final boolean success = packet.readBoolean();
+		final int errorCode = packet.readInt();
+		final int totalSize = packet.readInt();
+		final boolean last = packet.readBoolean();
+		final byte[] chunkData = new byte[packet.readableBytes()];
+		packet.readBytes(chunkData);
+		NetworkAudioPlayer.receiveServerAudioChunk(fileName, requestId, success, errorCode, totalSize, chunkData, last);
+	}
+
+	private static boolean isNetworkAudioUrl(String soundIdString) {
+		final String lowerCaseUrl = soundIdString.trim().toLowerCase(Locale.ROOT);
+		return lowerCaseUrl.startsWith("http://") || lowerCaseUrl.startsWith("https://");
 	}
 
 	public static void createRailS2C(Minecraft minecraftClient, FriendlyByteBuf packet) {
@@ -345,11 +381,17 @@ public class PacketTrainDataGuiClient extends PacketTrainDataBase {
 
 	public static void generatePathS2C(Minecraft minecraftClient, FriendlyByteBuf packet) {
 		final long depotId = packet.readLong();
+		final int reason = packet.readInt();
 		final int successfulSegments = packet.readInt();
+		final int totalSegments = packet.readInt();
+		final String sidingName = packet.readUtf(SerializedDataBase.PACKET_STRING_READ_LENGTH);
 		minecraftClient.execute(() -> {
 			final Depot depot = ClientData.DATA_CACHE.depotIdMap.get(depotId);
 			if (depot != null) {
+				depot.clientPathGenerationReason = reason;
 				depot.clientPathGenerationSuccessfulSegments = successfulSegments;
+				depot.clientPathGenerationTotalSegments = totalSegments;
+				depot.clientPathGenerationSiding = sidingName;
 			}
 		});
 	}
@@ -443,5 +485,12 @@ public class PacketTrainDataGuiClient extends PacketTrainDataBase {
 		final FriendlyByteBuf packet = new FriendlyByteBuf(Unpooled.buffer());
 		packet.writeBoolean(useTimeAndWindSync);
 		RegistryClient.sendToServer(PACKET_USE_TIME_AND_WIND_SYNC, packet);
+	}
+
+	public static void sendRedstoneDoorControlC2S(boolean redstoneDoorControl) {
+		ClientData.REDSTONE_DOOR_CONTROL = redstoneDoorControl;
+		final FriendlyByteBuf packet = new FriendlyByteBuf(Unpooled.buffer());
+		packet.writeBoolean(redstoneDoorControl);
+		RegistryClient.sendToServer(PACKET_REDSTONE_DOOR_CONTROL, packet);
 	}
 }

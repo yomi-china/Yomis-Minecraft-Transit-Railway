@@ -23,10 +23,12 @@ public class Config {
 	private static boolean shiftToToggleSitting;
 	private static int languageOptions;
 	private static boolean useDynamicFPS = true;
+	private static boolean cullVehiclesOutsideView = true;
 	private static int trackTextureOffset;
 	private static int dynamicTextureResolution = 2;
 	private static int trainRenderDistance = 7;
 	private static boolean enableStoppingScoring;
+	private static boolean enableRecommendedSpeed = true;
 	private static final int DEFAULT_TRAIN_RENDER_DISTANCE = 7;
 
 	public static final List<Patreon> PATREON_LIST = new ArrayList<>();
@@ -47,11 +49,13 @@ public class Config {
 	private static final String SHIFT_TO_TOGGLE_SITTING = "shift_to_toggle_sitting";
 	private static final String LANGUAGE_OPTIONS = "language_options";
 	private static final String USE_TTS_ANNOUNCEMENTS = "use_tts_announcements";
+	private static final String CULL_VEHICLES_OUTSIDE_VIEW = "cull_vehicles_outside_view";
 	private static final String TRACK_TEXTURE_OFFSET = "track_texture_offset";
 	private static final String DYNAMIC_TEXTURE_RESOLUTION = "dynamic texture resolution";
 	private static final String TRAIN_RENDER_DISTANCE = "train_render_distance";
 	private static final String RAIL_RENDER_DISTANCE = "rail_render_distance";
 	private static final String ENABLE_STOPPING_SCORING = "enable_stopping_scoring";
+	private static final String ENABLE_RECOMMENDED_SPEED = "enable_recommended_speed";
 
 	public static boolean useMTRFont() {
 		return useMTRFont;
@@ -77,6 +81,10 @@ public class Config {
 		return enableStoppingScoring;
 	}
 
+	public static boolean enableRecommendedSpeed() {
+		return enableRecommendedSpeed;
+	}
+
 	public static int languageOptions() {
 		return languageOptions;
 	}
@@ -87,6 +95,10 @@ public class Config {
 
 	public static boolean useDynamicFPS() {
 		return useDynamicFPS;
+	}
+
+	public static boolean cullVehiclesOutsideView() {
+		return cullVehiclesOutsideView;
 	}
 
 	public static int trackTextureOffset() {
@@ -155,6 +167,12 @@ public class Config {
 		return enableStoppingScoring;
 	}
 
+	public static boolean setEnableRecommendedSpeed(boolean value) {
+		enableRecommendedSpeed = value;
+		writeToFile();
+		return enableRecommendedSpeed;
+	}
+
 	public static int setLanguageOptions(int value) {
 		languageOptions = value % 3;
 		writeToFile();
@@ -165,6 +183,12 @@ public class Config {
 		useDynamicFPS = value;
 		writeToFile();
 		return useDynamicFPS;
+	}
+
+	public static boolean setCullVehiclesOutsideView(boolean value) {
+		cullVehiclesOutsideView = value;
+		writeToFile();
+		return cullVehiclesOutsideView;
 	}
 
 	public static void setTrackTextureOffset(int value) {
@@ -239,6 +263,14 @@ public class Config {
 				enableStoppingScoring = jsonConfig.get(ENABLE_STOPPING_SCORING).getAsBoolean();
 			} catch (Exception ignored) {
 			}
+			try {
+				enableRecommendedSpeed = jsonConfig.get(ENABLE_RECOMMENDED_SPEED).getAsBoolean();
+			} catch (Exception ignored) {
+			}
+			try {
+				cullVehiclesOutsideView = jsonConfig.get(CULL_VEHICLES_OUTSIDE_VIEW).getAsBoolean();
+			} catch (Exception ignored) {
+			}
 		} catch (Exception e) {
 			writeToFile();
 			e.printStackTrace();
@@ -260,6 +292,8 @@ public class Config {
 		jsonConfig.addProperty(TRAIN_RENDER_DISTANCE, trainRenderDistance);
 		jsonConfig.addProperty(RAIL_RENDER_DISTANCE, railRenderDistance);
 		jsonConfig.addProperty(ENABLE_STOPPING_SCORING, enableStoppingScoring);
+		jsonConfig.addProperty(ENABLE_RECOMMENDED_SPEED, enableRecommendedSpeed);
+		jsonConfig.addProperty(CULL_VEHICLES_OUTSIDE_VIEW, cullVehiclesOutsideView);
 
 		try {
 			Files.write(CONFIG_FILE_PATH, Collections.singleton(RailwayData.prettyPrint(jsonConfig)));

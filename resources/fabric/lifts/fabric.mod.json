@@ -7,11 +7,14 @@
 	"authors": [
 		"Jonathan Ho"
 	],
+	"contributors": [
+		"Yomi_307"
+	],
 	"contact": {
 		"homepage": "https://www.curseforge.com/minecraft/mc-mods/modern-elevators-and-escalators",
 		"sources": "https://github.com/jonafanho/Minecraft-Transit-Railway"
 	},
-	"license": "All Rights Reserved",
+	"license": "MIT AND GPL-3.0-or-later",
 	"icon": "icon.png",
 	"environment": "*",
 	"entrypoints": {

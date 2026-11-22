@@ -82,6 +82,7 @@ public class EditStationScreen extends EditNameColorScreenBase<Station> {
 
 	@Override
 	protected void init() {
+		fangsuLayoutAnchor(70);
 		startTime = Util.getMillis();
 
 		setPositionsAndInit(0, width / 2, width / 4 * 3);
@@ -157,6 +158,8 @@ public class EditStationScreen extends EditNameColorScreenBase<Station> {
 
 	@Override
 	public void render(PoseStack poseStack, int mouseX, int mouseY, float delta) {
+		fangsuLayoutAnchor(50);
+		fangsuLayoutAnchor(56);
 		fill(poseStack, 0, 0, width, height, 0xE6101010);
 
 		final int currentColor = colorSelector.getColor();
@@ -310,6 +313,7 @@ public class EditStationScreen extends EditNameColorScreenBase<Station> {
 	}
 
 	private void changeEditingExit(String editingExit, int editingDestinationIndex) {
+		fangsuLayoutAnchor(70);
 		this.editingExit = editingExit;
 		this.editingDestinationIndex = parentExists() ? editingDestinationIndex : -1;
 
@@ -448,6 +452,10 @@ public class EditStationScreen extends EditNameColorScreenBase<Station> {
 	private boolean parentExists() {
 		return editingExit != null && data.exits.containsKey(editingExit);
 	}
+
+	private static void fangsuLayoutAnchor(int anchor) {
+	}
+
 
 	private static String formatExitName(String text) {
 		return text.split("\\|")[0];

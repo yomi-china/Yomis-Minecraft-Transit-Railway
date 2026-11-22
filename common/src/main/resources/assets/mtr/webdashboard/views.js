@@ -1,0 +1,594 @@
+import { f, t } from './i18n.js?v=64';
+import { MODE_ALL, MODES, countForMode } from './lists.js?v=64';
+import { getTrainSettings } from './train-settings.js?v=64';
+
+const el = {
+	body: document.body,
+	tabs: document.getElementById('tabs'),
+	modes: document.getElementById('modes'),
+	modesContainer: document.getElementById('sidebar-filters'),
+	search: document.getElementById('search'),
+	searchClear: document.getElementById('search-clear'),
+	list: document.getElementById('list'),
+	empty: document.getElementById('list-empty'),
+	refresh: document.getElementById('refresh'),
+	readOnlyBadge: document.getElementById('readonly-badge'),
+	worldLabel: document.getElementById('world-label'),
+	mapArea: document.getElementById('map-area'),
+	mapReadout: document.getElementById('map-readout'),
+	mapEditingBar: document.getElementById('map-editing-bar'),
+	mapEditingSize: document.getElementById('map-editing-size'),
+	mapSaveEdit: document.getElementById('map-save-edit'),
+	mapZoomIn: document.getElementById('map-zoom-in'),
+	mapZoomOut: document.getElementById('map-zoom-out'),
+	mapFocusPlayer: document.getElementById('map-focus-player'),
+	mapTracks: document.getElementById('map-tracks'),
+	mapCancelEdit: document.getElementById('map-cancel-edit'),
+};
+
+export function setView(view) {
+	el.body.dataset.view = view;
+}
+
+export function setCanEdit(canEdit) {
+	if (!el.readOnlyBadge) {
+		return;
+	}
+	el.readOnlyBadge.hidden = false;
+	el.readOnlyBadge.dataset.state = canEdit ? 'editable' : 'readonly';
+	el.readOnlyBadge.textContent = t(canEdit ? 'editableBadge' : 'readOnlyBadge');
+}
+
+export function setWorldLabel(dimension) {
+	if (el.worldLabel) {
+		el.worldLabel.textContent = dimension || '';
+		el.worldLabel.hidden = !dimension;
+	}
+}
+
+export function setMapEditing(editing) {
+	if (el.mapEditingBar) {
+		el.mapEditingBar.hidden = !editing;
+	}
+	if (el.mapArea) {
+		el.mapArea.classList.toggle('is-editing', editing);
+	}
+}
+
+export function setMapReadout(point) {
+	if (!el.mapReadout) {
+		return;
+	}
+	if (!point) {
+		el.mapReadout.hidden = true;
+		return;
+	}
+	el.mapReadout.hidden = false;
+	el.mapReadout.textContent = point.x.toFixed(1) + ', ' + point.z.toFixed(1);
+}
+
+export function setMapDraftSize(draft) {
+	if (!el.mapEditingSize) {
+		return;
+	}
+
+	if (!draft) {
+		el.mapEditingSize.textContent = '';
+		el.mapEditingSize.dataset.invalid = 'false';
+		setMapSaveEnabled(false);
+		return;
+	}
+
+	const width = Math.abs(draft.maxX - draft.minX) + 1;
+	const height = Math.abs(draft.maxZ - draft.minZ) + 1;
+	el.mapEditingSize.textContent = f('mapDraftSize', width, height);
+	el.mapEditingSize.dataset.invalid = draft.invalid ? 'true' : 'false';
+
+	setMapSaveEnabled(!draft.invalid);
+}
+
+export function setMapSaveEnabled(enabled) {
+	if (el.mapSaveEdit) {
+		el.mapSaveEdit.disabled = !enabled;
+	}
+}
+
+/** @returns the map overlay buttons, for app.js to wire up. */
+export function getMapButtons() {
+	return {
+		zoomIn: el.mapZoomIn,
+		zoomOut: el.mapZoomOut,
+		focusPlayer: el.mapFocusPlayer,
+		tracks: el.mapTracks,
+		cancelEdit: el.mapCancelEdit,
+		saveEdit: el.mapSaveEdit
+	};
+}
+
+export function setTracksAvailable(available) {
+	if (!el.mapTracks) {
+		return;
+	}
+	el.mapTracks.hidden = !available;
+	el.mapTracks.disabled = !available;
+}
+
+export function setTracksEnabled(enabled) {
+	if (!el.mapTracks) {
+		return;
+	}
+	el.mapTracks.classList.toggle('is-active', enabled);
+	el.mapTracks.setAttribute('aria-pressed', enabled ? 'true' : 'false');
+}
+
+export function setTracksBusy(busy) {
+	if (!el.mapTracks) {
+		return;
+	}
+	el.mapTracks.classList.toggle('is-loading', busy);
+	el.mapTracks.setAttribute('aria-busy', busy ? 'true' : 'false');
+}
+
+export function setTracksDegraded(degraded) {
+	if (!el.mapTracks) {
+		return;
+	}
+	const title = degraded ? t('mapTracksDegraded') : t('mapOverlays');
+	el.mapTracks.title = title;
+	el.mapTracks.setAttribute('aria-label', title);
+	el.mapTracks.dataset.degraded = degraded ? 'true' : 'false';
+}
+
+export function setFocusPlayerEnabled(enabled) {
+	if (el.mapFocusPlayer) {
+		el.mapFocusPlayer.disabled = !enabled;
+	}
+}
+
+export function syncSearchInput(search) {
+	if (el.search && el.search.value !== search) {
+		el.search.value = search;
+	}
+	if (el.searchClear) {
+		el.searchClear.hidden = !search;
+	}
+}
+
+let tabsResizeObserver = null;
+
+function updateTabsIndicator() {
+	if (!el.tabs || !el.tabs.style || typeof el.tabs.querySelector !== 'function') {
+		return;
+	}
+	const active = el.tabs.querySelector('.tab[aria-selected="true"]');
+	if (!active || typeof active.offsetLeft !== 'number') {
+		return;
+	}
+	el.tabs.style.setProperty('--tabs-indicator-x', `${active.offsetLeft}px`);
+	el.tabs.style.setProperty('--tabs-indicator-w', `${active.offsetWidth}px`);
+	if (el.tabs.dataset && !el.tabs.dataset.indicatorReady) {
+		el.tabs.dataset.indicatorReady = 'false';
+		const ready = () => {
+			if (el.tabs.dataset) {
+				el.tabs.dataset.indicatorReady = 'true';
+			}
+		};
+		if (typeof requestAnimationFrame === 'function') {
+			requestAnimationFrame(ready);
+		} else {
+			ready();
+		}
+	}
+	if (!tabsResizeObserver && typeof ResizeObserver === 'function') {
+		tabsResizeObserver = new ResizeObserver(() => updateTabsIndicator());
+		tabsResizeObserver.observe(el.tabs);
+	}
+}
+
+function renderTabs(activeTab) {
+	if (!el.tabs) {
+		return;
+	}
+	el.tabs.replaceChildren(...[['stations', 'tabStations'], ['routes', 'tabRoutes'], ['depots', 'tabDepots']].map(([tab, key]) => {
+		const button = document.createElement('button');
+		button.type = 'button';
+		button.className = 'tab';
+		button.dataset.tab = tab;
+		button.setAttribute('role', 'tab');
+		button.setAttribute('aria-selected', String(tab === activeTab));
+		button.textContent = t(key);
+		return button;
+	}));
+	updateTabsIndicator();
+}
+
+function renderModes(activeMode, activeTab, index) {
+	if (!el.modes) {
+		return;
+	}
+
+	const entries = [[MODE_ALL, 'modeAll'], ...MODES.map(mode => [mode, 'mode' + mode])];
+	el.modes.replaceChildren(...entries.map(([mode, key]) => {
+		const button = document.createElement('button');
+		button.type = 'button';
+		button.className = 'chip';
+		button.dataset.mode = mode;
+		button.setAttribute('aria-pressed', String(mode === activeMode));
+
+		const label = document.createElement('span');
+		label.textContent = t(key);
+		button.appendChild(label);
+
+		const count = countForMode(index, activeTab, mode);
+		if (count !== null) {
+			const badge = document.createElement('span');
+			badge.className = 'chip__count';
+			badge.textContent = String(count);
+			button.appendChild(badge);
+		}
+
+		return button;
+	}));
+
+	if (el.modesContainer) {
+		el.modesContainer.hidden = activeTab === 'stations';
+	}
+	if (el.modes) {
+		el.modes.hidden = activeTab === 'stations';
+	}
+}
+
+function renderList(rows, state, context = {}) {
+	if (!el.list || !el.empty) {
+		return;
+	}
+
+	if (state !== 'ready') {
+		el.list.replaceChildren();
+		el.empty.hidden = false;
+		el.empty.dataset.state = state;
+
+		const title = el.empty.querySelector('[data-empty-title]');
+		const body = el.empty.querySelector('[data-empty-body]');
+		if (title) {
+			title.textContent = emptyTitle(state, context);
+		}
+		if (body) {
+			const bodyKey = emptyBody(state);
+			body.textContent = bodyKey ? t(bodyKey) : '';
+			body.hidden = !bodyKey;
+		}
+		return;
+	}
+
+	el.empty.hidden = true;
+	el.list.replaceChildren(...rows.map((row, position) => renderRow(row, position, context)));
+}
+
+function emptyTitle(state, context) {
+	switch (state) {
+		case 'loading':
+			return t('loadingData');
+		case 'unavailable':
+			return t('dataUnavailable');
+		case 'failed':
+			return t('dataFailed');
+		case 'noresults':
+			return f('noResults', context.search || '');
+		default:
+			return t(context.emptyKey || 'noResults');
+	}
+}
+
+function emptyBody(state) {
+	return state === 'unavailable' ? 'dataUnavailableBody' : null;
+}
+
+function renderRow(row, position, context) {
+	const item = document.createElement('div');
+	item.className = 'row';
+	item.dataset.id = row.id;
+	item.setAttribute('role', 'option');
+	item.setAttribute('aria-selected', String(row.id === context.selectedId));
+	if (context.canEdit) {
+		item.tabIndex = 0;
+	}
+	item.style.setProperty('--row-index', String(Math.min(position, 8)));
+
+	const swatch = document.createElement('span');
+	swatch.className = row.color ? 'row__swatch' : 'row__swatch row__swatch--empty';
+	if (row.color) {
+		swatch.style.backgroundColor = '#' + row.color.toString(16).padStart(6, '0');
+	}
+
+	const text = document.createElement('span');
+	text.className = 'row__text';
+
+	// The swatch belongs to the title line, not to the row: a two-line list centres a bare 12px dot in the
+	// gap between title and summary, where it reads as attached to neither. Centring it inside a name line
+	// keeps it on the title for every row, with or without a summary.
+	const nameLine = document.createElement('span');
+	nameLine.className = 'row__name-line';
+
+	const name = document.createElement('span');
+	name.className = 'row__name';
+	name.textContent = row.name || t('untitled');
+	name.title = row.name || t('untitled');
+	nameLine.append(swatch, name);
+	text.appendChild(nameLine);
+
+	if (row.summary && row.summary.length > 0) {
+		const summary = document.createElement('span');
+		summary.className = 'row__summary';
+		summary.textContent = row.summary.map(part => (part.key ? f(part.key, part.value) : part.literal)).join(' ');
+		text.appendChild(summary);
+	}
+
+	item.append(text);
+
+	if (row.mode && !context.hideMode) {
+		const mode = document.createElement('span');
+		mode.className = 'row__mode';
+		mode.textContent = t('mode' + row.mode);
+		item.appendChild(mode);
+	}
+
+	if (context.rowKind === 'route' || context.rowKind === 'depot') {
+		const settings = getTrainSettings();
+		const active = (context.rowKind === 'route' ? settings.route : settings.depot) === String(row.id);
+		if (active) {
+			item.classList.add('row--filtered');
+		}
+		const filter = document.createElement('button');
+		filter.type = 'button';
+		filter.className = 'row__filter' + (active ? ' is-active' : '');
+		filter.dataset.action = 'filter';
+		filter.dataset.kind = context.rowKind;
+		filter.dataset.id = row.id;
+		filter.setAttribute('aria-pressed', String(active));
+		const labelKey = context.rowKind === 'route'
+			? (active ? 'trainFilterRouteClear' : 'trainFilterRoute')
+			: (active ? 'trainFilterDepotClear' : 'trainFilterDepot');
+		filter.title = f(labelKey, row.name || t('untitled'));
+		filter.setAttribute('aria-label', filter.title);
+		filter.appendChild(iconFilter());
+		item.appendChild(filter);
+	}
+
+	if (context.canEdit && context.editableKinds && context.editableKinds.has(context.rowKind)) {
+		const edit = document.createElement('button');
+		edit.type = 'button';
+		edit.className = 'row__edit';
+		edit.dataset.action = 'edit';
+		edit.title = t('editButton');
+		edit.setAttribute('aria-label', f('editRowLabel', row.name || t('untitled')));
+		edit.appendChild(iconPencil());
+		item.appendChild(edit);
+	}
+
+	return item;
+}
+
+function iconFilter() {
+	const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+	svg.setAttribute('viewBox', '0 0 24 24');
+	svg.setAttribute('width', '18');
+	svg.setAttribute('height', '18');
+	svg.setAttribute('aria-hidden', 'true');
+	svg.setAttribute('focusable', 'false');
+	const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+	path.setAttribute('d', 'M4 5h16l-6.5 7.3V19l-3-1.5v-5.2L4 5z');
+	svg.appendChild(path);
+	return svg;
+}
+
+function iconPencil() {
+	const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+	svg.setAttribute('viewBox', '0 0 24 24');
+	svg.setAttribute('width', '18');
+	svg.setAttribute('height', '18');
+	svg.setAttribute('aria-hidden', 'true');
+	svg.setAttribute('focusable', 'false');
+	const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+	path.setAttribute('d', 'M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z');
+	svg.appendChild(path);
+	return svg;
+}
+
+export function renderSidebar(state, derived, chrome = {}) {
+	renderTabs(state.tab);
+	renderModes(state.mode, state.tab, state.index);
+	syncSearchInput(state.search);
+	renderList(derived.rows, derived.listState, {
+		search: state.search,
+		emptyKey: derived.emptyKey,
+		selectedId: state.selectedId,
+		canEdit: chrome.canEdit,
+		rowKind: chrome.rowKind,
+		editableKinds: chrome.editableKinds,
+		hideMode: state.mode !== MODE_ALL
+	});
+}
+
+export function bindSidebar(handlers) {
+	let tabDrag = null;
+	let suppressTabClickUntil = 0;
+
+	if (el.tabs) {
+		el.tabs.addEventListener('click', event => {
+			if (Date.now() < suppressTabClickUntil) {
+				return;
+			}
+			const button = event.target.closest('.tab');
+			if (button) {
+				handlers.onTab(button.dataset.tab);
+			}
+		});
+
+		startTabDrag();
+	}
+
+	function startTabDrag() {
+		el.tabs.addEventListener('pointerdown', event => {
+			if (event.button !== 0 || !event.target || typeof event.target.closest !== 'function') {
+				return;
+			}
+			const tab = event.target.closest('.tab');
+			if (!tab || tab.getAttribute('aria-selected') !== 'true') {
+				return;
+			}
+			const tabs = Array.from(el.tabs.querySelectorAll('.tab'));
+			if (tabs.length === 0) {
+				return;
+			}
+			const last = tabs[tabs.length - 1];
+			tabDrag = {
+				pointerId: event.pointerId,
+				startX: event.clientX,
+				startLeft: tab.offsetLeft,
+				width: tab.offsetWidth,
+				min: tabs[0].offsetLeft,
+				max: last.offsetLeft + last.offsetWidth - tab.offsetWidth,
+				left: tab.offsetLeft,
+				moved: false
+			};
+			el.tabs.classList.add('is-dragging');
+			if (typeof el.tabs.setPointerCapture === 'function') {
+				try {
+					el.tabs.setPointerCapture(event.pointerId);
+				} catch (error) {
+					// Pointer capture is a nicety; the drag still works through the container listeners.
+				}
+			}
+		});
+
+		el.tabs.addEventListener('pointermove', event => {
+			if (!tabDrag || event.pointerId !== tabDrag.pointerId) {
+				return;
+			}
+			const delta = event.clientX - tabDrag.startX;
+			if (!tabDrag.moved && Math.abs(delta) < 4) {
+				return;
+			}
+			tabDrag.moved = true;
+			tabDrag.left = Math.min(tabDrag.max, Math.max(tabDrag.min, tabDrag.startLeft + delta));
+			el.tabs.style.setProperty('--tabs-indicator-x', `${tabDrag.left}px`);
+			if (event.cancelable) {
+				event.preventDefault();
+			}
+		});
+
+		el.tabs.addEventListener('pointerup', event => endTabDrag(event, false));
+		el.tabs.addEventListener('pointercancel', event => endTabDrag(event, true));
+	}
+
+	function endTabDrag(event, cancelled) {
+		if (!tabDrag || (event && event.pointerId !== tabDrag.pointerId)) {
+			return;
+		}
+
+		const drag = tabDrag;
+		tabDrag = null;
+		el.tabs.classList.remove('is-dragging');
+		if (event && typeof el.tabs.releasePointerCapture === 'function') {
+			try {
+				el.tabs.releasePointerCapture(event.pointerId);
+			} catch (error) {
+				// Already released, or capture was never taken.
+			}
+		}
+
+		if (!drag.moved) {
+			updateTabsIndicator();
+			return;
+		}
+
+		// The click that follows this pointerup lands on whichever tab is under the cursor; the drag itself
+		// already decided the target, so the synthetic click must not switch a second time.
+		suppressTabClickUntil = Date.now() + 350;
+		const target = nearestTab(drag.left + drag.width / 2);
+		const active = activeTab();
+		if (!cancelled && target && (!active || target.dataset.tab !== active.dataset.tab)) {
+			handlers.onTab(target.dataset.tab);
+		} else {
+			updateTabsIndicator();
+		}
+	}
+
+	function activeTab() {
+		return Array.from(el.tabs.querySelectorAll('.tab')).find(tab => tab.getAttribute('aria-selected') === 'true') || null;
+	}
+
+	function nearestTab(centre) {
+		let best = null;
+		let bestDistance = Infinity;
+		el.tabs.querySelectorAll('.tab').forEach(tab => {
+			const distance = Math.abs(tab.offsetLeft + tab.offsetWidth / 2 - centre);
+			if (distance < bestDistance) {
+				bestDistance = distance;
+				best = tab;
+			}
+		});
+		return best;
+	}
+
+	if (el.modes) {
+		el.modes.addEventListener('click', event => {
+			const button = event.target.closest('.chip');
+			if (button) {
+				handlers.onMode(button.dataset.mode);
+			}
+		});
+	}
+
+	if (el.list) {
+		el.list.addEventListener('click', event => {
+			const filter = event.target.closest('.row__filter');
+			if (filter) {
+				event.stopPropagation();
+				if (handlers.onFilter) {
+					handlers.onFilter(filter.dataset.kind, filter.dataset.id);
+				}
+				return;
+			}
+			const row = event.target.closest('.row');
+			if (!row) {
+				return;
+			}
+			handlers.onSelect(row.dataset.id);
+		});
+		el.list.addEventListener('keydown', event => {
+			if (event.key !== 'Enter' && event.key !== ' ') {
+				return;
+			}
+			if (event.target.classList.contains('row')) {
+				event.preventDefault();
+				handlers.onSelect(event.target.dataset.id);
+			}
+		});
+	}
+
+	if (el.search) {
+		el.search.addEventListener('input', () => handlers.onSearch(el.search.value));
+		el.search.addEventListener('keydown', event => {
+			if (event.key === 'Escape') {
+				handlers.onSearch('');
+			}
+		});
+	}
+
+	if (el.searchClear) {
+		el.searchClear.addEventListener('click', () => handlers.onSearch(''));
+	}
+
+	if (el.refresh) {
+		el.refresh.addEventListener('click', () => handlers.onRefresh());
+	}
+}
+
+export function setBusy(busy) {
+	if (el.refresh) {
+		el.refresh.disabled = busy;
+		el.refresh.classList.toggle('is-busy', busy);
+	}
+}

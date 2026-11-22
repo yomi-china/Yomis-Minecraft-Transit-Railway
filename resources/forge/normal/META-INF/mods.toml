@@ -1,6 +1,6 @@
 modLoader = "javafml"
 loaderVersion = "[36,)"
-license = "All Rights Reserved"
+license = "MIT AND GPL-3.0-or-later"
 
 [[mods]]
 modId = "mtr"

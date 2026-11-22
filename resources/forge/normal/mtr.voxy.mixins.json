@@ -1,0 +1,14 @@
+{
+	"required": false,
+	"minVersion": "0.8",
+	"package": "mtr.mixin",
+	"compatibilityLevel": "JAVA_8",
+	"mixins": [],
+	"client": [
+		"VoxyFogCompatMixin"
+	],
+	"server": [],
+	"injectors": {
+		"defaultRequire": 0
+	}
+}

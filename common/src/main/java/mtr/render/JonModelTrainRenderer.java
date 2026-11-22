@@ -23,6 +23,7 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.vehicle.Boat;
 import net.minecraft.world.entity.vehicle.Minecart;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.level.LightLayer;
 import net.minecraft.world.phys.Vec3;
 import org.apache.commons.lang3.StringUtils;
@@ -47,6 +48,9 @@ public class JonModelTrainRenderer extends TrainRendererBase implements IGui {
 	private static final ModelCableCarGrip MODEL_CABLE_CAR_GRIP = new ModelCableCarGrip();
 	private static final ModelBogie MODEL_BOGIE = new ModelBogie();
 
+	private long atPlatformTick = Long.MIN_VALUE;
+	private boolean atPlatformCache;
+
 	private JonModelTrainRenderer(ModelTrainBase model, String textureId, String gangwayConnectionId, String trainBarrierId, TrainClient train) {
 		this.model = model;
 		this.textureId = resolvePath(textureId);
@@ -65,14 +69,24 @@ public class JonModelTrainRenderer extends TrainRendererBase implements IGui {
 	}
 
 	@Override
+	public boolean hasTranslucentParts() {
+		return model != null && model.hasRenderStage(ModelTrainBase.RenderStage.INTERIOR_TRANSLUCENT);
+	}
+
+	@Override
 	public void renderCar(int carIndex, double x, double y, double z, float yaw, float pitch, boolean doorLeftOpen, boolean doorRightOpen) {
 		final float doorLeftValue = doorLeftOpen ? train.getDoorValue() : 0;
 		final float doorRightValue = doorRightOpen ? train.getDoorValue() : 0;
-		final boolean atPlatform = train.path.get(train.getIndex(0, train.spacing, true)).dwellTime > 0;
 		final boolean hasPitch = pitch < 0 ? train.transportMode.hasPitchAscending : train.transportMode.hasPitchDescending;
 
 		final String trainId = train.trainId;
-		final TrainProperties trainProperties = TrainClientRegistry.getTrainProperties(trainId);
+		final TrainProperties trainProperties = train.trainProperties;
+
+		if (world != null && atPlatformTick != world.getGameTime()) {
+			atPlatformCache = train.path.get(train.getIndex(0, train.spacing, true)).dwellTime > 0;
+			atPlatformTick = world.getGameTime();
+		}
+		final boolean atPlatform = atPlatformCache;
 
 		if (model == null && isTranslucentBatch) {
 			return;
@@ -88,7 +102,7 @@ public class JonModelTrainRenderer extends TrainRendererBase implements IGui {
 		UtilitiesClient.rotateY(matrices, (float) Math.PI + yaw);
 		UtilitiesClient.rotateX(matrices, (float) Math.PI + (hasPitch ? pitch : 0));
 
-		final int light = LightTexture.pack(world.getBrightness(LightLayer.BLOCK, posAverage), world.getBrightness(LightLayer.SKY, posAverage));
+		final int light = TrainRendererBase.getCarLight(posAverage);
 
 		if (model == null || textureId == null) {
 			final boolean isBoat = train.transportMode == TransportMode.BOAT;
@@ -101,7 +115,7 @@ public class JonModelTrainRenderer extends TrainRendererBase implements IGui {
 
 			if (isBoat) {
 				if (!BOATS.containsKey(train.id)) {
-					BOATS.put(train.id, new FakeBoat());
+					BOATS.put(train.id, new FakeBoat(world));
 				}
 				MODEL_BOAT.setupAnim(BOATS.get(train.id), (train.getSpeed() + Train.ACCELERATION_DEFAULT) * (doorLeftValue == 0 && doorRightValue == 0 ? lastFrameDuration : 0), 0, -0.1F, 0, 0);
 			} else {
@@ -150,9 +164,9 @@ public class JonModelTrainRenderer extends TrainRendererBase implements IGui {
 		}
 
 		final String trainId = train.trainId;
-		final TrainProperties trainProperties = TrainClientRegistry.getTrainProperties(trainId);
+		final TrainProperties trainProperties = train.trainProperties;
 
-		final int light = LightTexture.pack(world.getBrightness(LightLayer.BLOCK, posAverage), world.getBrightness(LightLayer.SKY, posAverage));
+		final int light = TrainRendererBase.getCarLight(posAverage);
 
 		if (!gangwayConnectionId.isEmpty()) {
 			final VertexConsumer vertexConsumerExterior = vertexConsumers.getBuffer(MoreRenderLayers.getExterior(getConnectorTextureString(true, "exterior")));
@@ -192,7 +206,7 @@ public class JonModelTrainRenderer extends TrainRendererBase implements IGui {
 			return;
 		}
 
-		final int light = LightTexture.pack(world.getBrightness(LightLayer.BLOCK, posAverage), world.getBrightness(LightLayer.SKY, posAverage));
+		final int light = TrainRendererBase.getCarLight(posAverage);
 
 		final VertexConsumer vertexConsumerExterior = vertexConsumers.getBuffer(MoreRenderLayers.getExterior(getConnectorTextureString(false, "exterior")));
 		drawTexture(matrices, vertexConsumerExterior, thisPos2, prevPos3, prevPos4, thisPos1, light);
@@ -239,11 +253,12 @@ public class JonModelTrainRenderer extends TrainRendererBase implements IGui {
 	}
 
 	private static class FakeBoat extends Boat {
-
 		private float progress;
+		private final Level level;
 
-		public FakeBoat() {
-			super(EntityType.BOAT, null);
+		public FakeBoat(Level level) {
+			super(EntityType.BOAT, level);
+			this.level = level;
 		}
 
 		@Override

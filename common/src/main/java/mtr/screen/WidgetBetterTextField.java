@@ -86,6 +86,10 @@ public class WidgetBetterTextField extends EditBox implements IGui {
 		super.setMaxLength(Integer.MAX_VALUE);
 	}
 
+	public void setFieldHeight(int height) {
+		this.height = height;
+	}
+
 	private String trySetLength(String text) {
 		return text.isEmpty() ? "" : text.substring(0, Math.min(newMaxLength, text.length()));
 	}

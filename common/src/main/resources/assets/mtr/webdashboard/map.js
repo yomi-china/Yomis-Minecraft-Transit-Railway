@@ -1,0 +1,1097 @@
+import {
+	COLOR_BACKGROUND,
+	COLOR_PLAYER_MARKER,
+	argbToRgba,
+	clampScale,
+	createView,
+	fitBounds,
+	gridSpacing,
+	hitTestSavedRails,
+	isAreaVisible,
+	outlineWorldWidth,
+	panByScreenDelta,
+	rgbToCss,
+	savedRailSlots,
+	screenToWorld,
+	shouldDrawAreaLabel,
+	shouldDrawSavedRailLabel,
+	snapRect,
+	visibleWorldBounds,
+	worldToScreen,
+	AREA_CORNER_RADIUS_PX,
+	SAVED_RAIL_CORNER_RADIUS_PX,
+	clampCornerRadius,
+	isSaneArea,
+	isSanePoint,
+	snapAreaCorners,
+	FLY_DURATION_MS,
+	interpolateView
+} from './mapview.js?v=64';
+import { beginEdit, cancelEdit, dragToEdit, endEditDrag, getDraftBounds, isEditing } from './mapedit.js?v=64';
+import { planFocus, sameView } from './focus.js?v=64';
+
+const DRAG_THRESHOLD_PX = 4;
+const THEME_EVENT = 'mtr-themechange';
+
+export const ZOOM_STEP = 1.5;
+
+const ZOOM_EASING_FACTOR = 0.14;
+const ZOOM_SETTLE_RATIO = 0.002;
+const SELECTION_RING_COLOUR = argbToRgba(COLOR_PLAYER_MARKER);
+const FOCUS_PLAYER_SCALE = 8;
+
+function cssColor(name, fallback) {
+	if (typeof document === 'undefined' || typeof getComputedStyle !== 'function') {
+		return fallback;
+	}
+	const node = document.body || document.documentElement;
+	if (!node) {
+		return fallback;
+	}
+	const value = getComputedStyle(node).getPropertyValue(name).trim();
+	return value || fallback;
+}
+
+function parseCssColor(value) {
+	if (typeof value !== 'string') {
+		return null;
+	}
+	const text = value.trim().replace(/^#/, '');
+	if (/^[0-9a-f]{6}$/i.test(text)) {
+		return {
+			r: parseInt(text.slice(0, 2), 16),
+			g: parseInt(text.slice(2, 4), 16),
+			b: parseInt(text.slice(4, 6), 16)
+		};
+	}
+	const rgb = value.match(/^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)/i);
+	return rgb ? { r: Number(rgb[1]), g: Number(rgb[2]), b: Number(rgb[3]) } : null;
+}
+
+function accentRgba(value, alpha) {
+	const parsed = parseCssColor(value);
+	return parsed ? `rgba(${Math.round(parsed.r)}, ${Math.round(parsed.g)}, ${Math.round(parsed.b)}, ${alpha})` : value;
+}
+
+function readMapTheme() {
+	const light = typeof document !== 'undefined' && document.body?.dataset.theme === 'light';
+	const accent = cssColor('--ui-accent', '#90caf9');
+	const accentText = cssColor('--ui-accent-text', accent);
+	return {
+		light,
+		background: light ? '#eef1f4' : argbToRgba(COLOR_BACKGROUND),
+		grid: light ? 'rgba(35, 58, 86, 0.10)' : 'rgba(255, 255, 255, 0.06)',
+		editingOutline: light ? 'rgba(28, 28, 28, 0.35)' : 'rgba(255, 255, 255, 0.35)',
+		editingFill: light ? 'rgba(28, 28, 28, 0.06)' : 'rgba(255, 255, 255, 0.06)',
+		areaFill: accentRgba(accentText, 0.08),
+		areaFillSelected: accentRgba(accentText, 0.14),
+		areaOutlineFallback: accentRgba(accentText, 0.55),
+		areaOutlineSelected: accentRgba(accentText, 0.9),
+		savedRail: light ? 'rgba(28, 28, 28, 0.62)' : 'rgba(255, 255, 255, 0.6)',
+		savedRailSelected: light ? 'rgba(28, 28, 28, 1)' : 'rgba(255, 255, 255, 1)',
+		draftFill: accentRgba(accentText, 0.10),
+		draftStroke: light ? 'rgba(28, 28, 28, 0.9)' : 'rgba(255, 255, 255, 0.9)',
+		labelStroke: light ? 'rgba(255, 255, 255, 0.85)' : 'rgba(0, 0, 0, 0.75)',
+		labelFill: light ? 'rgba(28, 28, 28, 0.95)' : 'rgba(255, 255, 255, 0.95)',
+		playerHalo: light ? 'rgba(28, 28, 28, 0.9)' : argbToRgba(0xFFFFFFFF),
+		accent
+	};
+}
+
+let mapTheme = readMapTheme();
+
+
+const el = {
+	canvas: null,
+	pointer: null
+};
+
+const mapState = {
+	world: null,
+	index: null,
+	mode: 'all',
+	tab: 'stations',
+	selectedId: null,
+	childFocusId: null,
+	edit: null
+};
+
+const view = createView();
+
+let savedRailGroups = [];
+let skippedEntries = 0;
+
+let handlers = {};
+let context = null;
+let animation = null;
+let pointerState = null;
+let needsResize = true;
+let viewHasBeenPlaced = false;
+let zoomTargetScale = null;
+let zoomAnchorScreenX = 0;
+let zoomAnchorScreenY = 0;
+let flightAnimation = null;
+let focusPulseFrame = 0;
+let focusPulseStart = 0;
+let focusPulseValue = 0;
+let focusPulseLastPaint = 0;
+
+export function init(canvas, callbacks) {
+	el.canvas = canvas;
+	handlers = callbacks || {};
+	context = canvas.getContext('2d');
+
+	el.pointer = { x: 0, z: 0, valid: false };
+
+	const observer = new ResizeObserver(() => {
+		needsResize = true;
+	});
+	observer.observe(canvas.parentElement || canvas);
+
+	canvas.addEventListener('pointerdown', onPointerDown);
+	canvas.addEventListener('pointermove', onPointerMove);
+	canvas.addEventListener('pointerup', onPointerUp);
+	canvas.addEventListener('pointercancel', onPointerUp);
+	canvas.addEventListener('pointerleave', () => {
+		el.pointer.valid = false;
+		notifyPointer();
+		redraw();
+	});
+	canvas.addEventListener('wheel', onWheel, { passive: false });
+	canvas.addEventListener('contextmenu', event => event.preventDefault());
+	if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+		window.addEventListener(THEME_EVENT, onThemeChange);
+	}
+
+	needsResize = true;
+	redraw();
+}
+
+export function dispose() {
+	cancelFlight();
+	stopFocusPulse();
+	if (typeof window !== 'undefined' && typeof window.removeEventListener === 'function') {
+		window.removeEventListener(THEME_EVENT, onThemeChange);
+	}
+	if (animation != null) {
+		cancelAnimationFrame(animation);
+		animation = null;
+	}
+}
+
+function onThemeChange() {
+	redraw();
+}
+
+export function setWorld(world, index) {
+	if (world === mapState.world) {
+		return;
+	}
+	mapState.world = world;
+	mapState.index = index || null;
+	rebuildGroups();
+	if (!viewHasBeenPlaced) {
+		placeInitialView();
+	}
+	redraw();
+}
+
+export function setMode(mode) {
+	if (mapState.mode === mode) {
+		return;
+	}
+	mapState.mode = mode;
+	rebuildGroups();
+	redraw();
+}
+
+export function setTab(tab) {
+	if (mapState.tab === tab) {
+		return;
+	}
+	mapState.tab = tab;
+	rebuildGroups();
+	redraw();
+}
+
+export function setSelectedId(id) {
+	mapState.selectedId = id;
+	redraw();
+}
+
+/**
+ * Marks the platform/siding whose row is open. Its slot and ring pulse so the map keeps saying "this is the
+ * one you are editing" for as long as the row stays expanded, instead of showing the same static ring as a
+ * plain map selection.
+ */
+export function setChildFocusId(id) {
+	const next = id == null ? null : String(id);
+	if (mapState.childFocusId === next) {
+		return;
+	}
+	mapState.childFocusId = next;
+	if (next == null) {
+		stopFocusPulse();
+		focusPulseValue = 0;
+		redraw();
+		return;
+	}
+	startFocusPulse();
+}
+
+function startFocusPulse() {
+	if (focusPulseFrame) {
+		return;
+	}
+	const reducedMotion = typeof window !== 'undefined'
+		&& typeof window.matchMedia === 'function'
+		&& window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+	if (reducedMotion || typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
+		focusPulseValue = 1;
+		redraw();
+		return;
+	}
+	focusPulseStart = performance.now();
+	focusPulseLastPaint = 0;
+	const step = now => {
+		focusPulseFrame = 0;
+		if (mapState.childFocusId == null) {
+			focusPulseValue = 0;
+			redraw();
+			return;
+		}
+		focusPulseValue = 0.5 + 0.5 * Math.sin((now - focusPulseStart) / 240);
+		// ~30fps is enough for a breathing ring and halves the canvas work while the row is open.
+		if (now - focusPulseLastPaint >= 30) {
+			focusPulseLastPaint = now;
+			redraw();
+		}
+		focusPulseFrame = requestAnimationFrame(step);
+	};
+	focusPulseFrame = requestAnimationFrame(step);
+}
+
+function stopFocusPulse() {
+	if (focusPulseFrame) {
+		cancelAnimationFrame(focusPulseFrame);
+		focusPulseFrame = 0;
+	}
+}
+
+/** Rebuilds the derived groups and redraws, for an edit that replaced a cached object in place. */
+export function refresh() {
+	rebuildGroups();
+	redraw();
+}
+
+export function beginAreaEdit(kind, object) {
+	mapState.edit = beginEdit(kind, object.id, object);
+	canvasCursor();
+	redraw();
+	notifyDraft();
+}
+
+export function cancelAreaEdit() {
+	mapState.edit = cancelEdit();
+	canvasCursor();
+	redraw();
+	notifyDraft();
+}
+
+export function isAreaEditing() {
+	return isEditing(mapState.edit);
+}
+
+export function getAreaDraft() {
+	return getDraftBounds(mapState.edit);
+}
+
+function canvasCursor() {
+	if (el.canvas) {
+		const area = el.canvas.parentElement;
+		if (area) {
+			area.classList.toggle('is-editing', isEditing(mapState.edit));
+		}
+	}
+}
+
+export function focusOnPlayer(player) {
+	if (!player || !isSanePoint(player.x, player.z)) {
+		return false;
+	}
+	return flyTo({
+		...view,
+		centerX: player.x,
+		centerZ: player.z,
+		scale: clampScale(Math.max(view.scale, FOCUS_PLAYER_SCALE))
+	}, FLY_DURATION_MS);
+}
+
+export function getView() {
+	return view;
+}
+
+export function zoomBy(factor) {
+	zoomTargetScale = clampScale((zoomTargetScale != null ? zoomTargetScale : view.scale) * factor);
+	zoomAnchorScreenX = view.width / 2;
+	zoomAnchorScreenY = view.height / 2;
+	startZoomAnimation();
+}
+
+function applyView(next) {
+	view.centerX = next.centerX;
+	view.centerZ = next.centerZ;
+	view.scale = next.scale;
+	viewHasBeenPlaced = true;
+	redraw();
+}
+
+function placeInitialView() {
+	const player = firstPlayer();
+	if (player && isSanePoint(player.x, player.z)) {
+		view.centerX = player.x;
+		view.centerZ = player.z;
+		view.scale = clampScale(1);
+		viewHasBeenPlaced = true;
+		return;
+	}
+	const bounds = computeContentBounds();
+	if (bounds) {
+		const fitted = fitBounds(view, bounds.minX, bounds.minZ, bounds.maxX, bounds.maxZ);
+		view.centerX = fitted.centerX;
+		view.centerZ = fitted.centerZ;
+		view.scale = fitted.scale;
+		viewHasBeenPlaced = true;
+		if (skippedEntries > 0) {
+			console.warn('[MTR-WebDashboard] left out ' + skippedEntries + ' entr(y/ies) whose coordinates are outside the world boundary');
+		}
+	}
+}
+
+function firstPlayer() {
+	const players = mapState.world && Array.isArray(mapState.world.players) ? mapState.world.players : [];
+	return players.length > 0 ? players[0] : null;
+}
+
+function computeContentBounds() {
+	if (!mapState.world) {
+		return null;
+	}
+	let minX = Infinity;
+	let minZ = Infinity;
+	let maxX = -Infinity;
+	let maxZ = -Infinity;
+	skippedEntries = 0;
+
+	const include = (x, z) => {
+		if (!isSanePoint(x, z)) {
+			skippedEntries++;
+			return;
+		}
+		minX = Math.min(minX, x);
+		minZ = Math.min(minZ, z);
+		maxX = Math.max(maxX, x);
+		maxZ = Math.max(maxZ, z);
+	};
+
+	['stations', 'depots'].forEach(key => {
+		(mapState.world[key] || []).forEach(area => {
+			if (!area.hasArea) {
+				return;
+			}
+			if (!isSaneArea(area.corner1, area.corner2)) {
+				skippedEntries++;
+				return;
+			}
+			include(area.corner1.x, area.corner1.z);
+			include(area.corner2.x, area.corner2.z);
+		});
+	});
+	savedRailGroups.forEach(group => include(group.pos.x, group.pos.z));
+
+	return minX === Infinity ? null : { minX, minZ, maxX, maxZ };
+}
+
+export function redraw() {
+	if (!context || !el.canvas) {
+		return;
+	}
+	mapTheme = readMapTheme();
+	resizeIfNeeded();
+
+	context.setTransform(1, 0, 0, 1, 0, 0);
+	context.clearRect(0, 0, el.canvas.width, el.canvas.height);
+	context.setTransform(devicePixelRatio(), 0, 0, devicePixelRatio(), 0, 0);
+
+	drawTerrain();
+	drawAreas();
+	drawOverlay();
+	drawSavedRails();
+	drawDraft();
+	drawLabels();
+	drawPlayers();
+	drawTrains();
+	drawFocusMarker();
+	notifyViewChange();
+}
+
+function drawOverlay() {
+	if (handlers.drawOverlay) {
+		handlers.drawOverlay(context, view, mapTheme);
+	}
+}
+
+function drawTrains() {
+	if (handlers.drawTrains) {
+		handlers.drawTrains(context, view, mapTheme);
+	}
+}
+
+function notifyViewChange() {
+	if (handlers.onViewChange) {
+		handlers.onViewChange({
+			centerX: view.centerX,
+			centerZ: view.centerZ,
+			scale: view.scale,
+			width: view.width,
+			height: view.height
+		});
+	}
+}
+
+function devicePixelRatio() {
+	return window.devicePixelRatio || 1;
+}
+
+function resizeIfNeeded() {
+	const ratio = devicePixelRatio();
+	const rect = el.canvas.getBoundingClientRect();
+	const cssWidth = Math.max(1, Math.round(rect.width));
+	const cssHeight = Math.max(1, Math.round(rect.height));
+	const deviceWidth = Math.round(cssWidth * ratio);
+	const deviceHeight = Math.round(cssHeight * ratio);
+
+	if (needsResize || el.canvas.width !== deviceWidth || el.canvas.height !== deviceHeight) {
+		el.canvas.width = deviceWidth;
+		el.canvas.height = deviceHeight;
+		needsResize = false;
+	}
+
+	view.width = cssWidth;
+	view.height = cssHeight;
+}
+
+function drawTerrain() {
+	const spacing = gridSpacing(view.scale);
+	if (spacing === 0) {
+		return;
+	}
+
+	const bounds = visibleWorldBounds(view, 1);
+	const startX = Math.floor(bounds.minX / spacing) * spacing;
+	const startZ = Math.floor(bounds.minZ / spacing) * spacing;
+
+	context.strokeStyle = mapTheme.grid;
+	context.lineWidth = 1;
+	context.beginPath();
+	for (let x = startX; x <= bounds.maxX; x += spacing) {
+		const screenX = Math.round(worldToScreen(view, x, 0).x) + 0.5;
+		context.moveTo(screenX, 0);
+		context.lineTo(screenX, view.height);
+	}
+	for (let z = startZ; z <= bounds.maxZ; z += spacing) {
+		const screenY = Math.round(worldToScreen(view, 0, z).y) + 0.5;
+		context.moveTo(0, screenY);
+		context.lineTo(view.width, screenY);
+	}
+	context.stroke();
+}
+
+function drawAreas() {
+	const key = areaKeyForTab();
+	if (!key) {
+		return;
+	}
+
+	const bounds = visibleWorldBounds(view, 4);
+	(mapState.world && mapState.world[key] ? mapState.world[key] : []).forEach(area => {
+		if (!area.hasArea || !isSaneArea(area.corner1, area.corner2)) {
+			return;
+		}
+		if (key === 'depots' && !matchesMode(area)) {
+			return;
+		}
+		if (!isAreaVisible(bounds, Math.min(area.corner1.x, area.corner2.x), Math.min(area.corner1.z, area.corner2.z), Math.max(area.corner1.x, area.corner2.x), Math.max(area.corner1.z, area.corner2.z))) {
+			return;
+		}
+
+		const selected = area.id === mapState.selectedId;
+		const editing = isEditing(mapState.edit) && area.id === mapState.edit.id;
+
+		if (editing) {
+			drawAreaShape(area, mapTheme.editingOutline, mapTheme.editingFill);
+			return;
+		}
+
+		const fill = selected ? mapTheme.areaFillSelected : mapTheme.areaFill;
+		const outline = selected ? mapTheme.areaOutlineSelected : (rgbToCss(area.color) || mapTheme.areaOutlineFallback);
+		drawAreaShape(area, outline, fill);
+	});
+}
+
+function areaKeyForTab() {
+	if (mapState.tab === 'depots') {
+		return 'depots';
+	}
+	if (mapState.tab === 'stations') {
+		return 'stations';
+	}
+	return null;
+}
+
+function matchesMode(object) {
+	return mapState.mode === 'all' || object.transportMode === mapState.mode;
+}
+
+function drawAreaShape(area, outlineColor, fillColor) {
+	const spanX = area.corner2.x - area.corner1.x;
+	const spanZ = area.corner2.z - area.corner1.z;
+	const width = outlineWorldWidth(view.scale, spanX, spanZ);
+	if (!(width > 0)) {
+		return;
+	}
+
+	const topLeft = worldToScreen(view, Math.min(area.corner1.x, area.corner2.x), Math.min(area.corner1.z, area.corner2.z));
+	const bottomRight = worldToScreen(view, Math.max(area.corner1.x, area.corner2.x), Math.max(area.corner1.z, area.corner2.z));
+	const rect = snapRect(topLeft.x, topLeft.y, bottomRight.x, bottomRight.y);
+	const inset = Math.max(0.5, width * view.scale / 2);
+	const radius = clampCornerRadius(AREA_CORNER_RADIUS_PX, rect.width - inset * 2, rect.height - inset * 2);
+
+	context.beginPath();
+	context.roundRect(rect.x + inset, rect.y + inset, Math.max(0, rect.width - inset * 2), Math.max(0, rect.height - inset * 2), radius);
+	if (fillColor) {
+		context.fillStyle = fillColor;
+		context.fill();
+	}
+	context.lineWidth = 1;
+	context.strokeStyle = outlineColor;
+	context.stroke();
+}
+
+function drawSavedRails() {
+	if (savedRailGroups.length === 0) {
+		return;
+	}
+	const bounds = visibleWorldBounds(view, 2);
+	const focusedId = mapState.childFocusId;
+	const pulse = focusPulseValue;
+
+	savedRailGroups.forEach(group => {
+		if (!isAreaVisible(bounds, group.pos.x, group.pos.z, group.pos.x + 1, group.pos.z + 1)) {
+			return;
+		}
+		const slots = savedRailSlots(group.items.length);
+		slots.forEach((slot, index) => {
+			const item = group.items[index];
+			const selected = item.id === mapState.selectedId;
+			const focused = focusedId != null && String(item.id) === focusedId;
+			if (focused) {
+				context.save();
+				context.globalAlpha = 0.7 + 0.3 * pulse;
+				context.shadowColor = SELECTION_RING_COLOUR;
+				context.shadowBlur = 4 + 8 * pulse;
+				fillWorldRoundedRect(
+					group.pos.x, group.pos.z + slot.zFrom,
+					group.pos.x + 1, group.pos.z + slot.zTo,
+					SELECTION_RING_COLOUR,
+					SAVED_RAIL_CORNER_RADIUS_PX
+				);
+				context.restore();
+				return;
+			}
+			fillWorldRoundedRect(
+				group.pos.x, group.pos.z + slot.zFrom,
+				group.pos.x + 1, group.pos.z + slot.zTo,
+				selected ? mapTheme.savedRailSelected : mapTheme.savedRail,
+				SAVED_RAIL_CORNER_RADIUS_PX
+			);
+		});
+	});
+
+	const focused = focusTarget();
+	const selectedGroup = savedRailGroups.find(group => group.items.some(item => item.id === mapState.selectedId));
+	if (selectedGroup && (!focused || selectedGroup !== focused.group)) {
+		const topLeft = worldToScreen(view, selectedGroup.pos.x, selectedGroup.pos.z);
+		const bottomRight = worldToScreen(view, selectedGroup.pos.x + 1, selectedGroup.pos.z + 1);
+		const rect = snapRect(topLeft.x, topLeft.y, bottomRight.x, bottomRight.y);
+		const radius = clampCornerRadius(SAVED_RAIL_CORNER_RADIUS_PX + 1, rect.width + 4, rect.height + 4);
+		context.beginPath();
+		context.roundRect(rect.x - 2, rect.y - 2, rect.width + 4, rect.height + 4, radius);
+		context.strokeStyle = SELECTION_RING_COLOUR;
+		context.lineWidth = 2;
+		context.stroke();
+	}
+}
+
+/** @returns {{group: object, index: number, slot: object}|null} the platform/siding whose row is open. */
+function focusTarget() {
+	const id = mapState.childFocusId;
+	if (id == null) {
+		return null;
+	}
+	for (const group of savedRailGroups) {
+		const index = group.items.findIndex(item => String(item.id) === id);
+		if (index >= 0) {
+			const slot = savedRailSlots(group.items.length)[index];
+			if (slot) {
+				return { group, index, slot };
+			}
+		}
+	}
+	return null;
+}
+
+/**
+ * Drawn after labels and players. The saved-rail cell is only one block, so at the station zoom its natural
+ * rect is a few pixels - invisible under the station label. This overlay keeps a screen-space minimum size
+ * and a breathing glow, and the labels that would collide with it are skipped while the row is open.
+ */
+function drawFocusMarker() {
+	const focus = focusTarget();
+	if (!focus) {
+		return;
+	}
+	const topLeft = worldToScreen(view, focus.group.pos.x, focus.group.pos.z + focus.slot.zFrom);
+	const bottomRight = worldToScreen(view, focus.group.pos.x + 1, focus.group.pos.z + focus.slot.zTo);
+	const rect = snapRect(topLeft.x, topLeft.y, bottomRight.x, bottomRight.y);
+	const centerX = rect.x + rect.width / 2;
+	const centerY = rect.y + rect.height / 2;
+	const pulse = focusPulseValue;
+	const size = Math.max(28, rect.width + 10, rect.height + 10);
+
+	context.save();
+	context.beginPath();
+	context.roundRect(centerX - size / 2, centerY - size / 2, size, size, 6);
+	context.strokeStyle = SELECTION_RING_COLOUR;
+	context.lineWidth = 3;
+	context.globalAlpha = 0.7 + 0.3 * pulse;
+	context.shadowColor = SELECTION_RING_COLOUR;
+	context.shadowBlur = 8 + 14 * pulse;
+	context.stroke();
+
+	context.beginPath();
+	context.arc(centerX, centerY, 11 + 7 * pulse, 0, Math.PI * 2);
+	context.fillStyle = SELECTION_RING_COLOUR;
+	context.globalAlpha = 0.14 + 0.14 * pulse;
+	context.shadowBlur = 0;
+	context.fill();
+
+	context.beginPath();
+	context.arc(centerX, centerY, 4.5 + 1.5 * pulse, 0, Math.PI * 2);
+	context.fillStyle = SELECTION_RING_COLOUR;
+	context.globalAlpha = 1;
+	context.fill();
+	context.lineWidth = 1.5;
+	context.strokeStyle = mapTheme.savedRailSelected;
+	context.stroke();
+	context.restore();
+}
+
+function drawDraft() {
+	const draft = getDraftBounds(mapState.edit);
+	if (!draft) {
+		return;
+	}
+
+	fillWorldRect(draft.minX, draft.minZ, draft.maxX, draft.maxZ, mapTheme.draftFill);
+
+	const topLeft = worldToScreen(view, draft.minX, draft.minZ);
+	const bottomRight = worldToScreen(view, draft.maxX, draft.maxZ);
+	const rect = snapRect(topLeft.x, topLeft.y, bottomRight.x, bottomRight.y);
+	context.save();
+	context.setLineDash([6, 4]);
+	context.strokeStyle = mapTheme.draftStroke;
+	context.lineWidth = 1;
+	context.strokeRect(rect.x + 0.5, rect.y + 0.5, rect.width - 1, rect.height - 1);
+	context.restore();
+}
+
+function drawLabels() {
+	if (!mapState.world) {
+		return;
+	}
+	context.textAlign = 'center';
+	context.textBaseline = 'middle';
+	context.font = '600 12px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+
+	const drawText = (text, worldX, worldZ) => {
+		const screen = worldToScreen(view, worldX, worldZ);
+		if (screen.x < -200 || screen.x > view.width + 200 || screen.y < 0 || screen.y > view.height) {
+			return;
+		}
+		context.lineWidth = 3;
+		context.strokeStyle = mapTheme.labelStroke;
+		context.strokeText(text, screen.x, screen.y);
+		context.fillStyle = mapTheme.labelFill;
+		context.fillText(text, screen.x, screen.y);
+	};
+
+	if (shouldDrawSavedRailLabel(view.scale)) {
+		const focus = focusTarget();
+		savedRailGroups.forEach(group => {
+			const slots = savedRailSlots(group.items.length);
+			slots.forEach((slot, index) => {
+				const item = group.items[index];
+				if (focus && group === focus.group && index === focus.index) {
+					return;
+				}
+				if (item.name) {
+					drawText(formatLabel(item.name), group.pos.x + 0.5, group.pos.z + (slot.zFrom + slot.zTo) / 2);
+				}
+			});
+		});
+	}
+
+	const key = areaKeyForTab();
+	if (!key) {
+		return;
+	}
+	const focus = focusTarget();
+	(mapState.world[key] || []).forEach(area => {
+		if (!area.hasArea || !isSaneArea(area.corner1, area.corner2) || (key === 'depots' && !matchesMode(area))) {
+			return;
+		}
+		if (focus && areaContains(area, focus.group.pos.x + 0.5, focus.group.pos.z + 0.5)) {
+			return;
+		}
+		const spanX = area.corner2.x - area.corner1.x;
+		const spanZ = area.corner2.z - area.corner1.z;
+		if (!shouldDrawAreaLabel(view.scale, spanX, spanZ)) {
+			return;
+		}
+		drawText(formatLabel(area.name), (area.corner1.x + area.corner2.x) / 2, (area.corner1.z + area.corner2.z) / 2);
+	});
+}
+
+function areaContains(area, x, z) {
+	const minX = Math.min(area.corner1.x, area.corner2.x);
+	const maxX = Math.max(area.corner1.x, area.corner2.x);
+	const minZ = Math.min(area.corner1.z, area.corner2.z);
+	const maxZ = Math.max(area.corner1.z, area.corner2.z);
+	return x >= minX && x <= maxX && z >= minZ && z <= maxZ;
+}
+
+function drawPlayers() {
+	const players = mapState.world && Array.isArray(mapState.world.players) ? mapState.world.players : [];
+	players.forEach(player => {
+		if (!isSanePoint(player.x, player.z)) {
+			return;
+		}
+		const screen = worldToScreen(view, player.x, player.z);
+		if (screen.x < -20 || screen.x > view.width + 20 || screen.y < -20 || screen.y > view.height + 20) {
+			return;
+		}
+		const x = Math.round(screen.x);
+		const y = Math.round(screen.y);
+
+		context.fillStyle = mapTheme.playerHalo;
+		context.fillRect(x - 2, y - 3, 4, 6);
+		context.fillRect(x - 3, y - 2, 6, 4);
+
+		context.fillStyle = argbToRgba(COLOR_PLAYER_MARKER);
+		context.fillRect(x - 2, y - 2, 4, 4);
+	});
+}
+
+function fillWorldRect(worldX1, worldZ1, worldX2, worldZ2, fillStyle) {
+	const rect = worldRectToScreen(worldX1, worldZ1, worldX2, worldZ2);
+	context.fillStyle = fillStyle;
+	context.fillRect(rect.x, rect.y, rect.width, rect.height);
+}
+
+function fillWorldRoundedRect(worldX1, worldZ1, worldX2, worldZ2, fillStyle, radiusPx) {
+	const rect = worldRectToScreen(worldX1, worldZ1, worldX2, worldZ2);
+	const radius = clampCornerRadius(radiusPx, rect.width, rect.height);
+	context.fillStyle = fillStyle;
+	context.beginPath();
+	context.roundRect(rect.x, rect.y, rect.width, rect.height, radius);
+	context.fill();
+}
+
+function worldRectToScreen(worldX1, worldZ1, worldX2, worldZ2) {
+	const topLeft = worldToScreen(view, Math.min(worldX1, worldX2), Math.min(worldZ1, worldZ2));
+	const bottomRight = worldToScreen(view, Math.max(worldX1, worldX2), Math.max(worldZ1, worldZ2));
+	return snapRect(topLeft.x, topLeft.y, bottomRight.x, bottomRight.y);
+}
+
+function formatLabel(name) {
+	return typeof name === 'string' ? name.replace(/\|/g, ' ').trim() : '';
+}
+
+function rebuildGroups() {
+	savedRailGroups = [];
+	if (!mapState.world) {
+		return;
+	}
+
+	const source = mapState.tab === 'depots' ? mapState.world.sidings : mapState.world.platforms;
+	const byBlock = new Map();
+
+	(source || []).forEach(savedRail => {
+		// The selected platform/siding is always drawn, even when it does not match the mode filter. On the
+		// stations tab that filter is hidden, so hiding the very row the editor just focused would look broken.
+		if (mapState.mode !== 'all' && savedRail.transportMode !== mapState.mode && savedRail.id !== mapState.selectedId) {
+			return;
+		}
+		if (!isSanePoint(savedRail.midX, savedRail.midZ)) {
+			return;
+		}
+		const key = savedRail.midX + ',' + savedRail.midZ;
+		if (!byBlock.has(key)) {
+			byBlock.set(key, { pos: { x: savedRail.midX, z: savedRail.midZ }, items: [] });
+		}
+		byBlock.get(key).items.push(savedRail);
+	});
+
+	savedRailGroups = [...byBlock.values()].sort((a, b) => (a.pos.x - b.pos.x) || (a.pos.z - b.pos.z));
+	savedRailGroups.forEach(group => group.items.sort((a, b) => String(a.id).localeCompare(String(b.id))));
+}
+
+function toCanvasPoint(event) {
+	const rect = el.canvas.getBoundingClientRect();
+	return { x: event.clientX - rect.left, y: event.clientY - rect.top };
+}
+
+function onPointerDown(event) {
+	const point = toCanvasPoint(event);
+	const editing = isEditing(mapState.edit);
+	const pans = event.button === 1 || (!editing && event.button === 0) || (editing && event.button === 2);
+
+	if (pans) {
+		pointerState = { kind: 'pan', lastX: point.x, lastY: point.y, moved: false };
+		cancelFlight();
+		el.canvas.setPointerCapture(event.pointerId);
+		event.preventDefault();
+		return;
+	}
+
+	if (editing && event.button === 0) {
+		const world = screenToWorld(view, point.x, point.y);
+		pointerState = { kind: 'draw', startX: point.x, startY: point.y, moved: false };
+		dragToEdit(mapState.edit, world.x, world.z);
+		el.canvas.setPointerCapture(event.pointerId);
+		event.preventDefault();
+		redraw();
+	}
+}
+
+function onPointerMove(event) {
+	const point = toCanvasPoint(event);
+
+	const world = screenToWorld(view, point.x, point.y);
+	el.pointer.x = world.x;
+	el.pointer.z = world.z;
+	el.pointer.valid = true;
+
+	if (pointerState && pointerState.kind === 'pan') {
+		const deltaX = point.x - pointerState.lastX;
+		const deltaY = point.y - pointerState.lastY;
+		pointerState.lastX = point.x;
+		pointerState.lastY = point.y;
+		if (Math.abs(deltaX) + Math.abs(deltaY) > 0) {
+			pointerState.moved = true;
+			const next = panByScreenDelta(view, deltaX, deltaY);
+			applyView(next);
+		}
+	} else if (pointerState && pointerState.kind === 'draw') {
+		if (Math.abs(point.x - pointerState.startX) + Math.abs(point.y - pointerState.startY) >= DRAG_THRESHOLD_PX) {
+			pointerState.moved = true;
+		}
+		if (pointerState.moved) {
+			dragToEdit(mapState.edit, world.x, world.z);
+			redraw();
+			notifyDraft();
+		}
+	} else {
+		redraw();
+	}
+
+	notifyPointer();
+}
+
+function onPointerUp(event) {
+	const state = pointerState;
+	pointerState = null;
+	if (!state) {
+		return;
+	}
+	if (el.canvas.hasPointerCapture && el.canvas.hasPointerCapture(event.pointerId)) {
+		el.canvas.releasePointerCapture(event.pointerId);
+	}
+
+	if (state.kind === 'draw') {
+		const kept = endEditDrag(mapState.edit);
+		notifyDraft();
+		const draft = getDraftBounds(mapState.edit);
+		if (kept && draft && handlers.onEditArea) {
+			handlers.onEditArea(snapAreaCorners(
+				{ x: draft.minX, z: draft.minZ },
+				{ x: draft.maxX, z: draft.maxZ }
+			));
+		}
+		redraw();
+		return;
+	}
+
+	if (state.kind === 'pan' && !state.moved && event.button === 0) {
+		const point = toCanvasPoint(event);
+		const world = screenToWorld(view, point.x, point.y);
+		const hit = hitTestSavedRails(savedRailGroups, world.x, world.z);
+		if (handlers.onSelect) {
+			handlers.onSelect(hit ? hit.item.id : null, {
+				clientX: event.clientX,
+				clientY: event.clientY,
+				x: point.x,
+				y: point.y,
+				worldX: world.x,
+				worldZ: world.z
+			});
+		}
+	}
+}
+
+function onWheel(event) {
+	event.preventDefault();
+	if (event.deltaY === 0) {
+		return;
+	}
+
+	const point = toCanvasPoint(event);
+	const factor = event.deltaY < 0 ? ZOOM_STEP : 1 / ZOOM_STEP;
+
+	cancelFlight();
+
+	zoomTargetScale = clampScale((zoomTargetScale != null ? zoomTargetScale : view.scale) * factor);
+	zoomAnchorScreenX = point.x;
+	zoomAnchorScreenY = point.y;
+	startZoomAnimation();
+}
+
+function startZoomAnimation() {
+	if (animation != null) {
+		return;
+	}
+
+	const reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+	if (reduceMotion) {
+		applyZoomFrame(1);
+		zoomTargetScale = null;
+		return;
+	}
+
+	const step = () => {
+		animation = null;
+		const remaining = applyZoomFrame(ZOOM_EASING_FACTOR);
+		if (remaining) {
+			animation = requestAnimationFrame(step);
+		} else {
+			zoomTargetScale = null;
+		}
+	};
+	animation = requestAnimationFrame(step);
+}
+
+function applyZoomFrame(fraction) {
+	const target = zoomTargetScale;
+	if (target == null) {
+		return false;
+	}
+
+	const anchorWorld = screenToWorld(view, zoomAnchorScreenX, zoomAnchorScreenY);
+	const next = view.scale + (target - view.scale) * fraction;
+	const done = Math.abs(target - next) / target < ZOOM_SETTLE_RATIO;
+	const scale = clampScale(done ? target : next);
+
+	view.scale = scale;
+	view.centerX = anchorWorld.x - (zoomAnchorScreenX - view.width / 2) / scale;
+	view.centerZ = anchorWorld.z - (zoomAnchorScreenY - view.height / 2) / scale;
+	viewHasBeenPlaced = true;
+	redraw();
+	return !done;
+}
+
+export function flyTo(targetView, durationMs) {
+	if (!targetView) {
+		return false;
+	}
+	const to = { ...targetView, width: view.width, height: view.height };
+	if (sameView(view, to)) {
+		applyView(to);
+		return false;
+	}
+
+	cancelFlight();
+	zoomTargetScale = null;
+
+	const from = { ...view };
+	const duration = durationMs != null ? durationMs : FLY_DURATION_MS;
+	const reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+	if (reduceMotion || !(duration > 0)) {
+		applyView(to);
+		return true;
+	}
+
+	const startedAt = performance.now();
+	const step = () => {
+		flightAnimation = null;
+		const elapsed = performance.now() - startedAt;
+		const progress = Math.min(1, elapsed / duration);
+		applyView(interpolateView(from, to, progress));
+		if (progress < 1) {
+			flightAnimation = requestAnimationFrame(step);
+		}
+	};
+	flightAnimation = requestAnimationFrame(step);
+	return true;
+}
+
+export function cancelFlight() {
+	if (flightAnimation != null) {
+		cancelAnimationFrame(flightAnimation);
+		flightAnimation = null;
+	}
+}
+
+/** Smoothly recentres the map while a train is tracked; the caller repeats this each frame. */
+export function followTo(worldX, worldZ, damping) {
+	if (flightAnimation != null || !isSanePoint(worldX, worldZ)) {
+		return false;
+	}
+	const factor = damping == null ? 0.18 : damping;
+	view.centerX += (worldX - view.centerX) * factor;
+	view.centerZ += (worldZ - view.centerZ) * factor;
+	viewHasBeenPlaced = true;
+	redraw();
+	return true;
+}
+
+export function focusOnTarget(kind, object, index) {
+	const plan = planFocus(kind, object, index, view);
+	if (plan.targetView) {
+		flyTo(plan.targetView);
+	}
+	return { animate: plan.animate, anchorScreen: plan.anchorScreen, hasArea: plan.hasArea, isEmpty: plan.isEmpty };
+}
+
+function notifyPointer() {
+	if (handlers.onPointerMove) {
+		handlers.onPointerMove(el.pointer.valid ? { x: el.pointer.x, z: el.pointer.z } : null);
+	}
+}
+
+function notifyDraft() {
+	if (handlers.onDraftChange) {
+		handlers.onDraftChange(getDraftBounds(mapState.edit));
+	}
+}

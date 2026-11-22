@@ -7,9 +7,17 @@ import mtr.data.RailwayData;
 import mtr.data.Route;
 import mtr.data.Station;
 import mtr.mappings.BlockEntityMapper;
+import mtr.mappings.RegistryUtilities;
 import mtr.packet.IPacket;
 import mtr.packet.PacketTrainDataGuiServer;
+import mtr.packet.PacketWebDashboardServer;
 import mtr.servlet.Webserver;
+import mtr.webdashboard.WebDashboardCommands;
+import mtr.webdashboard.WebDashboardPermissions;
+import mtr.webdashboard.WebDashboardRuntime;
+import mtr.webdashboard.WebDashboardServer;
+import mtr.webdashboard.WebDashboardTokenStore;
+import mtr.webdashboard.tunnel.WebDashboardTunnelServer;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
@@ -432,6 +440,7 @@ public class MTR implements IPacket {
 		Registry.registerNetworkReceiver(PACKET_PIDS_UPDATE, PacketTrainDataGuiServer::receivePIDSMessageC2S);
 		Registry.registerNetworkReceiver(PACKET_ARRIVAL_PROJECTOR_UPDATE, PacketTrainDataGuiServer::receiveArrivalProjectorMessageC2S);
 		Registry.registerNetworkReceiver(PACKET_USE_TIME_AND_WIND_SYNC, PacketTrainDataGuiServer::receiveUseTimeAndWindSyncC2S);
+		Registry.registerNetworkReceiver(PACKET_REDSTONE_DOOR_CONTROL, PacketTrainDataGuiServer::receiveRedstoneDoorControlC2S);
 		Registry.registerNetworkReceiver(PACKET_UPDATE_STATION, (minecraftServer, player, packet) -> PacketTrainDataGuiServer.receiveUpdateOrDeleteC2S(minecraftServer, player, packet, PACKET_UPDATE_STATION, railwayData -> railwayData.stations, railwayData -> railwayData.dataCache.stationIdMap, (id, transportMode) -> new Station(id), false));
 		Registry.registerNetworkReceiver(PACKET_UPDATE_PLATFORM, (minecraftServer, player, packet) -> PacketTrainDataGuiServer.receiveUpdateOrDeleteC2S(minecraftServer, player, packet, PACKET_UPDATE_PLATFORM, railwayData -> railwayData.platforms, railwayData -> railwayData.dataCache.platformIdMap, null, false));
 		Registry.registerNetworkReceiver(PACKET_UPDATE_SIDING, (minecraftServer, player, packet) -> PacketTrainDataGuiServer.receiveUpdateOrDeleteC2S(minecraftServer, player, packet, PACKET_UPDATE_SIDING, railwayData -> railwayData.sidings, railwayData -> railwayData.dataCache.sidingIdMap, null, false));
@@ -451,6 +460,9 @@ public class MTR implements IPacket {
 		Registry.registerNetworkReceiver(PACKET_UPDATE_ENTITY_SEAT_POSITION, PacketTrainDataGuiServer::receiveUpdateEntitySeatPassengerPosition);
 		Registry.registerNetworkReceiver(PACKET_DRIVE_TRAIN, PacketTrainDataGuiServer::receiveDriveTrainC2S);
 		Registry.registerNetworkReceiver(PACKET_PRESS_LIFT_BUTTON, PacketTrainDataGuiServer::receivePressLiftButtonC2S);
+		Registry.registerNetworkReceiver(PACKET_SERVER_AUDIO_REQUEST, PacketTrainDataGuiServer::receiveServerAudioRequestC2S);
+		// Web dashboard sign-in: the client asks, the server decides and replies with a one-time token.
+		Registry.registerNetworkReceiver(PACKET_WEB_DASHBOARD_LOGIN_REQUEST, (minecraftServer, player, packet) -> PacketWebDashboardServer.receiveLoginRequest(player));
 
 		Registry.registerTickEvent(minecraftServer -> {
 			minecraftServer.getAllLevels().forEach(serverWorld -> {
@@ -469,6 +481,9 @@ public class MTR implements IPacket {
 		});
 		Registry.registerPlayerJoinEvent(player -> {
 			PacketTrainDataGuiServer.versionCheckS2C(player);
+			// Keeps the recorded name on an existing web permission entry current, so `list` stays
+			// readable for players who were granted access before they ever connected.
+			WebDashboardPermissions.refreshName(player);
 			final RailwayData railwayData = RailwayData.getInstance(player.getLevel());
 			if (railwayData != null) {
 				railwayData.onPlayerJoin(player);
@@ -479,9 +494,19 @@ public class MTR implements IPacket {
 			if (railwayData != null) {
 				railwayData.disconnectPlayer(player);
 			}
+			// Drops any unused sign-in token, but keeps browser sessions: a session belongs to a browser
+			// and is not tied to the game being open. Access revocation is what ends sessions.
+			WebDashboardTokenStore.revokeLoginToken(player.getUUID());
+			// The API tunnel rides on this player's connection; once it is gone there is nothing to
+			// carry a response, so release the loopback sockets immediately.
+			if (!Keys.LIFTS_ONLY) {
+				WebDashboardTunnelServer.onPlayerQuit(player.getUUID());
+			}
 		});
 
 		if (!Keys.LIFTS_ONLY) {
+			// The tunnel only exists for the web dashboard, so it is registered together with it.
+			Registry.registerNetworkReceiver(PACKET_WEB_DASHBOARD_TUNNEL_C2S, (minecraftServer, player, packet) -> WebDashboardTunnelServer.handle(player, packet));
 			Webserver.init();
 			Registry.registerServerStartingEvent(minecraftServer -> {
 				Webserver.callback = minecraftServer::execute;
@@ -493,9 +518,31 @@ public class MTR implements IPacket {
 				Webserver.getRoutes = railwayData -> railwayData == null ? new HashSet<>() : railwayData.routes;
 				Webserver.getDataCache = railwayData -> railwayData == null ? null : railwayData.dataCache;
 				Webserver.start(minecraftServer.getServerDirectory().toPath().resolve("config").resolve("mtr_webserver_port.txt"));
+				// A separate service on its own port; see WebDashboardServer for why it does not reuse
+				// Webserver. Starting it here covers dedicated servers and single player alike, since
+				// the integrated server fires the same event. The client also tries, so that a world
+				// loaded in a way this event does not cover still gets a dashboard.
+				WebDashboardServer.loadSettingsAndStart(minecraftServer.getServerDirectory().toPath().resolve("config"));
+				// Everything that reads RailwayData has to run on the game thread, and the HTTP layer only
+				// holds a session, so it needs the server to reach the tick loop. This also backs the
+				// op-level permission fallback, which can only be evaluated for an online player.
+				WebDashboardRuntime.setServer(minecraftServer);
 			});
-			Registry.registerServerStoppingEvent(minecraftServer -> Webserver.stop());
+			Registry.registerServerStoppingEvent(minecraftServer -> {
+				// Cleared first, so anything still running cannot reach a stale player list or a half-torn-down
+				// world.
+				WebDashboardRuntime.setServer(null);
+				// The tunnel talks to the dashboard over loopback; close it before the Jetty it targets.
+				WebDashboardTunnelServer.stop();
+				Webserver.stop();
+				WebDashboardServer.stop();
+			});
 		}
+
+		// Registered through Architectury rather than the loaders' own command events, so the same line
+		// covers Fabric and Forge. Separate from registerDebugCommand because that one is wired at each
+		// loader's entry point.
+		RegistryUtilities.registerCommand(WebDashboardCommands::register);
 	}
 
 	public static boolean isGameTickInterval(int interval) {

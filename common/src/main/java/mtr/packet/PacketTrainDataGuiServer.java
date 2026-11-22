@@ -42,6 +42,9 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.scores.Score;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -51,6 +54,10 @@ import java.util.Map;
 import java.util.Random;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -58,6 +65,17 @@ import java.util.function.Function;
 public class PacketTrainDataGuiServer extends PacketTrainDataBase {
 
 	private static final int PACKET_CHUNK_SIZE = (int) Math.pow(2, 14); // 16384
+
+	private static final ExecutorService AUDIO_IO_EXECUTOR = Executors.newFixedThreadPool(2, r -> {
+		final Thread thread = new Thread(r, "MTR-ServerAudio");
+		thread.setDaemon(true);
+		return thread;
+	});
+	private static final Map<UUID, Long> LAST_SERVER_AUDIO_REQUEST_MILLIS = new ConcurrentHashMap<>();
+	private static final long SERVER_AUDIO_REQUEST_COOLDOWN_MS = 5000;
+	private static final int SERVER_AUDIO_MAX_FILE_SIZE = 16 * 1024 * 1024;
+	private static final int SERVER_AUDIO_CHUNK_SIZE = 16384;
+	private static final String SERVER_AUDIO_DIRECTORY_NAME = "mtr_server_audio";
 
 	public static void versionCheckS2C(ServerPlayer player) {
 		final FriendlyByteBuf packet = new FriendlyByteBuf(Unpooled.buffer());
@@ -70,6 +88,12 @@ public class PacketTrainDataGuiServer extends PacketTrainDataBase {
 		packet.writeUtf(transportMode.toString());
 		packet.writeBoolean(useTimeAndWindSync);
 		Registry.sendToPlayer(player, PACKET_OPEN_DASHBOARD_SCREEN, packet);
+	}
+
+	public static void updateRedstoneDoorControlS2C(ServerPlayer player, boolean redstoneDoorControl) {
+		final FriendlyByteBuf packet = new FriendlyByteBuf(Unpooled.buffer());
+		packet.writeBoolean(redstoneDoorControl);
+		Registry.sendToPlayer(player, PACKET_REDSTONE_DOOR_CONTROL_SYNC, packet);
 	}
 
 	public static void openRailwaySignScreenS2C(ServerPlayer player, BlockPos signPos) {
@@ -123,10 +147,122 @@ public class PacketTrainDataGuiServer extends PacketTrainDataBase {
 	}
 
 	public static void announceS2C(ServerPlayer player, String message, String soundIdString) {
+		System.out.println("[MTR-ServerAudio] announce sent to " + player.getName().getString() + ": '" + soundIdString + "'");
 		final FriendlyByteBuf packet = new FriendlyByteBuf(Unpooled.buffer());
 		packet.writeUtf(message);
 		packet.writeUtf(soundIdString == null ? "" : soundIdString);
 		Registry.sendToPlayer(player, PACKET_ANNOUNCE, packet);
+	}
+
+	public static void receiveServerAudioRequestC2S(MinecraftServer minecraftServer, ServerPlayer player, FriendlyByteBuf packet) {
+		final String fileName = packet.readUtf(255);
+		final int requestId = packet.readInt();
+		final long currentMillis = System.currentTimeMillis();
+		final Long lastRequestMillis = LAST_SERVER_AUDIO_REQUEST_MILLIS.get(player.getUUID());
+		if (lastRequestMillis != null && currentMillis - lastRequestMillis < SERVER_AUDIO_REQUEST_COOLDOWN_MS) {
+			return;
+		}
+		LAST_SERVER_AUDIO_REQUEST_MILLIS.put(player.getUUID(), currentMillis);
+		if (LAST_SERVER_AUDIO_REQUEST_MILLIS.size() > 100) {
+			LAST_SERVER_AUDIO_REQUEST_MILLIS.entrySet().removeIf(entry -> currentMillis - entry.getValue() > 60000);
+		}
+
+		System.out.println("[MTR-ServerAudio] request from " + player.getName().getString() + ": " + fileName + " (request " + requestId + ")");
+
+		if (!isValidServerAudioFileName(fileName)) {
+			sendServerAudioError(player, fileName, requestId, 2);
+			return;
+		}
+
+		AUDIO_IO_EXECUTOR.submit(() -> {
+			try {
+				final Path audioDirectory = minecraftServer.getServerDirectory().toPath().resolve(SERVER_AUDIO_DIRECTORY_NAME);
+				if (!Files.isDirectory(audioDirectory)) {
+					try {
+						Files.createDirectories(audioDirectory);
+						System.out.println("[MTR-ServerAudio] created directory: " + audioDirectory);
+					} catch (IOException e) {
+						System.out.println("[MTR-ServerAudio] failed to create directory " + audioDirectory + ": " + e.getMessage());
+						sendServerAudioError(player, fileName, requestId, 3);
+						return;
+					}
+				}
+				final Path filePath = audioDirectory.resolve(fileName).normalize();
+				if (!filePath.startsWith(audioDirectory) || !Files.isRegularFile(filePath)) {
+					sendServerAudioError(player, fileName, requestId, 0);
+					return;
+				}
+				final Path realAudioDirectory = audioDirectory.toRealPath();
+				final Path realFilePath = filePath.toRealPath();
+				if (!realFilePath.startsWith(realAudioDirectory)) {
+					sendServerAudioError(player, fileName, requestId, 2);
+					return;
+				}
+				final long fileSize = Files.size(realFilePath);
+				if (fileSize <= 0 || fileSize > SERVER_AUDIO_MAX_FILE_SIZE) {
+					sendServerAudioError(player, fileName, requestId, 1);
+					return;
+				}
+				System.out.println("[MTR-ServerAudio] serving " + fileName + " (" + fileSize + " bytes) to " + player.getName().getString());
+				final byte[] data = Files.readAllBytes(realFilePath);
+				sendServerAudioChunks(player, fileName, requestId, data);
+			} catch (Exception e) {
+				System.out.println("[MTR-ServerAudio] failed to serve " + fileName + " to " + player.getName().getString() + ": " + e.getMessage());
+				sendServerAudioError(player, fileName, requestId, 3);
+			}
+		});
+	}
+
+	private static void sendServerAudioChunks(ServerPlayer player, String fileName, int requestId, byte[] data) {
+		int index = 0;
+		int offset = 0;
+		while (offset < data.length) {
+			final int length = Math.min(SERVER_AUDIO_CHUNK_SIZE, data.length - offset);
+			final boolean last = offset + length >= data.length;
+			final FriendlyByteBuf chunkPacket = new FriendlyByteBuf(Unpooled.buffer());
+			chunkPacket.writeUtf(fileName);
+			chunkPacket.writeInt(requestId);
+			chunkPacket.writeBoolean(true);
+			chunkPacket.writeInt(0);
+			chunkPacket.writeInt(data.length);
+			chunkPacket.writeBoolean(last);
+			chunkPacket.writeBytes(data, offset, length);
+			try {
+				Registry.sendToPlayer(player, PACKET_SERVER_AUDIO_CHUNK, chunkPacket);
+			} catch (Exception e) {
+				System.out.println("[MTR-ServerAudio] failed to send chunk to " + player.getName().getString() + ": " + e.getMessage());
+				return;
+			}
+			offset += length;
+			index++;
+			if (!last && (index % 8 == 0)) {
+				try {
+					Thread.sleep(1);
+				} catch (InterruptedException e) {
+					Thread.currentThread().interrupt();
+					return;
+				}
+			}
+		}
+		System.out.println("[MTR-ServerAudio] sent " + fileName + " (" + data.length + " bytes, " + (index + 1) + " chunks) to " + player.getName().getString());
+	}
+
+	private static void sendServerAudioError(ServerPlayer player, String fileName, int requestId, int errorCode) {
+		final FriendlyByteBuf errorPacket = new FriendlyByteBuf(Unpooled.buffer());
+		errorPacket.writeUtf(fileName);
+		errorPacket.writeInt(requestId);
+		errorPacket.writeBoolean(false);
+		errorPacket.writeInt(errorCode);
+		errorPacket.writeInt(0);
+		errorPacket.writeBoolean(true);
+		try {
+			Registry.sendToPlayer(player, PACKET_SERVER_AUDIO_CHUNK, errorPacket);
+		} catch (Exception ignored) {
+		}
+	}
+
+	private static boolean isValidServerAudioFileName(String fileName) {
+		return !fileName.isEmpty() && fileName.length() <= 255 && fileName.matches("[A-Za-z0-9._-]+") && !fileName.startsWith(".") && !fileName.contains("..");
 	}
 
 	public static void createRailS2C(Level world, TransportMode transportMode, BlockPos pos1, BlockPos pos2, Rail rail1, Rail rail2, long savedRailId) {
@@ -212,42 +348,61 @@ public class PacketTrainDataGuiServer extends PacketTrainDataBase {
 			return;
 		}
 
-		final PacketCallback packetCallback = (updatePacket, fullPacket) -> {
-			world.players().forEach(worldPlayer -> {
-				if (!worldPlayer.getUUID().equals(player.getUUID())) {
-					Registry.sendToPlayer((ServerPlayer) worldPlayer, packetId, fullPacket);
-				}
-				railwayData.dataCache.sync();
-			});
-
-			if (packetId.equals(PACKET_UPDATE_STATION) || packetId.equals(PACKET_DELETE_STATION) || packetId.equals(PACKET_UPDATE_DEPOT) || packetId.equals(PACKET_DELETE_DEPOT)) {
-				try {
-					UpdateDynmap.updateDynmap(world, railwayData);
-				} catch (NoClassDefFoundError | Exception ignored) {
-				}
-				try {
-					UpdateBlueMap.updateBlueMap(world, railwayData);
-				} catch (NoClassDefFoundError | Exception ignored) {
-				}
-				try {
-					UpdateSquaremap.updateSquaremap(world, railwayData);
-				} catch (NoClassDefFoundError | Exception ignored) {
-				}
-			}
-		};
+		// The broadcast, cache refresh and external-map refresh live in DataUpdateBroadcast because the web
+		// dashboard's edit path needs precisely the same three things. Two copies would drift, and the
+		// symptom would be an edit that looks applied to its author and invisible to everyone else.
+		final PacketCallback packetCallback = createUpdatePacketCallback(world, player, packetId, railwayData);
 
 		if (isDelete) {
-			deleteData(dataSet.apply(railwayData), cacheMap.apply(railwayData), minecraftServer, packet, packetCallback, data -> railwayData.railwayDataLoggingModule.addEvent(player, data.getClass(), data.id, data.name, RailwayDataLoggingModule.getData(data), new ArrayList<>()));
+			deleteData(dataSet.apply(railwayData), cacheMap.apply(railwayData), minecraftServer, packet, packetCallback, createDeletionLogger(railwayData, player));
 		} else {
-			updateData(dataSet.apply(railwayData), cacheMap.apply(railwayData), minecraftServer, packet, packetCallback, createDataWithId, (data, oldData) -> railwayData.railwayDataLoggingModule.addEvent(player, data.getClass(), data.id, data.name, oldData, RailwayDataLoggingModule.getData(data)));
+			updateData(dataSet.apply(railwayData), cacheMap.apply(railwayData), minecraftServer, packet, packetCallback, createDataWithId, createUpdateLogger(railwayData, player));
 		}
 	}
 
-	public static void generatePathS2C(Level world, long depotId, int successfulSegments) {
+	private static PacketCallback createUpdatePacketCallback(Level world, ServerPlayer player, ResourceLocation packetId, RailwayData railwayData) {
+		return (updatePacket, fullPacket) -> lambda$receiveUpdateOrDeleteC2S$9(world, player, packetId, railwayData, updatePacket, fullPacket);
+	}
+
+	private static <T extends NameColorDataBase> Consumer<T> createDeletionLogger(RailwayData railwayData, ServerPlayer player) {
+		return data -> railwayData.railwayDataLoggingModule.addEvent(player, data.getClass(), data.id, data.name, RailwayDataLoggingModule.getData(data), new ArrayList<>());
+	}
+
+	private static <T extends NameColorDataBase> BiConsumer<T, List<String>> createUpdateLogger(RailwayData railwayData, ServerPlayer player) {
+		return (data, oldData) -> railwayData.railwayDataLoggingModule.addEvent(player, data.getClass(), data.id, data.name, oldData, RailwayDataLoggingModule.getData(data));
+	}
+
+	private static void lambda$receiveUpdateOrDeleteC2S$9(Level world, ServerPlayer player, ResourceLocation packetId, RailwayData railwayData, FriendlyByteBuf updatePacket, FriendlyByteBuf fullPacket) {
+		DataUpdateBroadcast.broadcastDataUpdate(world, packetId, fullPacket, player.getUUID());
+	}
+
+	/**
+	 * Ships a path generation result to every client.
+	 *
+	 * @param reason             one of {@link mtr.data.Depot#PATH_REASON_SEGMENTS}, {@link mtr.data.Depot#PATH_REASON_NO_SIDING},
+	 *                           {@link mtr.data.Depot#PATH_REASON_NOT_GENERATED} or {@link mtr.data.Depot#PATH_REASON_LEGACY}
+	 * @param successfulSegments how many platform-to-platform segments the generation reached
+	 * @param totalSegments      how many platforms the server used, so the client never has to recompute it
+	 * @param sidingName         the siding that produced this result, or "" when it is not a siding-specific failure
+	 */
+	public static void generatePathS2C(Level world, long depotId, int reason, int successfulSegments, int totalSegments, String sidingName) {
 		final FriendlyByteBuf packet = new FriendlyByteBuf(Unpooled.buffer());
 		packet.writeLong(depotId);
+		packet.writeInt(reason);
 		packet.writeInt(successfulSegments);
+		packet.writeInt(totalSegments);
+		packet.writeUtf(sidingName == null ? "" : sidingName);
 		world.players().forEach(player -> Registry.sendToPlayer((ServerPlayer) player, PACKET_GENERATE_PATH, packet));
+	}
+
+	/**
+	 * Kept so addons compiled against the previous build still resolve this method instead of failing with
+	 * {@code NoSuchMethodError}. It can only supply the segment count, so the result is tagged as legacy and
+	 * the client decides it the way it always did, from its own platform count.
+	 */
+	@Deprecated
+	public static void generatePathS2C(Level world, long depotId, int successfulSegments) {
+		generatePathS2C(world, depotId, mtr.data.Depot.PATH_REASON_LEGACY, successfulSegments, 0, "");
 	}
 
 	public static void generatePathC2S(MinecraftServer minecraftServer, ServerPlayer player, FriendlyByteBuf packet) {
@@ -461,6 +616,24 @@ public class PacketTrainDataGuiServer extends PacketTrainDataBase {
 				railwayData.setUseTimeAndWindSync(useTimeAndWindSync);
 				final String key = "\"use_time_and_wind_sync\":";
 				railwayData.railwayDataLoggingModule.addEvent(player, RailwayData.class, Collections.singletonList(key + useTimeAndWindSyncOld), Collections.singletonList(key + useTimeAndWindSync));
+			});
+		}
+	}
+
+	public static void receiveRedstoneDoorControlC2S(MinecraftServer minecraftServer, ServerPlayer player, FriendlyByteBuf packet) {
+		if (RailwayData.hasNoPermission(player) || !player.hasPermissions(1)) {
+			return;
+		}
+
+		final Level world = player.level;
+		final RailwayData railwayData = RailwayData.getInstance(world);
+		if (railwayData != null) {
+			final boolean redstoneDoorControl = packet.readBoolean();
+			minecraftServer.execute(() -> {
+				final boolean redstoneDoorControlOld = railwayData.getRedstoneDoorControl();
+				railwayData.setRedstoneDoorControl(redstoneDoorControl);
+				final String key = "\"redstone_door_control\":";
+				railwayData.railwayDataLoggingModule.addEvent(player, RailwayData.class, Collections.singletonList(key + redstoneDoorControlOld), Collections.singletonList(key + redstoneDoorControl));
 			});
 		}
 	}

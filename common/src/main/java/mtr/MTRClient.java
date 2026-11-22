@@ -1,5 +1,7 @@
 package mtr;
 
+import dev.architectury.event.events.client.ClientLifecycleEvent;
+import dev.architectury.event.events.client.ClientTickEvent;
 import mtr.block.BlockPIDS1;
 import mtr.block.BlockPIDS2;
 import mtr.block.BlockPIDS3;
@@ -18,6 +20,7 @@ import mtr.data.Station;
 import mtr.item.ItemBlockClickingBase;
 import mtr.packet.IPacket;
 import mtr.packet.PacketTrainDataGuiClient;
+import mtr.packet.PacketWebDashboardClient;
 import mtr.render.RenderAPGGlass;
 import mtr.render.RenderBoatNode;
 import mtr.render.RenderClock;
@@ -39,6 +42,10 @@ import mtr.render.RenderTrains;
 import mtr.screen.RailDataEditorClient;
 import mtr.servlet.Webserver;
 import mtr.sound.LoopingSoundInstance;
+import mtr.webdashboard.WebDashboardServer;
+import mtr.webdashboard.tunnel.WebDashboardLocalProxy;
+import mtr.webdashboard.tunnel.WebDashboardTunnelClient;
+import mtr.webdashboard.tunnel.WebDashboardTunnelProtocol;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.RenderType;
 import net.minecraft.core.BlockPos;
@@ -272,6 +279,8 @@ public class MTRClient implements IPacket {
 		RegistryClient.registerNetworkReceiver(PACKET_VERSION_CHECK, packet -> PacketTrainDataGuiClient.openVersionCheckS2C(Minecraft.getInstance(), packet));
 		RegistryClient.registerNetworkReceiver(PACKET_CHUNK_S2C, packet -> PacketTrainDataGuiClient.receiveChunk(Minecraft.getInstance(), packet));
 		RegistryClient.registerNetworkReceiver(PACKET_OPEN_DASHBOARD_SCREEN, packet -> PacketTrainDataGuiClient.openDashboardScreenS2C(Minecraft.getInstance(), packet));
+		RegistryClient.registerNetworkReceiver(PACKET_REDSTONE_DOOR_CONTROL_SYNC, packet -> PacketTrainDataGuiClient.receiveRedstoneDoorControlS2C(Minecraft.getInstance(), packet));
+		RegistryClient.registerNetworkReceiver(PACKET_WEB_DASHBOARD_LOGIN_TOKEN, packet -> PacketWebDashboardClient.openWebDashboard(Minecraft.getInstance(), packet));
 		RegistryClient.registerNetworkReceiver(PACKET_OPEN_RAIL_DATA_EDITOR, packet -> RailDataEditorClient.open(packet.readBlockPos()));
 		RegistryClient.registerNetworkReceiver(PACKET_OPEN_PIDS_CONFIG_SCREEN, packet -> PacketTrainDataGuiClient.openPIDSConfigScreenS2C(Minecraft.getInstance(), packet));
 		RegistryClient.registerNetworkReceiver(PACKET_OPEN_ARRIVAL_PROJECTOR_CONFIG_SCREEN, packet -> PacketTrainDataGuiClient.openArrivalProjectorConfigScreenS2C(Minecraft.getInstance(), packet));
@@ -368,6 +377,21 @@ public class MTRClient implements IPacket {
 		if (!Keys.LIFTS_ONLY) {
 			Webserver.init();
 			Registry.registerPlayerQuitEvent(player -> Webserver.stop());
+
+			// The client owns the multiplayer entry point: HTML/CSS/JS are served straight from this
+			// jar, and only /api/* is tunnelled. It is started on demand by the sign-in button, so it
+			// does not hold the dashboard port while a single-player world needs it.
+			// Registered straight through Architectury rather than the project's RegistryUtilitiesClient
+			// wrapper: that wrapper has no tick or stopping entry point on Fabric, and both loaders back
+			// these events.
+			ClientTickEvent.CLIENT_PRE.register(minecraft -> WebDashboardTunnelClient.tick());
+			ClientLifecycleEvent.CLIENT_STOPPING.register(minecraft -> {
+				WebDashboardTunnelClient.closeAll(WebDashboardTunnelProtocol.CLOSE_PLAYER_DISCONNECTED);
+				WebDashboardLocalProxy.stop();
+				// Single player: the integrated server started this one; stopping it here is a safety
+				// net for a shutdown path where the server stopping event did not run.
+				WebDashboardServer.stop();
+			});
 
 			BlockTactileMap.TileEntityTactileMap.updateSoundSource = TACTILE_MAP_SOUND_INSTANCE::setPos;
 			BlockTactileMap.TileEntityTactileMap.onUse = pos -> {

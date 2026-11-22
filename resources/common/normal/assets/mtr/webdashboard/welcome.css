@@ -1,0 +1,832 @@
+:root {
+	--welcome-bg: #121212;
+	--welcome-surface: #1e1e1e;
+	--welcome-surface-strong: #2a2a2a;
+	--welcome-primary: #90caf9;
+	--welcome-error: #ef9a9a;
+	--welcome-warning: #ffcc80;
+	--welcome-text: #ffffff;
+	--welcome-text-secondary: #9e9e9e;
+	--welcome-text-muted: rgba(255, 255, 255, 0.5);
+	--welcome-divider: rgba(255, 255, 255, 0.12);
+	--welcome-appbar-h: 56px;
+	--welcome-appbar-top: 24px;
+	--welcome-sheet-h: clamp(320px, 42vh, 560px);
+	--welcome-gutter: clamp(24px, 5vw, 88px);
+	--welcome-ease: cubic-bezier(0.2, 0, 0, 1);
+	--welcome-ease-emphasized: cubic-bezier(0.05, 0.7, 0.1, 1);
+	--welcome-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+body:not([data-view="dashboard"]) {
+	background-color: var(--welcome-bg);
+	background-image: none;
+	color: var(--welcome-text);
+	color-scheme: dark;
+	overflow: hidden;
+}
+
+body[data-view="dashboard"] .welcome-canvas,
+body[data-view="dashboard"] .welcome-atmosphere,
+body[data-view="dashboard"] .welcome-appbar,
+body[data-view="dashboard"] .welcome-notice,
+body[data-view="dashboard"] .welcome-sheet {
+	display: none;
+}
+
+.welcome-canvas {
+	position: fixed;
+	inset: 0;
+	z-index: 0;
+	width: 100vw;
+	height: 100vh;
+	display: block;
+	pointer-events: none;
+	opacity: 0;
+	animation: welcome-canvas-in 1400ms ease-out forwards;
+}
+
+.welcome-atmosphere {
+	position: fixed;
+	inset: 0;
+	z-index: 1;
+	pointer-events: none;
+	background:
+		radial-gradient(60% 50% at 20% 8%, color-mix(in srgb, var(--ui-accent-text) 6%, transparent), transparent 72%),
+		linear-gradient(to bottom, rgba(18, 18, 18, 0.55) 0%, rgba(18, 18, 18, 0) 20%);
+}
+
+.welcome-appbar {
+	position: fixed;
+	top: var(--welcome-appbar-top);
+	left: 50%;
+	transform: translateX(-50%);
+	z-index: 4;
+	width: fit-content;
+	min-width: min(560px, calc(100vw - 24px));
+	max-width: calc(100% - 24px);
+	height: var(--welcome-appbar-h);
+	padding: 0 6px;
+	background-color: rgba(255, 255, 255, 0.05);
+	border: 1px solid rgba(255, 255, 255, 0.14);
+	border-radius: 999px;
+	-webkit-backdrop-filter: blur(12px);
+	backdrop-filter: blur(12px);
+	box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28);
+	animation: welcome-appbar-in 700ms var(--welcome-ease) both;
+}
+
+.welcome-appbar__inner {
+	width: 100%;
+	height: 100%;
+	padding: 0 12px;
+	display: flex;
+	align-items: center;
+	justify-content: flex-start;
+	gap: 8px;
+}
+
+.welcome-appbar__brand {
+	display: flex;
+	align-items: center;
+	padding: 0 10px;
+	flex: 0 0 auto;
+	color: var(--welcome-text);
+	font-size: 13px;
+	line-height: 1;
+	font-weight: 600;
+	letter-spacing: 0.14em;
+	white-space: nowrap;
+}
+
+.welcome-tabs {
+	display: flex;
+	align-items: center;
+	min-width: 0;
+}
+
+.welcome-tab {
+	display: inline-flex;
+	align-items: center;
+	height: 32px;
+	padding: 0 14px;
+	border: 1px solid var(--ui-accent-border);
+	border-radius: 999px;
+	background-color: var(--ui-accent-soft);
+	color: var(--welcome-primary);
+	font-size: 13px;
+	line-height: 1.2;
+	font-weight: 600;
+	letter-spacing: 0.02em;
+	white-space: nowrap;
+}
+
+.welcome-state {
+	margin-left: auto;
+	align-self: center;
+	min-width: 0;
+	height: 32px;
+	padding: 0 10px;
+	display: inline-flex;
+	align-items: center;
+	gap: 7px;
+	border: 1px solid var(--ui-accent-border);
+	border-radius: 999px;
+	background-color: var(--ui-accent-soft);
+	color: var(--welcome-primary);
+	font-size: 11px;
+	line-height: 1;
+	font-weight: 600;
+	letter-spacing: 0.03em;
+	white-space: nowrap;
+}
+
+.welcome-state__dot {
+	width: 7px;
+	height: 7px;
+	flex: 0 0 7px;
+	border-radius: 50%;
+	background-color: currentColor;
+	box-shadow: 0 0 10px currentColor;
+}
+
+#welcome-state-label {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.welcome-state[data-state="checking"] {
+	border-color: rgba(176, 190, 197, 0.26);
+	background-color: rgba(176, 190, 197, 0.08);
+	color: #b0bec5;
+}
+
+.welcome-state[data-state="checking"] .welcome-state__dot {
+	animation: welcome-pulse 1.6s ease-in-out infinite;
+}
+
+.welcome-state[data-state="offline"] {
+	border-color: rgba(239, 154, 154, 0.3);
+	background-color: rgba(244, 67, 54, 0.1);
+	color: var(--welcome-error);
+}
+
+.welcome-state[data-state="expired"] {
+	border-color: rgba(255, 204, 128, 0.3);
+	background-color: rgba(255, 183, 77, 0.1);
+	color: var(--welcome-warning);
+}
+
+.welcome-notice {
+	position: fixed;
+	top: calc(var(--welcome-appbar-top) + var(--welcome-appbar-h) + 12px);
+	left: 50%;
+	transform: translateX(-50%);
+	z-index: 4;
+	width: min(720px, calc(100% - var(--welcome-gutter) - var(--welcome-gutter)));
+	margin: 0;
+	padding: 10px 16px;
+	border: 1px solid rgba(255, 183, 77, 0.24);
+	border-radius: 12px;
+	background-color: rgba(255, 183, 77, 0.1);
+	color: var(--welcome-warning);
+	font-size: 12px;
+	line-height: 1.5;
+	text-align: center;
+	-webkit-backdrop-filter: blur(12px);
+	backdrop-filter: blur(12px);
+}
+
+.welcome-sheet {
+	position: fixed;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	z-index: 3;
+	height: var(--welcome-sheet-h);
+	background-color: rgba(15, 15, 15, 0.3);
+	-webkit-backdrop-filter: blur(24px);
+	backdrop-filter: blur(24px);
+	-webkit-mask-image: linear-gradient(to bottom, transparent, black 20%);
+	mask-image: linear-gradient(to bottom, transparent, black 20%);
+	visibility: hidden;
+}
+
+.welcome-sheet__inner {
+	position: relative;
+	z-index: 1;
+	width: 100%;
+	height: 100%;
+	padding: 60px 10%;
+	display: flex;
+	flex-direction: column;
+	justify-content: center;
+	min-height: 0;
+}
+
+.welcome-copy {
+	max-width: 1400px;
+	transition: opacity 180ms var(--welcome-ease), filter 180ms var(--welcome-ease);
+}
+
+.welcome-sheet.is-help-open .welcome-copy {
+	opacity: 0.22;
+	filter: blur(2px);
+}
+
+.welcome-title {
+	margin: 0;
+	max-width: 100%;
+	min-height: 1.08em;
+	display: flex;
+	align-items: flex-end;
+	color: var(--welcome-text);
+	font-size: clamp(30px, 3.6vw, 64px);
+	line-height: 1.08;
+	font-weight: 700;
+	letter-spacing: -0.015em;
+	text-wrap: balance;
+	text-shadow:
+		0 0 24px rgba(255, 255, 255, 0.1),
+		0 0 64px color-mix(in srgb, var(--ui-accent-text) 12%, transparent);
+}
+
+.welcome-title > span {
+	flex: 1 1 auto;
+	min-width: 0;
+	display: block;
+	text-wrap: balance;
+}
+
+:lang(zh) .welcome-title {
+	letter-spacing: 0.03em;
+}
+
+.welcome-subtitle {
+	margin: 12px 0 0;
+	max-width: 720px;
+	color: var(--welcome-text-secondary);
+	font-size: 16px;
+	line-height: 1.6;
+}
+
+:lang(zh) .welcome-subtitle {
+	letter-spacing: 0.02em;
+}
+
+.welcome-actions {
+	position: absolute;
+	left: 10%;
+	right: 10%;
+	bottom: 40px;
+	display: flex;
+	align-items: center;
+	gap: 24px;
+	min-height: 48px;
+}
+
+.welcome-help-wrap {
+	position: relative;
+	display: flex;
+}
+
+.welcome-help {
+	appearance: none;
+	height: 48px;
+	padding: 0 16px 0 20px;
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	border: 0;
+	border-radius: 999px;
+	background-color: transparent;
+	color: var(--welcome-primary);
+	font-family: var(--md-ref-typeface-plain);
+	font-size: 15px;
+	line-height: 20px;
+	font-weight: 600;
+	letter-spacing: 0.01em;
+	cursor: pointer;
+	transition: background-color 160ms var(--welcome-ease), color 160ms var(--welcome-ease);
+}
+
+.welcome-help:hover {
+	background-color: var(--ui-accent-softer);
+}
+
+.welcome-help:active {
+	background-color: var(--ui-accent-soft);
+}
+
+.welcome-help:focus-visible {
+	outline: 2px solid var(--welcome-primary);
+	outline-offset: 3px;
+}
+
+.welcome-help svg {
+	width: 18px;
+	height: 18px;
+	flex: 0 0 18px;
+	display: block;
+	fill: currentColor;
+	transition: transform 180ms var(--welcome-ease);
+}
+
+.welcome-help[aria-expanded="true"] svg {
+	transform: rotate(180deg);
+}
+
+.welcome-meta {
+	margin: 0 0 0 auto;
+	display: flex;
+	align-items: center;
+	gap: 20px;
+	color: var(--welcome-text-secondary);
+	font-family: var(--welcome-mono);
+	font-size: 12px;
+	line-height: 1.4;
+	letter-spacing: 0.06em;
+}
+
+.welcome-meta div {
+	display: flex;
+	align-items: baseline;
+	gap: 8px;
+}
+
+.welcome-meta div + div {
+	padding-left: 20px;
+	border-left: 1px solid var(--welcome-divider);
+}
+
+.welcome-meta dt {
+	margin: 0;
+	color: var(--welcome-text-muted);
+	font-size: 11px;
+	letter-spacing: 0.12em;
+	text-transform: uppercase;
+}
+
+.welcome-meta dd {
+	margin: 0;
+	color: rgba(255, 255, 255, 0.72);
+	font-variant-numeric: tabular-nums;
+}
+
+.welcome-bubble {
+	position: absolute;
+	left: 0;
+	bottom: calc(100% + 14px);
+	z-index: 6;
+	width: min(420px, calc(100vw - var(--welcome-gutter) - var(--welcome-gutter)));
+	padding: 18px 48px 18px 20px;
+	border: 1px solid var(--welcome-divider);
+	border-radius: 20px;
+	background-color: rgba(30, 30, 30, 0.96);
+	color: rgba(255, 255, 255, 0.78);
+	font-size: 14px;
+	line-height: 1.65;
+	box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+	-webkit-backdrop-filter: blur(14px);
+	backdrop-filter: blur(14px);
+	opacity: 0;
+	visibility: hidden;
+	transform: translateY(6px) scale(0.98);
+	transform-origin: 12% 100%;
+	transition:
+		opacity 160ms var(--welcome-ease),
+		transform 200ms var(--welcome-ease-emphasized),
+		visibility 0s linear 200ms;
+}
+
+.welcome-bubble[data-open="true"] {
+	opacity: 1;
+	visibility: visible;
+	transform: none;
+	transition:
+		opacity 160ms var(--welcome-ease),
+		transform 200ms var(--welcome-ease-emphasized),
+		visibility 0s;
+}
+
+.welcome-bubble p {
+	margin: 0;
+}
+
+.welcome-bubble::after {
+	content: "";
+	position: absolute;
+	left: 22px;
+	bottom: -6px;
+	width: 12px;
+	height: 12px;
+	background-color: rgba(30, 30, 30, 0.96);
+	border-right: 1px solid var(--welcome-divider);
+	border-bottom: 1px solid var(--welcome-divider);
+	transform: rotate(45deg);
+}
+
+.welcome-bubble__close {
+	position: absolute;
+	top: 10px;
+	right: 10px;
+	width: 32px;
+	height: 32px;
+	display: grid;
+	place-items: center;
+	padding: 0;
+	border: 0;
+	border-radius: 50%;
+	background-color: transparent;
+	color: var(--welcome-text-secondary);
+	font-family: var(--md-ref-typeface-plain);
+	font-size: 18px;
+	line-height: 1;
+	cursor: pointer;
+}
+
+.welcome-bubble__close:hover {
+	background-color: rgba(255, 255, 255, 0.08);
+	color: #e8e8e8;
+}
+
+.welcome-bubble__close:focus-visible {
+	outline: 2px solid var(--welcome-primary);
+	outline-offset: 2px;
+}
+
+body[data-view="readonly"] .welcome-sheet,
+body[data-view="home"] .welcome-sheet,
+body[data-view="offline"] .welcome-sheet,
+body[data-view="expired"] .welcome-sheet {
+	visibility: visible;
+}
+
+body[data-view="readonly"] .welcome-title,
+body[data-view="home"] .welcome-title,
+body[data-view="offline"] .welcome-title,
+body[data-view="expired"] .welcome-title {
+	animation: welcome-rise 640ms var(--welcome-ease) 120ms both;
+}
+
+body[data-view="readonly"] .welcome-subtitle,
+body[data-view="home"] .welcome-subtitle,
+body[data-view="offline"] .welcome-subtitle,
+body[data-view="expired"] .welcome-subtitle {
+	animation: welcome-fade-up 600ms var(--welcome-ease) 200ms both;
+}
+
+body[data-view="readonly"] .welcome-actions,
+body[data-view="home"] .welcome-actions,
+body[data-view="offline"] .welcome-actions,
+body[data-view="expired"] .welcome-actions {
+	animation: welcome-fade-up 600ms var(--welcome-ease) 300ms both;
+}
+
+@keyframes welcome-canvas-in {
+	from { opacity: 0; }
+	to { opacity: 1; }
+}
+
+@keyframes welcome-appbar-in {
+	from { opacity: 0; }
+	to { opacity: 1; }
+}
+
+@keyframes welcome-rise {
+	from {
+		opacity: 0;
+		transform: translateY(14px);
+		filter: blur(6px);
+	}
+	to {
+		opacity: 1;
+		transform: none;
+		filter: none;
+	}
+}
+
+@keyframes welcome-fade-up {
+	from {
+		opacity: 0;
+		transform: translateY(10px);
+	}
+	to {
+		opacity: 1;
+		transform: none;
+	}
+}
+
+@keyframes welcome-pulse {
+	0%, 100% { opacity: 0.35; }
+	50% { opacity: 1; }
+}
+
+body.theme-transition :where(.welcome-appbar, .welcome-tab, .welcome-state,
+	.welcome-title, .welcome-subtitle, .welcome-help, .welcome-meta, .welcome-sheet,
+	.welcome-bubble, .welcome-notice, .welcome-bubble__close) {
+	transition:
+		background-color 320ms var(--welcome-ease),
+		color 320ms var(--welcome-ease),
+		border-color 320ms var(--welcome-ease),
+		box-shadow 320ms var(--welcome-ease),
+		text-shadow 320ms var(--welcome-ease);
+}
+
+
+body[data-theme="light"] {
+	--welcome-bg: #f2f4f6;
+	--welcome-surface: #ffffff;
+	--welcome-surface-strong: #ffffff;
+	--welcome-primary: var(--ui-accent-text, #2e5a78);
+	--welcome-error: #b3261e;
+	--welcome-warning: #8a5300;
+	--welcome-text: #1c1c1c;
+	--welcome-text-secondary: #5e6b78;
+	--welcome-text-muted: rgba(28, 28, 28, 0.58);
+	--welcome-divider: rgba(0, 0, 0, 0.12);
+	color-scheme: light;
+}
+
+body[data-theme="light"]:not([data-view="dashboard"]) {
+	color-scheme: light;
+}
+
+body[data-theme="light"] .welcome-atmosphere {
+	background:
+		radial-gradient(60% 50% at 20% 8%, color-mix(in srgb, var(--ui-accent-text) 9%, transparent), transparent 72%),
+		linear-gradient(to bottom, rgba(242, 244, 246, 0.6) 0%, rgba(242, 244, 246, 0) 20%);
+}
+
+body[data-theme="light"] .welcome-appbar {
+	background-color: rgba(255, 255, 255, 0.64);
+	border-color: rgba(0, 0, 0, 0.12);
+	box-shadow: 0 12px 32px rgba(31, 45, 61, 0.12);
+}
+
+body[data-theme="light"] .welcome-title {
+	text-shadow:
+		0 1px 0 rgba(255, 255, 255, 0.5),
+		0 0 64px color-mix(in srgb, var(--ui-accent-text) 12%, transparent);
+}
+
+body[data-theme="light"] .welcome-meta dd {
+	color: #3c4a57;
+}
+
+body[data-theme="light"] .welcome-sheet {
+	background-color: rgba(255, 255, 255, 0.42);
+}
+
+body[data-theme="light"] .welcome-bubble {
+	background-color: rgba(255, 255, 255, 0.96);
+	color: rgba(28, 28, 28, 0.78);
+	box-shadow: 0 20px 50px rgba(31, 45, 61, 0.18);
+}
+
+body[data-theme="light"] .welcome-bubble::after {
+	background-color: rgba(255, 255, 255, 0.96);
+}
+
+body[data-theme="light"] .welcome-bubble__close:hover {
+	background-color: rgba(0, 0, 0, 0.06);
+	color: #1c1c1c;
+}
+
+body[data-theme="light"] .welcome-state[data-state="checking"] {
+	border-color: rgba(0, 0, 0, 0.16);
+	background-color: rgba(0, 0, 0, 0.04);
+	color: #5e6b78;
+}
+
+body[data-theme="light"] .welcome-state[data-state="offline"] {
+	border-color: rgba(179, 38, 30, 0.28);
+	background-color: rgba(179, 38, 30, 0.08);
+	color: #b3261e;
+}
+
+body[data-theme="light"] .welcome-state[data-state="expired"] {
+	border-color: rgba(138, 83, 0, 0.28);
+	background-color: rgba(255, 183, 77, 0.16);
+	color: #8a5300;
+}
+
+body[data-theme="light"] .welcome-notice {
+	border-color: rgba(138, 83, 0, 0.24);
+	background-color: rgba(255, 183, 77, 0.16);
+	color: #8a5300;
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+	.welcome-appbar {
+		background-color: rgba(18, 18, 18, 0.9);
+	}
+
+	.welcome-notice {
+		background-color: rgba(30, 24, 12, 0.94);
+	}
+
+	.welcome-sheet {
+		background-color: rgba(15, 15, 15, 0.92);
+	}
+
+	body[data-theme="light"] .welcome-appbar {
+		background-color: rgba(255, 255, 255, 0.94);
+	}
+
+	body[data-theme="light"] .welcome-notice {
+		background-color: rgba(255, 247, 230, 0.96);
+	}
+
+	body[data-theme="light"] .welcome-sheet {
+		background-color: rgba(242, 244, 246, 0.94);
+	}
+}
+
+@media (max-width: 900px) {
+	.welcome-title {
+		max-width: 100%;
+	}
+}
+
+@media (max-width: 740px) {
+	.welcome-title {
+		min-height: 2.16em;
+	}
+}
+
+@media (max-width: 640px) {
+	:root {
+		--welcome-appbar-top: 16px;
+		--welcome-appbar-h: 48px;
+		--welcome-sheet-h: clamp(320px, 42vh, 480px);
+	}
+
+	.welcome-appbar__inner {
+		gap: 4px;
+	}
+
+	.welcome-appbar__brand {
+		padding: 0 8px;
+		font-size: 12px;
+		letter-spacing: 0.12em;
+	}
+
+	.welcome-tab {
+		height: 28px;
+		padding: 0 10px;
+		font-size: 12px;
+	}
+
+	.welcome-state {
+		max-width: 34vw;
+		height: 28px;
+		padding: 0 8px;
+		font-size: 10px;
+	}
+
+	.welcome-notice {
+		top: calc(var(--welcome-appbar-top) + var(--welcome-appbar-h) + 10px);
+		padding: 9px 12px;
+		font-size: 12px;
+		text-align: left;
+	}
+
+	.welcome-sheet__inner {
+		padding: 40px 24px;
+	}
+
+	.welcome-title {
+		max-width: 100%;
+		font-size: clamp(30px, 7.5vw, 40px);
+	}
+
+	.welcome-subtitle {
+		margin-top: 10px;
+		font-size: 15px;
+	}
+
+	.welcome-actions {
+		left: 24px;
+		right: 24px;
+		bottom: 24px;
+		gap: 12px;
+		min-height: 44px;
+	}
+
+	.welcome-help {
+		height: 44px;
+		padding: 0 10px 0 14px;
+		font-size: 14px;
+	}
+
+	.welcome-meta {
+		display: none !important;
+	}
+
+	.welcome-bubble {
+		width: min(420px, calc(100vw - var(--welcome-gutter) - var(--welcome-gutter)));
+		padding: 16px 44px 16px 18px;
+		font-size: 13px;
+	}
+
+	body[data-view="offline"] .welcome-actions,
+	body[data-view="expired"] .welcome-actions {
+		display: none;
+	}
+}
+
+@media (max-width: 380px) {
+	.welcome-title {
+		font-size: 27px;
+	}
+}
+
+@media (max-height: 560px) {
+	:root {
+		--welcome-appbar-top: 10px;
+		--welcome-appbar-h: 48px;
+		--welcome-sheet-h: 280px;
+	}
+
+	.welcome-appbar__brand {
+		font-size: 12px;
+	}
+
+	.welcome-tab {
+		height: 28px;
+		font-size: 12px;
+	}
+
+	.welcome-state {
+		height: 28px;
+	}
+
+	.welcome-notice {
+		top: calc(var(--welcome-appbar-top) + var(--welcome-appbar-h) + 8px);
+		padding: 6px 10px;
+	}
+
+	.welcome-sheet__inner {
+		padding: 28px 24px;
+	}
+
+	.welcome-title {
+		font-size: 26px;
+	}
+
+	.welcome-subtitle {
+		margin-top: 6px;
+		font-size: 13px;
+	}
+
+	.welcome-actions {
+		left: 24px;
+		right: 24px;
+		bottom: 20px;
+	}
+
+	.welcome-meta {
+		display: none !important;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.welcome-canvas {
+		animation: none;
+		opacity: 1;
+	}
+
+	.welcome-appbar {
+		animation: none;
+		opacity: 1;
+	}
+
+	.welcome-title,
+	.welcome-subtitle,
+	.welcome-actions {
+		animation: none !important;
+		opacity: 1;
+		transform: none;
+		filter: none;
+	}
+
+	.welcome-state__dot {
+		animation: none !important;
+	}
+
+	.welcome-bubble {
+		transition: none;
+	}
+
+	.welcome-copy {
+		transition: none;
+	}
+}
+
+.noscript-notice {
+	position: relative;
+	z-index: 10;
+	margin: 16px var(--welcome-gutter);
+}

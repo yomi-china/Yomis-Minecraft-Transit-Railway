@@ -213,7 +213,7 @@ public class WidgetMap implements WidgetMapper, SelectableMapper, GuiEventListen
 		immediate.endBatch();
 
 		final String mousePosText = String.format("(%s, %s)", RailwayData.round(mouseWorldPos.getA(), 1), RailwayData.round(mouseWorldPos.getB(), 1));
-		textRenderer.draw(poseStack, mousePosText, x + width - TEXT_PADDING - textRenderer.width(mousePosText), y + TEXT_PADDING, ARGB_WHITE);
+		textRenderer.draw(poseStack, mousePosText, x + width - TEXT_PADDING - SQUARE_SIZE - TEXT_PADDING - textRenderer.width(mousePosText), y + TEXT_PADDING, ARGB_WHITE);
 	}
 
 	@Override
@@ -266,6 +266,9 @@ public class WidgetMap implements WidgetMapper, SelectableMapper, GuiEventListen
 
 	@Override
 	public boolean mouseScrolled(double mouseX, double mouseY, double amount) {
+		if (!isMouseOver(mouseX, mouseY)) {
+			return false;
+		}
 		final double newTargetScale = Mth.clamp(scale * Math.pow(2, amount), SCALE_LOWER_LIMIT, SCALE_UPPER_LIMIT);
 		if (Math.abs(newTargetScale - scale) > 1e-6) {
 			anchorScreenX = mouseX - x;
@@ -283,7 +286,9 @@ public class WidgetMap implements WidgetMapper, SelectableMapper, GuiEventListen
 
 	@Override
 	public boolean isMouseOver(double mouseX, double mouseY) {
-		return mouseX >= x && mouseY >= y && mouseX < x + width && mouseY < y + height && !(mouseX >= x + width - SQUARE_SIZE * 10 && mouseY >= y + height - SQUARE_SIZE) && !isRestrictedMouseArea.apply(mouseX, mouseY);
+		final boolean overBottomButtons = mouseX >= x + width - DashboardScreen.BOTTOM_BUTTON_REGION && mouseY >= y + height - SQUARE_SIZE;
+		final boolean overZoomButtons = mouseX >= x + width - SQUARE_SIZE && mouseY >= y && mouseY < y + DashboardScreen.TOP_BUTTON_REGION;
+		return mouseX >= x && mouseY >= y && mouseX < x + width && mouseY < y + height && !overBottomButtons && !overZoomButtons && !isRestrictedMouseArea.apply(mouseX, mouseY);
 	}
 
 	public void setFocused(boolean focused) {

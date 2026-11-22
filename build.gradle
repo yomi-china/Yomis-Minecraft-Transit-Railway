@@ -112,7 +112,7 @@ tasks.register("setupFiles") {
 	System.out.println("Fabric API: " + rootProject.fabric_api_data[0])
 	System.out.println("Mod Menu: " + rootProject.mod_menu_data[0])
 	System.out.println("Architectury: " + rootProject.architectury_data[0].split("\\+")[0])
-
+    /*
 	download.run {
 		src "https://v4.gh-proxy.org/https://github.com/jonafanho/Minecraft-Mappings/archive/refs/heads/${is_1_19_3 ? minecraft_version : "1." + minecraft_main_version}.zip"
 		dest "common/src/main/java/mtr/mappings/mappings.zip"
@@ -131,6 +131,7 @@ tasks.register("setupFiles") {
 	ant.path { ant.fileset(dir: "common/src/main/java/mtr/mappings", includes: "Forge*.java") }.list().each {
 		ant.move(file: it, todir: "forge/src/main/java/mtr/mappings")
 	}
+	*/
 
 	delete fileTree("common/src/main/resources/assets/mtr/sounds")
 	delete fileTree("common/src/main/resources/assets/mtr/textures")

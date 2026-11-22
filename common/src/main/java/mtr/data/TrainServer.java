@@ -2,20 +2,14 @@ package mtr.data;
 
 import mtr.MtrDebug;
 import mtr.TrigCache;
-import mtr.block.BlockPSDAPGDoorBase;
-import mtr.block.BlockTrainAnnouncer;
-import mtr.block.BlockTrainCargoLoader;
-import mtr.block.BlockTrainCargoUnloader;
-import mtr.block.BlockTrainRedstoneSensor;
-import mtr.block.BlockTrainSensorBase;
-import mtr.block.IBlock;
+import mtr.block.*;
 import mtr.mappings.Utilities;
 import mtr.path.PathData;
-import net.minecraft.ChatFormatting;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.chat.Component;
+import net.minecraft.ChatFormatting;
 import net.minecraft.util.Mth;
 import net.minecraft.world.Container;
 import net.minecraft.world.entity.player.Player;
@@ -29,13 +23,7 @@ import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import org.msgpack.value.Value;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.UUID;
+import java.util.*;
 import java.util.function.Consumer;
 
 public class TrainServer extends Train {
@@ -55,18 +43,35 @@ public class TrainServer extends Train {
 	private static final int DEBUG_PERIODIC_TICKS = 200;
 	private int debugPeriodicCounter;
 
+	private static final int MAX_HOLD_DELAY_MILLIS = 120000;
+
+	/** The signature every addon compiled against MTR calls; the braking rate defaults to the acceleration rate. */
 	public TrainServer(long id, long sidingId, float railLength, String trainId, String baseTrainType, int trainCars, List<PathData> path, List<Double> distances, int repeatIndex1, int repeatIndex2, float accelerationConstant, List<Siding.TimeSegment> timeSegments, boolean isManual, int maxManualSpeed, int manualToAutomaticTime) {
-		super(id, sidingId, railLength, trainId, baseTrainType, trainCars, path, distances, repeatIndex1, repeatIndex2, accelerationConstant, isManual, maxManualSpeed, manualToAutomaticTime);
+		this(id, sidingId, railLength, trainId, baseTrainType, trainCars, path, distances, repeatIndex1, repeatIndex2, accelerationConstant, accelerationConstant, timeSegments, isManual, maxManualSpeed, manualToAutomaticTime);
+	}
+
+	public TrainServer(long id, long sidingId, float railLength, String trainId, String baseTrainType, int trainCars, List<PathData> path, List<Double> distances, int repeatIndex1, int repeatIndex2, float accelerationConstant, float decelerationConstant, List<Siding.TimeSegment> timeSegments, boolean isManual, int maxManualSpeed, int manualToAutomaticTime) {
+		super(id, sidingId, railLength, trainId, baseTrainType, trainCars, path, distances, repeatIndex1, repeatIndex2, accelerationConstant, decelerationConstant, isManual, maxManualSpeed, manualToAutomaticTime);
 		this.timeSegments = timeSegments;
 	}
 
+	/** The signature every addon compiled against MTR calls; the braking rate defaults to the acceleration rate. */
 	public TrainServer(
 			long sidingId, float railLength, List<Siding.TimeSegment> timeSegments,
 			List<PathData> path, List<Double> distances, int repeatIndex1, int repeatIndex2,
 			float accelerationConstant, boolean isManual, int maxManualSpeed, int manualToAutomaticTime,
 			Map<String, Value> map
 	) {
-		super(sidingId, railLength, path, distances, repeatIndex1, repeatIndex2, accelerationConstant, isManual, maxManualSpeed, manualToAutomaticTime, map);
+		this(sidingId, railLength, timeSegments, path, distances, repeatIndex1, repeatIndex2, accelerationConstant, accelerationConstant, isManual, maxManualSpeed, manualToAutomaticTime, map);
+	}
+
+	public TrainServer(
+			long sidingId, float railLength, List<Siding.TimeSegment> timeSegments,
+			List<PathData> path, List<Double> distances, int repeatIndex1, int repeatIndex2,
+			float accelerationConstant, float decelerationConstant, boolean isManual, int maxManualSpeed, int manualToAutomaticTime,
+			Map<String, Value> map
+	) {
+		super(sidingId, railLength, path, distances, repeatIndex1, repeatIndex2, accelerationConstant, decelerationConstant, isManual, maxManualSpeed, manualToAutomaticTime, map);
 		this.timeSegments = timeSegments;
 	}
 
@@ -77,7 +82,17 @@ public class TrainServer extends Train {
 			float accelerationConstant, boolean isManual, int maxManualSpeed, int manualToAutomaticTime,
 			CompoundTag compoundTag
 	) {
-		super(sidingId, railLength, path, distances, repeatIndex1, repeatIndex2, accelerationConstant, isManual, maxManualSpeed, manualToAutomaticTime, compoundTag);
+		this(sidingId, railLength, timeSegments, path, distances, repeatIndex1, repeatIndex2, accelerationConstant, accelerationConstant, isManual, maxManualSpeed, manualToAutomaticTime, compoundTag);
+	}
+
+	@Deprecated
+	public TrainServer(
+			long sidingId, float railLength, List<Siding.TimeSegment> timeSegments,
+			List<PathData> path, List<Double> distances, int repeatIndex1, int repeatIndex2,
+			float accelerationConstant, float decelerationConstant, boolean isManual, int maxManualSpeed, int manualToAutomaticTime,
+			CompoundTag compoundTag
+	) {
+		super(sidingId, railLength, path, distances, repeatIndex1, repeatIndex2, accelerationConstant, decelerationConstant, isManual, maxManualSpeed, manualToAutomaticTime, compoundTag);
 		this.timeSegments = timeSegments;
 	}
 
@@ -137,7 +152,7 @@ public class TrainServer extends Train {
 			double prevCarX, double prevCarY, double prevCarZ, float prevCarYaw, float prevCarPitch,
 			boolean doorLeftOpen, boolean doorRightOpen, double realSpacing
 	) {
-		VehicleRidingServer.mountRider(world, ridingEntities, id, routeId, carX, carY, carZ, realSpacing, width, carYaw, carPitch, doorLeftOpen || doorRightOpen, isManualAllowed || doorLeftOpen || doorRightOpen, ridingCar, PACKET_UPDATE_TRAIN_PASSENGERS, player -> !isManualAllowed || doorLeftOpen || doorRightOpen || Train.isHoldingKey(player) || Train.isHoldingOnboardTool(player), player -> {
+		VehicleRidingServer.mountRider(world, ridingEntities, id, routeId, carX, carY, carZ, realSpacing, width, carYaw, carPitch, doorLeftOpen || doorRightOpen, true, ridingCar, PACKET_UPDATE_TRAIN_PASSENGERS, player -> doorLeftOpen || doorRightOpen || (isManualAllowed && Train.isHoldingKey(player)) || Train.isHoldingOnboardTool(player), player -> {
 			if (isHoldingKey(player)) {
 				manualCoolDown = 0;
 			}
@@ -278,6 +293,7 @@ public class TrainServer extends Train {
 
 		final int nextDepartureTicks = isOnRoute ? 0 : depot.getNextDepartureMillis();
 		final long currentMillis = System.currentTimeMillis() - (long) (elapsedDwellTicks * Depot.MILLIS_PER_TICK) + (long) Math.max(0, nextDepartureTicks);
+		final long delayMillis = Math.min(MAX_HOLD_DELAY_MILLIS, (long) (heldTicks * Depot.MILLIS_PER_TICK));
 
 		double currentTime = -1;
 		int startingIndex = 0;
@@ -319,7 +335,10 @@ public class TrainServer extends Train {
 					}
 
 					if (isOnRoute || nextDepartureTicks >= 0) {
-						final long arrivalMillis = currentMillis + (long) ((timeSegment.endTime + offsetTime - currentTime) * Depot.MILLIS_PER_TICK);
+						// The entry of the stop this train is standing at describes where it already is, so the
+						// measured wait is only added to the platforms that are still ahead of it.
+						final long holdDelayMillis = timeSegment.endRailProgress == railProgress ? 0 : delayMillis;
+						final long arrivalMillis = currentMillis + holdDelayMillis + (long) ((timeSegment.endTime + offsetTime - currentTime) * Depot.MILLIS_PER_TICK);
 						addSchedule = () -> schedulesForPlatform.get(platformId).add(new ScheduleEntry(arrivalMillis, trainCars, timeSegment.routeId, timeSegment.currentStationIndex));
 						if (!isRepeat()) {
 							addSchedule.run();

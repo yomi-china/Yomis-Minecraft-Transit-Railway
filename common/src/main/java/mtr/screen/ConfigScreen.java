@@ -24,13 +24,16 @@ public class ConfigScreen extends ScreenMapper implements IGui {
 	private boolean hideTranslucentParts;
 	private boolean shiftToToggleSitting;
 	private boolean enableStoppingScoring;
+	private boolean enableRecommendedSpeed;
 	private int languageOptions;
 	private boolean useDynamicFPS;
+	private boolean cullVehiclesOutsideView;
 
 	private final boolean hasTimeAndWindControls;
 	private final boolean useTimeAndWindSync;
 
 	private final WidgetBetterCheckbox checkboxUseTimeAndWindSync;
+	private final WidgetBetterCheckbox checkboxRedstoneDoorControl;
 	private final Button buttonUseMTRFont;
 	private final Button buttonShowAnnouncementMessages;
 	private final Button buttonUseTTSAnnouncements;
@@ -38,8 +41,10 @@ public class ConfigScreen extends ScreenMapper implements IGui {
 	private final Button buttonHideTranslucentParts;
 	private final Button buttonShiftToToggleSitting;
 	private final Button buttonEnableStoppingScoring;
+	private final Button buttonEnableRecommendedSpeed;
 	private final Button buttonLanguageOptions;
 	private final Button buttonUseDynamicFPS;
+	private final Button buttonCullVehiclesOutsideView;
 	private final WidgetShorterSlider sliderTrackTextureOffset;
 	private final WidgetShorterSlider sliderDynamicTextureResolution;
 	private final WidgetShorterSlider sliderTrainRenderDistanceRatio;
@@ -64,6 +69,7 @@ public class ConfigScreen extends ScreenMapper implements IGui {
 		this.useTimeAndWindSync = useTimeAndWindSync;
 
 		checkboxUseTimeAndWindSync = new WidgetBetterCheckbox(0, 0, 0, SQUARE_SIZE, Text.translatable("gui.mtr.use_time_and_wind_sync"), PacketTrainDataGuiClient::sendUseTimeAndWindSyncC2S);
+		checkboxRedstoneDoorControl = new WidgetBetterCheckbox(0, 0, 0, SQUARE_SIZE, Text.translatable("options.mtr.redstone_door_control"), PacketTrainDataGuiClient::sendRedstoneDoorControlC2S);
 
 		buttonUseMTRFont = UtilitiesClient.newButton(BUTTON_HEIGHT, Text.literal(""), button -> {
 			useMTRFont = Config.setUseMTRFont(!useMTRFont);
@@ -93,6 +99,10 @@ public class ConfigScreen extends ScreenMapper implements IGui {
 			enableStoppingScoring = Config.setEnableStoppingScoring(!enableStoppingScoring);
 			setButtonText(button, enableStoppingScoring);
 		});
+		buttonEnableRecommendedSpeed = UtilitiesClient.newButton(BUTTON_HEIGHT, Text.literal(""), button -> {
+			enableRecommendedSpeed = Config.setEnableRecommendedSpeed(!enableRecommendedSpeed);
+			setButtonText(button, enableRecommendedSpeed);
+		});
 		buttonLanguageOptions = UtilitiesClient.newButton(BUTTON_HEIGHT, Text.literal(""), button -> {
 			languageOptions = Config.setLanguageOptions(languageOptions + 1);
 			button.setMessage(Text.translatable("options.mtr.language_options_" + languageOptions));
@@ -100,6 +110,10 @@ public class ConfigScreen extends ScreenMapper implements IGui {
 		buttonUseDynamicFPS = UtilitiesClient.newButton(BUTTON_HEIGHT, Text.literal(""), button -> {
 			useDynamicFPS = Config.setUseDynamicFPS(!useDynamicFPS);
 			setButtonText(button, useDynamicFPS);
+		});
+		buttonCullVehiclesOutsideView = UtilitiesClient.newButton(BUTTON_HEIGHT, Text.literal(""), button -> {
+			cullVehiclesOutsideView = Config.setCullVehiclesOutsideView(!cullVehiclesOutsideView);
+			setButtonText(button, cullVehiclesOutsideView);
 		});
 		sliderTrackTextureOffset = new WidgetShorterSlider(0, 0, Config.TRACK_OFFSET_COUNT - 1, Object::toString, null);
 		sliderDynamicTextureResolution = new WidgetShorterSlider(0, 0, Config.DYNAMIC_RESOLUTION_COUNT - 1, Object::toString, null);
@@ -119,14 +133,18 @@ public class ConfigScreen extends ScreenMapper implements IGui {
 		hideTranslucentParts = Config.hideTranslucentParts();
 		shiftToToggleSitting = Config.shiftToToggleSitting();
 		enableStoppingScoring = Config.enableStoppingScoring();
+		enableRecommendedSpeed = Config.enableRecommendedSpeed();
 		languageOptions = Config.languageOptions();
 		useDynamicFPS = Config.useDynamicFPS();
+		cullVehiclesOutsideView = Config.cullVehiclesOutsideView();
 
 		final int offsetY;
 		if (hasTimeAndWindControls) {
 			IDrawing.setPositionAndWidth(checkboxUseTimeAndWindSync, SQUARE_SIZE, SQUARE_SIZE, width);
 			checkboxUseTimeAndWindSync.setChecked(useTimeAndWindSync);
-			offsetY = SQUARE_SIZE;
+			IDrawing.setPositionAndWidth(checkboxRedstoneDoorControl, SQUARE_SIZE, SQUARE_SIZE * 2, width);
+			checkboxRedstoneDoorControl.setChecked(ClientData.REDSTONE_DOOR_CONTROL);
+			offsetY = SQUARE_SIZE * 2;
 		} else {
 			offsetY = 0;
 		}
@@ -140,8 +158,10 @@ public class ConfigScreen extends ScreenMapper implements IGui {
 			IDrawing.setPositionAndWidth(buttonHideTranslucentParts, width - SQUARE_SIZE - BUTTON_WIDTH, BUTTON_HEIGHT * (i++) + SQUARE_SIZE + offsetY, BUTTON_WIDTH);
 			IDrawing.setPositionAndWidth(buttonShiftToToggleSitting, width - SQUARE_SIZE - BUTTON_WIDTH, BUTTON_HEIGHT * (i++) + SQUARE_SIZE + offsetY, BUTTON_WIDTH);
 			IDrawing.setPositionAndWidth(buttonEnableStoppingScoring, width - SQUARE_SIZE - BUTTON_WIDTH, BUTTON_HEIGHT * (i++) + SQUARE_SIZE + offsetY, BUTTON_WIDTH);
+			IDrawing.setPositionAndWidth(buttonEnableRecommendedSpeed, width - SQUARE_SIZE - BUTTON_WIDTH, BUTTON_HEIGHT * (i++) + SQUARE_SIZE + offsetY, BUTTON_WIDTH);
 			IDrawing.setPositionAndWidth(buttonLanguageOptions, width - SQUARE_SIZE - BUTTON_WIDTH, BUTTON_HEIGHT * (i++) + SQUARE_SIZE + offsetY, BUTTON_WIDTH);
 			IDrawing.setPositionAndWidth(buttonUseDynamicFPS, width - SQUARE_SIZE - BUTTON_WIDTH, BUTTON_HEIGHT * (i++) + SQUARE_SIZE + offsetY, BUTTON_WIDTH);
+			IDrawing.setPositionAndWidth(buttonCullVehiclesOutsideView, width - SQUARE_SIZE - BUTTON_WIDTH, BUTTON_HEIGHT * (i++) + SQUARE_SIZE + offsetY, BUTTON_WIDTH);
 			IDrawing.setPositionAndWidth(sliderTrackTextureOffset, width - SQUARE_SIZE - BUTTON_WIDTH, BUTTON_HEIGHT * (i++) + SQUARE_SIZE + offsetY, BUTTON_WIDTH - TEXT_PADDING - font.width("100%"));
 			IDrawing.setPositionAndWidth(sliderDynamicTextureResolution, width - SQUARE_SIZE - BUTTON_WIDTH, BUTTON_HEIGHT * (i++) + SQUARE_SIZE + offsetY, BUTTON_WIDTH - TEXT_PADDING - font.width("100%"));
 			IDrawing.setPositionAndWidth(sliderTrainRenderDistanceRatio, width - SQUARE_SIZE - BUTTON_WIDTH, BUTTON_HEIGHT * (i++) + SQUARE_SIZE + offsetY, BUTTON_WIDTH - TEXT_PADDING - font.width("100%"));
@@ -155,8 +175,10 @@ public class ConfigScreen extends ScreenMapper implements IGui {
 		setButtonText(buttonHideTranslucentParts, hideTranslucentParts);
 		setButtonText(buttonShiftToToggleSitting, shiftToToggleSitting);
 		setButtonText(buttonEnableStoppingScoring, enableStoppingScoring);
+		setButtonText(buttonEnableRecommendedSpeed, enableRecommendedSpeed);
 		buttonLanguageOptions.setMessage(Text.translatable("options.mtr.language_options_" + languageOptions));
 		setButtonText(buttonUseDynamicFPS, useDynamicFPS);
+		setButtonText(buttonCullVehiclesOutsideView, cullVehiclesOutsideView);
 		sliderTrackTextureOffset.setHeight(BUTTON_HEIGHT);
 		sliderTrackTextureOffset.setValue(Config.trackTextureOffset());
 		sliderDynamicTextureResolution.setHeight(BUTTON_HEIGHT);
@@ -169,6 +191,7 @@ public class ConfigScreen extends ScreenMapper implements IGui {
 
 		if (hasTimeAndWindControls) {
 			addDrawableChild(checkboxUseTimeAndWindSync);
+			addDrawableChild(checkboxRedstoneDoorControl);
 		}
 		addDrawableChild(buttonUseMTRFont);
 		if (!Keys.LIFTS_ONLY) {
@@ -178,8 +201,10 @@ public class ConfigScreen extends ScreenMapper implements IGui {
 			addDrawableChild(buttonHideTranslucentParts);
 			addDrawableChild(buttonShiftToToggleSitting);
 			addDrawableChild(buttonEnableStoppingScoring);
+			addDrawableChild(buttonEnableRecommendedSpeed);
 			addDrawableChild(buttonLanguageOptions);
 			addDrawableChild(buttonUseDynamicFPS);
+			addDrawableChild(buttonCullVehiclesOutsideView);
 			addDrawableChild(sliderTrackTextureOffset);
 			addDrawableChild(sliderDynamicTextureResolution);
 			addDrawableChild(sliderTrainRenderDistanceRatio);
@@ -204,8 +229,10 @@ public class ConfigScreen extends ScreenMapper implements IGui {
 				drawString(matrices, font, Text.translatable("options.mtr.hide_translucent_parts"), SQUARE_SIZE, BUTTON_HEIGHT * (i++) + yStart1, ARGB_WHITE);
 				drawString(matrices, font, Text.translatable("options.mtr.shift_to_toggle_sitting", minecraft == null ? "" : minecraft.options.keyShift.getTranslatedKeyMessage()), SQUARE_SIZE, BUTTON_HEIGHT * (i++) + yStart1, ARGB_WHITE);
 				drawString(matrices, font, Text.translatable("options.mtr.enable_stopping_scoring"), SQUARE_SIZE, BUTTON_HEIGHT * (i++) + yStart1, ARGB_WHITE);
+				drawString(matrices, font, Text.translatable("options.mtr.enable_recommended_speed"), SQUARE_SIZE, BUTTON_HEIGHT * (i++) + yStart1, ARGB_WHITE);
 				drawString(matrices, font, Text.translatable("options.mtr.language_options"), SQUARE_SIZE, BUTTON_HEIGHT * (i++) + yStart1, ARGB_WHITE);
 				drawString(matrices, font, Text.translatable("options.mtr.use_dynamic_fps"), SQUARE_SIZE, BUTTON_HEIGHT * (i++) + yStart1, ARGB_WHITE);
+				drawString(matrices, font, Text.translatable("options.mtr.cull_vehicles_outside_view"), SQUARE_SIZE, BUTTON_HEIGHT * (i++) + yStart1, ARGB_WHITE);
 				drawString(matrices, font, Text.translatable("options.mtr.track_texture_offset"), SQUARE_SIZE, BUTTON_HEIGHT * (i++) + yStart1, ARGB_WHITE);
 				drawString(matrices, font, Text.translatable("options.mtr.dynamic_texture_resolution"), SQUARE_SIZE, BUTTON_HEIGHT * (i++) + yStart1, ARGB_WHITE);
 				drawString(matrices, font, Text.translatable("options.mtr.vehicle_render_distance_ratio"), SQUARE_SIZE, BUTTON_HEIGHT * (i++) + yStart1, ARGB_WHITE);
