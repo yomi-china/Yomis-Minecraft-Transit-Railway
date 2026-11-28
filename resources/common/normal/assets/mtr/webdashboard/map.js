@@ -26,9 +26,9 @@ import {
 	snapAreaCorners,
 	FLY_DURATION_MS,
 	interpolateView
-} from './mapview.js?v=64';
-import { beginEdit, cancelEdit, dragToEdit, endEditDrag, getDraftBounds, isEditing } from './mapedit.js?v=64';
-import { planFocus, sameView } from './focus.js?v=64';
+} from './mapview.js?v=65';
+import { beginEdit, cancelEdit, dragToEdit, endEditDrag, getDraftBounds, isEditing } from './mapedit.js?v=65';
+import { planFocus, sameView } from './focus.js?v=65';
 
 const DRAG_THRESHOLD_PX = 4;
 const THEME_EVENT = 'mtr-themechange';
@@ -99,10 +99,13 @@ function readMapTheme() {
 }
 
 let mapTheme = readMapTheme();
+let themeDirty = true;
 
 
 const el = {
 	canvas: null,
+	trainCanvas: null,
+	trainContext: null,
 	pointer: null
 };
 
@@ -126,6 +129,7 @@ let context = null;
 let animation = null;
 let pointerState = null;
 let needsResize = true;
+let lastDevicePixelRatio = 0;
 let viewHasBeenPlaced = false;
 let zoomTargetScale = null;
 let zoomAnchorScreenX = 0;
@@ -140,6 +144,11 @@ export function init(canvas, callbacks) {
 	el.canvas = canvas;
 	handlers = callbacks || {};
 	context = canvas.getContext('2d');
+
+	const trainCanvas = (callbacks && callbacks.trainCanvas)
+		|| (typeof document !== 'undefined' ? document.getElementById('map-trains') : null);
+	el.trainCanvas = trainCanvas && typeof trainCanvas.getContext === 'function' ? trainCanvas : null;
+	el.trainContext = el.trainCanvas ? el.trainCanvas.getContext('2d') : null;
 
 	el.pointer = { x: 0, z: 0, valid: false };
 
@@ -180,6 +189,7 @@ export function dispose() {
 }
 
 function onThemeChange() {
+	themeDirty = true;
 	redraw();
 }
 
@@ -416,7 +426,10 @@ export function redraw() {
 	if (!context || !el.canvas) {
 		return;
 	}
-	mapTheme = readMapTheme();
+	if (themeDirty) {
+		mapTheme = readMapTheme();
+		themeDirty = false;
+	}
 	resizeIfNeeded();
 
 	context.setTransform(1, 0, 0, 1, 0, 0);
@@ -430,20 +443,31 @@ export function redraw() {
 	drawDraft();
 	drawLabels();
 	drawPlayers();
-	drawTrains();
+	redrawTrains();
 	drawFocusMarker();
 	notifyViewChange();
+}
+
+/** Clears and repaints only the train overlay; the base map is left untouched. */
+export function redrawTrains() {
+	if (!handlers.drawTrains) {
+		return;
+	}
+	if (!el.trainContext || !el.trainCanvas) {
+		// Older page without the second canvas: draw on the base context after the base layers.
+		handlers.drawTrains(context, view, mapTheme);
+		return;
+	}
+	const ratio = devicePixelRatio();
+	el.trainContext.setTransform(1, 0, 0, 1, 0, 0);
+	el.trainContext.clearRect(0, 0, el.trainCanvas.width, el.trainCanvas.height);
+	el.trainContext.setTransform(ratio, 0, 0, ratio, 0, 0);
+	handlers.drawTrains(el.trainContext, view, mapTheme);
 }
 
 function drawOverlay() {
 	if (handlers.drawOverlay) {
 		handlers.drawOverlay(context, view, mapTheme);
-	}
-}
-
-function drawTrains() {
-	if (handlers.drawTrains) {
-		handlers.drawTrains(context, view, mapTheme);
 	}
 }
 
@@ -465,20 +489,32 @@ function devicePixelRatio() {
 
 function resizeIfNeeded() {
 	const ratio = devicePixelRatio();
+	if (!needsResize && ratio === lastDevicePixelRatio && el.canvas.width > 0) {
+		return;
+	}
 	const rect = el.canvas.getBoundingClientRect();
 	const cssWidth = Math.max(1, Math.round(rect.width));
 	const cssHeight = Math.max(1, Math.round(rect.height));
 	const deviceWidth = Math.round(cssWidth * ratio);
 	const deviceHeight = Math.round(cssHeight * ratio);
 
-	if (needsResize || el.canvas.width !== deviceWidth || el.canvas.height !== deviceHeight) {
-		el.canvas.width = deviceWidth;
-		el.canvas.height = deviceHeight;
-		needsResize = false;
-	}
+	resizeCanvas(el.canvas, deviceWidth, deviceHeight);
+	resizeCanvas(el.trainCanvas, deviceWidth, deviceHeight);
 
 	view.width = cssWidth;
 	view.height = cssHeight;
+	lastDevicePixelRatio = ratio;
+	needsResize = false;
+}
+
+function resizeCanvas(canvas, width, height) {
+	if (!canvas) {
+		return;
+	}
+	if (canvas.width !== width || canvas.height !== height) {
+		canvas.width = width;
+		canvas.height = height;
+	}
 }
 
 function drawTerrain() {

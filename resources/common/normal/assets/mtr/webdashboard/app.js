@@ -1,22 +1,22 @@
-import { t, applyTranslations } from './i18n.js?v=64';
-import { SessionError, SessionFailure, clearTokenFromUrl, fetchSession, fetchStatus, login, logout, readTokenFromUrl } from './session.js?v=64';
-import { DataErrorKind, DataFailure, fetchData, fetchMeta, patch, selectWorld } from './api.js?v=64';
-import { MODE_ALL, buildIndex, buildRows, compareByDisplayName } from './lists.js?v=64';
-import * as views from './views.js?v=64';
-import * as map from './map.js?v=64';
-import * as tracks from './tracks.js?v=64';
-import * as trains from './trains.js?v=64';
-import * as trainToast from './train-toast.js?v=64';
-import * as popover from './popover.js?v=64';
-import { CHILD_KINDS, contextFor } from './editor.js?v=64';
-import { hasOriginCorner } from './areafit.js?v=64';
-import * as welcome from './welcome.js?v=64';
-import { initSettings } from './settings.js?v=64';
-import { initStatistics } from './stats.js?v=64';
-import * as overlayToast from './overlay-toast.js?v=64';
-import { getTrainSettings, setTrainSetting } from './train-settings.js?v=64';
-import './theme.js?v=64';
-import './fx.js?v=64';
+import { t, f, applyTranslations } from './i18n.js?v=65';
+import { SessionError, SessionFailure, clearTokenFromUrl, fetchSession, fetchStatus, login, logout, readTokenFromUrl } from './session.js?v=65';
+import { DataErrorKind, DataFailure, fetchData, fetchMeta, patch, selectWorld } from './api.js?v=65';
+import { MODE_ALL, buildIndex, buildRows, compareByDisplayName } from './lists.js?v=65';
+import * as views from './views.js?v=65';
+import * as map from './map.js?v=65';
+import * as tracks from './tracks.js?v=65';
+import * as trains from './trains.js?v=65';
+import * as trainToast from './train-toast.js?v=65';
+import * as popover from './popover.js?v=65';
+import { CHILD_KINDS, contextFor } from './editor.js?v=65';
+import { hasOriginCorner } from './areafit.js?v=65';
+import * as welcome from './welcome.js?v=65';
+import { initSettings } from './settings.js?v=65';
+import { initStatistics } from './stats.js?v=65';
+import * as overlayToast from './overlay-toast.js?v=65';
+import { getTrainSettings, setTrainSetting } from './train-settings.js?v=65';
+import './theme.js?v=65';
+import './fx.js?v=65';
 
 const EDITABLE_KINDS = new Set(['station', 'route', 'depot']);
 
@@ -33,7 +33,8 @@ const elements = {
 	version: document.getElementById('meta-version'),
 	port: document.getElementById('meta-port'),
 	lanWarning: document.getElementById('lan-warning'),
-	signOut: document.getElementById('sign-out')
+	signOut: document.getElementById('sign-out'),
+	trainStatus: document.getElementById('map-trains-status')
 };
 
 const state = {
@@ -55,9 +56,13 @@ function selectedKind() {
 }
 
 let canEdit = false;
+let authenticated = false;
 let editingArea = false;
 let childFocusId = null;
 let trainAnchor = null;
+let mapCanvas = null;
+let mapRect = null;
+let rectListenerAttached = false;
 
 function activeMapSelection() {
 	return childFocusId || selectedId();
@@ -87,9 +92,11 @@ function setAccount(username) {
 
 function setServiceMeta(status) {
 	const features = status && status.features ? status.features : {};
-	tracks.setAvailable(features.tracks === true);
-	trains.setAvailable(features.trains === true);
-	overlayToast.setTrainsAvailable(features.trains === true);
+	const canSeeLive = authenticated && features.trains === true;
+	tracks.setAvailable(authenticated && features.tracks === true);
+	trains.setAvailable(canSeeLive);
+	trains.setStreamAvailable(canSeeLive && features.trainStream === true && features.trainStreamVersion === 1);
+	overlayToast.setTrainsAvailable(canSeeLive);
 	if (!elements.meta) {
 		return;
 	}
@@ -110,6 +117,32 @@ async function refreshServiceMeta() {
 		setServiceMeta(await fetchStatus());
 	} catch (error) {
 		console.warn('[MTR-WebDashboard] Could not read service status:', error);
+	}
+}
+
+function setTrainStatus(state) {
+	const node = elements.trainStatus;
+	if (!node) {
+		return;
+	}
+	const parts = [];
+	if (state && state.enabled && state.available) {
+		if (state.degraded) {
+			parts.push(t('trainDegraded'));
+		}
+		if (state.stale) {
+			parts.push(t('trainStale'));
+		}
+		if (state.truncated && state.total > state.rendered) {
+			parts.push(f('trainShowing', state.rendered, state.total));
+		} else if (state.total > 0) {
+			parts.push(f('trainCount', state.total));
+		}
+	}
+	const text = parts.join(' · ');
+	node.hidden = text.length === 0;
+	if (text && node.textContent !== text) {
+		node.textContent = text;
 	}
 }
 
@@ -244,7 +277,11 @@ function keepSelectionIfStillPresent() {
 }
 
 function renderReadOnly() {
+	authenticated = false;
+	tracks.setAvailable(false);
 	trains.setAvailable(false);
+	trains.setStreamAvailable(false);
+	overlayToast.setTrainsAvailable(false);
 	trainToast.hide();
 	setStatus('readonly', 'statusReadOnly');
 	setView('readonly');
@@ -282,6 +319,7 @@ function exposeDiagnostics(session) {
 }
 
 async function showDashboard(session) {
+	authenticated = true;
 	setAccount(session.username || null);
 	setStatus('ready', 'statusReady');
 	canEdit = Boolean(session.canEdit);
@@ -298,8 +336,17 @@ function initMap() {
 		return;
 	}
 	canvas.dataset.initialised = 'true';
+	mapCanvas = canvas;
+	mapRect = null;
+	if (!rectListenerAttached && typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+		rectListenerAttached = true;
+		window.addEventListener('resize', () => {
+			mapRect = null;
+		});
+	}
 
 	map.init(canvas, {
+		trainCanvas: document.getElementById('map-trains'),
 		onSelect: (id, detail) => {
 			selectOnMap(id, detail);
 		},
@@ -346,6 +393,8 @@ function initMap() {
 
 	trains.init({
 		redraw: () => map.redraw(),
+		redrawTrains: () => map.redrawTrains(),
+		onState: state => setTrainStatus(state),
 		onSelect: record => {
 			if (!record) {
 				trainToast.hide();
@@ -372,12 +421,16 @@ function initMap() {
 			trainToast.hide();
 		},
 		onTrackingMove: (x, y) => {
-			const canvas = document.getElementById('map');
-			if (!canvas) {
+			if (!mapCanvas) {
+				mapCanvas = document.getElementById('map');
+			}
+			if (!mapCanvas) {
 				return;
 			}
-			const rect = canvas.getBoundingClientRect();
-			trainToast.moveTo({ clientX: rect.left + x, clientY: rect.top + y });
+			if (!mapRect) {
+				mapRect = mapCanvas.getBoundingClientRect();
+			}
+			trainToast.moveTo({ clientX: mapRect.left + x, clientY: mapRect.top + y });
 		},
 		focus: (x, z, scale, durationMs) => {
 			map.flyTo({ ...map.getView(), centerX: x, centerZ: z, scale }, durationMs);

@@ -1,18 +1,22 @@
-import { fetchTrains, DataErrorKind } from './api.js?v=64';
-import { getTrainSettings, setTrainSetting, TRAIN_EVENT } from './train-settings.js?v=64';
-import { argbToRgba, worldToScreen } from './mapview.js?v=64';
-import { isShowingTracks } from './tracks.js?v=64';
+import { fetchTrains, DataErrorKind } from './api.js?v=65';
+import { getTrainSettings, TRAIN_EVENT } from './train-settings.js?v=65';
+import { argbToRgba } from './mapview.js?v=65';
+import { isShowingTracks } from './tracks.js?v=65';
+import { centerOf, clamp, currentCenters, mergeFrame, mergeTrains } from './train-records.js?v=65';
+import { openTrainStream } from './train-stream.js?v=65';
 
 const RETRY_BUSY_MS = 1200;
 const RETRY_OFFLINE_MS = 5000;
 const MIN_POLL_MS = 400;
-const NORMAL_FRAME_MS = 16;
-const TRACKING_FRAME_MS = 16;
-const PREDICT_LIMIT_MS = 900;
-const CAR_GAP_RATIO = 0.08;
-const CAR_WIDTH_RATIO = 0.22;
+const FRAME_INTERVAL_MS = 16;
 const TRACKING_SCALE = 4;
 const FLY_MS = 520;
+const VISIBLE_MARGIN_PX = 160;
+const STREAM_RESTART_DEBOUNCE_MS = 300;
+const POLL_INTERVAL_MS = 1000;
+const STATUS_TICK_MS = 1000;
+const STREAM_STALE_MS = 8000;
+const POLL_STALE_MS = 3000;
 
 let initialized = false;
 let available = false;
@@ -30,784 +34,772 @@ let pollGeneration = 0;
 let inFlight = false;
 let frame = null;
 let lastFrameAt = 0;
+let lastPayloadAt = 0;
+let lastDataAt = 0;
+let lastBuildMs = 0;
+let animUntil = 0;
 let trackingMissing = 0;
 let viewActive = false;
+let visibleCount = 0;
+let streamSupported = false;
+let streamFailed = false;
+let stream = null;
+let streamMode = false;
+let streamError = null;
+let streamRestartTimer = null;
+let statusTimer = null;
+
+let screenX = new Float64Array(0);
+let screenY = new Float64Array(0);
 
 const handlers = {
-    redraw: () => {},
-    onState: () => {},
-    onSelect: () => {},
-    onTracking: () => {},
-    onTrackingLost: () => {},
-    onTrackingMove: null,
-    focus: null,
-    follow: null,
-    onAuthFailure: null
+	redraw: () => {},
+	redrawTrains: null,
+	onState: () => {},
+	onSelect: () => {},
+	onTracking: () => {},
+	onTrackingLost: () => {},
+	onTrackingMove: null,
+	focus: null,
+	follow: null,
+	onAuthFailure: null
 };
 
+function drawTrains() {
+	const handler = handlers.redrawTrains || handlers.redraw;
+	handler();
+}
+
 function canRun() {
-    return initialized
-        && settings.enabled
-        && available
-        && world != null
-        && mapView != null
-        && mapView.scale >= settings.minScale
-        && (typeof document === 'undefined' || document.visibilityState !== 'hidden')
-        && isShowingTracks();
+	return initialized
+		&& settings.enabled
+		&& available
+		&& world != null
+		&& mapView != null
+		&& mapView.scale >= settings.minScale
+		&& (typeof document === 'undefined' || document.visibilityState !== 'hidden')
+		&& isShowingTracks();
+}
+
+function streamWanted() {
+	return canRun() && streamSupported && !streamFailed;
+}
+
+function buildStreamUrl() {
+	const params = new URLSearchParams();
+	params.set('world', world.dimension);
+	params.set('limit', String(settings.max));
+	params.set('hz', String(settings.rateHz));
+	if (settings.route && settings.route !== 'all') {
+		params.set('route', settings.route);
+	}
+	if (settings.depot && settings.depot !== 'all') {
+		params.set('depot', settings.depot);
+	}
+	return '/api/trains/stream?' + params.toString();
+}
+
+function connectStream() {
+	if (stream || !streamWanted()) {
+		return;
+	}
+	const handle = openTrainStream({
+		url: buildStreamUrl(),
+		onOpen: () => {
+			streamMode = true;
+			lastPayloadAt = 0;
+			stopPolling();
+			markState();
+		},
+		onFull: payload => applyPayload(payload, false),
+		onFrame: payload => applyPayload(payload, true),
+		onAuth: () => {
+			closeStream();
+			if (handlers.onAuthFailure) {
+				handlers.onAuthFailure();
+			}
+		},
+		onError: reason => {
+			streamError = reason;
+			streamFailed = true;
+			closeStream();
+			schedulePoll(0);
+			markState();
+		}
+	});
+	stream = handle;
+	if (streamFailed) {
+		handle.close();
+		stream = null;
+	}
+}
+
+function closeStream() {
+	if (stream) {
+		stream.close();
+		stream = null;
+	}
+	streamMode = false;
+	lastPayloadAt = 0;
+}
+
+function restartStreamSoon() {
+	clearTimeout(streamRestartTimer);
+	streamRestartTimer = setTimeout(() => {
+		streamRestartTimer = null;
+		const wasStream = streamMode;
+		closeStream();
+		if (streamWanted()) {
+			connectStream();
+		} else if (wasStream) {
+			schedulePoll(0);
+		}
+	}, STREAM_RESTART_DEBOUNCE_MS);
+}
+
+export function setStreamAvailable(nextAvailable) {
+	streamSupported = Boolean(nextAvailable);
+	if (!streamSupported) {
+		const wasStream = streamMode;
+		closeStream();
+		if (wasStream) {
+			schedulePoll(0);
+		}
+	} else if (!streamFailed && !stream && canRun()) {
+		connectStream();
+	}
+	markState();
 }
 
 function markState() {
-    handlers.onState({
-        enabled: settings.enabled,
-        available,
-        tracking: trackingId != null,
-        selected: selectedId,
-        total,
-        truncated
-    });
+	const streamState = stream ? stream.getState() : null;
+	const ageMs = streamMode && streamState && streamState.ageMs != null
+		? streamState.ageMs
+		: lastDataAt > 0 ? performance.now() - lastDataAt : null;
+	const stale = ageMs != null && ageMs > (streamMode ? STREAM_STALE_MS : POLL_STALE_MS);
+	handlers.onState({
+		enabled: settings.enabled,
+		available,
+		tracking: trackingId != null,
+		selected: selectedId,
+		total,
+		rendered: records.size,
+		truncated,
+		animating: frame != null,
+		mode: streamMode ? 'stream' : 'poll',
+		stale,
+		degraded: streamSupported && streamFailed,
+		dataAgeMs: ageMs
+	});
+}
+
+function startStatusTimer() {
+	if (statusTimer != null || typeof setInterval !== 'function') {
+		return;
+	}
+	statusTimer = setInterval(() => {
+		if (initialized && settings.enabled) {
+			markState();
+		}
+	}, STATUS_TICK_MS);
+}
+
+function stopStatusTimer() {
+	if (statusTimer != null) {
+		clearInterval(statusTimer);
+		statusTimer = null;
+	}
 }
 
 export function init(options) {
-    Object.assign(handlers, options || {});
-    initialized = true;
-    settings = getTrainSettings();
-    if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
-        window.addEventListener(TRAIN_EVENT, onSettingsChange);
-        document.addEventListener('visibilitychange', onVisibilityChange);
-    }
-    markState();
+	Object.assign(handlers, options || {});
+	initialized = true;
+	settings = getTrainSettings();
+	if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+		window.addEventListener(TRAIN_EVENT, onSettingsChange);
+		document.addEventListener('visibilitychange', onVisibilityChange);
+	}
+	startStatusTimer();
+	markState();
 }
 
 export function dispose() {
-    initialized = false;
-    stopPolling();
-    stopAnimation();
-    if (typeof window !== 'undefined' && typeof window.removeEventListener === 'function') {
-        window.removeEventListener(TRAIN_EVENT, onSettingsChange);
-        document.removeEventListener('visibilitychange', onVisibilityChange);
-    }
+	initialized = false;
+	stopPolling();
+	stopAnimation();
+	closeStream();
+	stopStatusTimer();
+	clearTimeout(streamRestartTimer);
+	if (typeof window !== 'undefined' && typeof window.removeEventListener === 'function') {
+		window.removeEventListener(TRAIN_EVENT, onSettingsChange);
+		document.removeEventListener('visibilitychange', onVisibilityChange);
+	}
 }
 
 export function setWorld(nextWorld) {
-    const nextDimension = nextWorld && nextWorld.dimension ? nextWorld.dimension : null;
-    const currentDimension = world && world.dimension ? world.dimension : null;
-    if (nextDimension === currentDimension) {
-        world = nextWorld || null;
-        return;
-    }
-    world = nextWorld || null;
-    stopPolling();
-    records = new Map();
-    total = 0;
-    truncated = false;
-    selectedId = null;
-    stopTracking(false);
-    handlers.onSelect(null);
-    markState();
-    schedulePoll(0);
-    ensureAnimation();
+	const nextDimension = nextWorld && nextWorld.dimension ? nextWorld.dimension : null;
+	const currentDimension = world && world.dimension ? world.dimension : null;
+	if (nextDimension === currentDimension) {
+		world = nextWorld || null;
+		return;
+	}
+	world = nextWorld || null;
+	stopPolling();
+	closeStream();
+	records = new Map();
+	total = 0;
+	truncated = false;
+	selectedId = null;
+	animUntil = 0;
+	lastPayloadAt = 0;
+	lastDataAt = 0;
+	stopTracking(false);
+	handlers.onSelect(null);
+	markState();
+	schedulePoll(0);
+	if (streamSupported && !streamFailed) {
+		connectStream();
+	}
 }
 
 export function setAvailable(nextAvailable) {
-    available = Boolean(nextAvailable);
-    if (!available) {
-        selectedId = null;
-        stopTracking(false);
-        if (handlers.onSelect) {
-            handlers.onSelect(null);
-        }
-        stopPolling();
-        stopAnimation();
-    } else {
-        schedulePoll(0);
-        ensureAnimation();
-    }
-    markState();
-}
-
-export function setEnabled(nextEnabled) {
-    setTrainSetting('enabled', Boolean(nextEnabled));
-}
-
-export function toggleEnabled() {
-    setTrainSetting('enabled', !settings.enabled);
-    return settings.enabled;
-}
-
-export function isEnabled() {
-    return settings.enabled;
+	available = Boolean(nextAvailable);
+	if (!available) {
+		selectedId = null;
+		stopTracking(false);
+		if (handlers.onSelect) {
+			handlers.onSelect(null);
+		}
+		stopPolling();
+		closeStream();
+		stopAnimation();
+	} else {
+		schedulePoll(0);
+		if (streamSupported && !streamFailed) {
+			connectStream();
+		}
+	}
+	markState();
 }
 
 export function isAvailable() {
-    return available;
-}
-
-export function hasData() {
-    return records.size > 0;
+	return available;
 }
 
 export function onViewChange(nextView) {
-    mapView = nextView ? {
-        centerX: nextView.centerX,
-        centerZ: nextView.centerZ,
-        scale: nextView.scale,
-        width: nextView.width,
-        height: nextView.height
-    } : null;
-    const active = mapView != null
-        && mapView.scale >= settings.minScale
-        && settings.enabled
-        && available
-        && world != null
-        && isShowingTracks();
-    if (active !== viewActive) {
-        viewActive = active;
-        if (active) {
-            schedulePoll(0);
-            ensureAnimation();
-        } else {
-            stopPolling();
-            stopAnimation();
-        }
-    }
+	mapView = nextView ? {
+		centerX: nextView.centerX,
+		centerZ: nextView.centerZ,
+		scale: nextView.scale,
+		width: nextView.width,
+		height: nextView.height
+	} : null;
+	const active = mapView != null
+		&& mapView.scale >= settings.minScale
+		&& settings.enabled
+		&& available
+		&& world != null
+		&& isShowingTracks();
+	if (active !== viewActive) {
+		viewActive = active;
+		if (active) {
+			schedulePoll(0);
+			if (streamSupported && !streamFailed) {
+				connectStream();
+			}
+			ensureAnimation();
+		} else {
+			stopPolling();
+			closeStream();
+			animUntil = 0;
+			stopAnimation();
+		}
+	}
 }
 
 function onSettingsChange(event) {
-    const previous = settings;
-    settings = getTrainSettings();
-    const detail = event && event.detail ? event.detail.key : null;
+	const previous = settings;
+	settings = getTrainSettings();
+	const detail = event && event.detail ? event.detail.key : null;
 
-    if (!settings.enabled) {
-        stopPolling();
-        stopAnimation();
-        selectedId = null;
-        stopTracking(false);
-        handlers.onSelect(null);
-    } else if (detail === 'route' || detail === 'depot' || detail === 'max' || previous.interval !== settings.interval) {
-        stopPolling();
-        schedulePoll(0);
-    } else if (previous.enabled !== settings.enabled) {
-        schedulePoll(0);
-    }
-    markState();
-    handlers.redraw();
-    if (settings.enabled && available && mapView != null && mapView.scale >= settings.minScale && isShowingTracks()) {
-        ensureAnimation();
-    }
+	if (!settings.enabled) {
+		stopPolling();
+		closeStream();
+		stopAnimation();
+		selectedId = null;
+		stopTracking(false);
+		handlers.onSelect(null);
+	} else if (detail === 'route' || detail === 'depot' || detail === 'max' || previous.rateHz !== settings.rateHz) {
+		stopPolling();
+		lastPayloadAt = 0;
+		restartStreamSoon();
+		schedulePoll(0);
+	}
+	markState();
+	handlers.redraw();
+	if (settings.enabled && available && mapView != null && mapView.scale >= settings.minScale && isShowingTracks()) {
+		if (streamSupported && !streamFailed) {
+			connectStream();
+		} else {
+			schedulePoll(0);
+		}
+	}
 }
 
 function onVisibilityChange() {
-    if (document.visibilityState === 'hidden') {
-        stopPolling();
-        stopAnimation();
-    } else {
-        schedulePoll(0);
-        ensureAnimation();
-    }
+	if (document.visibilityState === 'hidden') {
+		stopPolling();
+		closeStream();
+		stopAnimation();
+	} else {
+		schedulePoll(0);
+		if (streamSupported && !streamFailed && canRun()) {
+			connectStream();
+		}
+		ensureAnimation();
+	}
 }
 
 function schedulePoll(delay) {
-    if (!initialized || !settings.enabled) {
-        return;
-    }
-    clearTimeout(pollTimer);
-    pollTimer = setTimeout(poll, Math.max(0, delay));
+	if (!initialized || !settings.enabled || streamMode) {
+		return;
+	}
+	clearTimeout(pollTimer);
+	pollTimer = setTimeout(poll, Math.max(0, delay));
 }
 
 function stopPolling() {
-    clearTimeout(pollTimer);
-    pollTimer = null;
-    pollGeneration++;
-    if (abortController) {
-        abortController.abort();
-        abortController = null;
-    }
-    inFlight = false;
+	clearTimeout(pollTimer);
+	pollTimer = null;
+	pollGeneration++;
+	if (abortController) {
+		abortController.abort();
+		abortController = null;
+	}
+	inFlight = false;
 }
 
 async function poll() {
-    pollTimer = null;
-    if (inFlight || !canRun()) {
-        schedulePoll(canRun() ? MIN_POLL_MS : 1000);
-        return;
-    }
-    inFlight = true;
-    const generation = ++pollGeneration;
-    const controller = new AbortController();
-    abortController = controller;
-    let retryDelay = settings.interval * 1000;
+	pollTimer = null;
+	if (streamMode) {
+		return;
+	}
+	if (inFlight || !canRun()) {
+		schedulePoll(canRun() ? MIN_POLL_MS : 1000);
+		return;
+	}
+	inFlight = true;
+	const generation = ++pollGeneration;
+	const controller = new AbortController();
+	abortController = controller;
+	let retryDelay = POLL_INTERVAL_MS;
 
-    try {
-        const payload = await fetchTrains({
-            world: world.dimension,
-            limit: settings.max,
-            route: settings.route,
-            depot: settings.depot,
-            signal: controller.signal
-        });
-        if (generation !== pollGeneration) {
-            return;
-        }
-        applySnapshot(payload);
-    } catch (error) {
-        if (generation !== pollGeneration || (error && error.kind === DataErrorKind.ABORTED)) {
-            return;
-        }
-        if (error && (error.kind === DataErrorKind.BUSY || error.kind === DataErrorKind.TIMEOUT)) {
-            retryDelay = RETRY_BUSY_MS;
-        } else if (error && (error.kind === DataErrorKind.UNREACHABLE || error.kind === DataErrorKind.NO_SERVER)) {
-            retryDelay = RETRY_OFFLINE_MS;
-        } else if (error && error.kind === DataErrorKind.AUTH && handlers.onAuthFailure) {
-            handlers.onAuthFailure();
-        } else if (error && error.kind === DataErrorKind.NOT_FOUND) {
-            retryDelay = RETRY_OFFLINE_MS;
-        }
-    } finally {
-        if (generation === pollGeneration) {
-            inFlight = false;
-            abortController = null;
-            if (canRun()) {
-                schedulePoll(retryDelay);
-            } else {
-                schedulePoll(1000);
-            }
-        }
-    }
+	try {
+		const payload = await fetchTrains({
+			world: world.dimension,
+			limit: settings.max,
+			route: settings.route,
+			depot: settings.depot,
+			signal: controller.signal
+		});
+		if (generation !== pollGeneration) {
+			return;
+		}
+		applyPayload(payload, false);
+	} catch (error) {
+		if (generation !== pollGeneration || (error && error.kind === DataErrorKind.ABORTED)) {
+			return;
+		}
+		if (error && (error.kind === DataErrorKind.BUSY || error.kind === DataErrorKind.TIMEOUT)) {
+			retryDelay = RETRY_BUSY_MS * (0.7 + Math.random() * 0.6);
+		} else if (error && (error.kind === DataErrorKind.UNREACHABLE || error.kind === DataErrorKind.NO_SERVER
+			|| error.kind === DataErrorKind.NOT_FOUND)) {
+			retryDelay = RETRY_OFFLINE_MS;
+		} else if (error && error.kind === DataErrorKind.AUTH && handlers.onAuthFailure) {
+			handlers.onAuthFailure();
+		}
+	} finally {
+		if (generation === pollGeneration) {
+			inFlight = false;
+			abortController = null;
+			schedulePoll(canRun() ? retryDelay : 1000);
+		}
+	}
 }
 
-function sanitizeTrain(raw) {
-    if (!raw || raw.id == null || !Array.isArray(raw.points) || raw.points.length < 2) {
-        return null;
-    }
-    const points = [];
-    // The server packs coordinates as [x, z, x, z, ...] to keep the poll payload small; accept the
-    // older nested [[x, z], ...] shape too so cached/alternate servers cannot silently drop trains.
-    if (!Array.isArray(raw.points[0])) {
-        if (raw.points.length < 4 || raw.points.length % 2 !== 0) {
-            return null;
-        }
-        for (let i = 0; i < raw.points.length; i += 2) {
-            const x = Number(raw.points[i]);
-            const z = Number(raw.points[i + 1]);
-            if (!Number.isFinite(x) || !Number.isFinite(z)) {
-                return null;
-            }
-            points.push({ x, z });
-        }
-    } else {
-        for (const point of raw.points) {
-            if (!Array.isArray(point) || point.length < 2) {
-                return null;
-            }
-            const x = Number(point[0]);
-            const z = Number(point[1]);
-            if (!Number.isFinite(x) || !Number.isFinite(z)) {
-                return null;
-            }
-            points.push({ x, z });
-        }
-    }
-    const cars = Math.max(1, Math.min(Number(raw.cars) || 1, points.length - 1));
-    return {
-        id: String(raw.id),
-        sidingId: raw.sidingId == null ? null : String(raw.sidingId),
-        model: typeof raw.model === 'string' ? raw.model : '',
-        cars,
-        spacing: Number(raw.spacing) || 1,
-        width: Number(raw.width) || 2,
-        color: Number(raw.color) || 0,
-        routeId: raw.routeId == null ? null : String(raw.routeId),
-        depotId: raw.depotId == null ? null : String(raw.depotId),
-        nextPlatformId: raw.nextPlatformId == null ? null : String(raw.nextPlatformId),
-        speed: Number(raw.speed) || 0,
-        doors: Number(raw.doors) || 0,
-        onRoute: Boolean(raw.onRoute),
-        manual: Boolean(raw.manual),
-        reversed: Boolean(raw.reversed),
-        points,
-        centers: parseCenters(raw.centers, points)
-    };
+function applyPayload(payload, incremental) {
+	if (payload && payload.v != null && payload.v !== 1) {
+		console.warn('[MTR-WebDashboard] ignoring a train payload with protocol version ' + payload.v);
+		return;
+	}
+	const now = performance.now();
+	const fallback = incremental ? 200 : POLL_INTERVAL_MS;
+	const measured = lastPayloadAt > 0 ? now - lastPayloadAt : fallback;
+	lastPayloadAt = now;
+	lastDataAt = now;
+	lastBuildMs = Number(payload.buildMs) || 0;
+	const duration = clamp(measured, 80, 15000);
+
+	const merged = incremental
+		? mergeFrame(records, payload.trains, payload.gone, now, duration)
+		: mergeTrains(records, payload.trains, now, duration);
+	records = merged.records;
+	total = Number(payload.total) || records.size;
+	truncated = Boolean(payload.truncated);
+	if (merged.moved || trackingId != null) {
+		animUntil = now + duration + 260;
+	}
+
+	if (selectedId && !records.has(selectedId)) {
+		selectedId = null;
+		handlers.onSelect(null);
+	} else if (selectedId) {
+		handlers.onSelect(records.get(selectedId));
+	}
+
+	if (trackingId && !records.has(trackingId)) {
+		trackingMissing++;
+		if (trackingMissing >= 2) {
+			stopTracking(true);
+		}
+	} else if (trackingId) {
+		trackingMissing = 0;
+		handlers.onTracking(records.get(trackingId));
+	}
+
+	ensureAnimation();
+	if (incremental) {
+		drawTrains();
+	} else {
+		handlers.redraw();
+	}
+	markState();
 }
 
-function parseCenters(raw, points) {
-    const centers = [];
-    if (Array.isArray(raw)) {
-        if (!Array.isArray(raw[0])) {
-            if (raw.length % 2 === 0) {
-                for (let i = 0; i < raw.length; i += 2) {
-                    const x = Number(raw[i]);
-                    const z = Number(raw[i + 1]);
-                    if (Number.isFinite(x) && Number.isFinite(z)) {
-                        centers.push({ x, z });
-                    }
-                }
-            }
-        } else {
-            for (const point of raw) {
-                if (Array.isArray(point) && point.length >= 2) {
-                    const x = Number(point[0]);
-                    const z = Number(point[1]);
-                    if (Number.isFinite(x) && Number.isFinite(z)) {
-                        centers.push({ x, z });
-                    }
-                }
-            }
-        }
-    }
-    if (centers.length === points.length - 1) {
-        return centers;
-    }
-    const fallback = [];
-    for (let i = 0; i < points.length - 1; i++) {
-        fallback.push({
-            x: (points[i].x + points[i + 1].x) / 2,
-            z: (points[i].z + points[i + 1].z) / 2
-        });
-    }
-    return fallback;
-}
-
-function applySnapshot(payload) {
-    const now = performance.now();
-    const nextRecords = new Map();
-    const incoming = Array.isArray(payload.trains) ? payload.trains : [];
-
-    for (const rawTrain of incoming) {
-        const next = sanitizeTrain(rawTrain);
-        if (!next) {
-            continue;
-        }
-        const previous = records.get(next.id);
-        // Keep moving for the whole configured interval instead of snapping at the next poll. The
-        // measured server displacement gives a speed estimate used only when the next poll is late.
-        const duration = clamp(settings.interval * 1000, 300, 15000);
-        if (previous && previous.points.length === next.points.length && previous.centers.length === next.centers.length && previous.reversed === next.reversed) {
-            const elapsed = Math.max(1, now - (previous.receivedAt || now - duration));
-            next.fromCenters = currentCenters(previous, now);
-            next.toCenters = next.centers;
-            next.start = now;
-            next.duration = duration;
-            next.centerVelocity = estimateVelocity(previous.toCenters, next.centers, elapsed, next.speed);
-        } else {
-            next.fromCenters = next.centers;
-            next.toCenters = next.centers;
-            next.start = now - duration;
-            next.duration = duration;
-            next.centerVelocity = [];
-        }
-        next.receivedAt = now;
-        nextRecords.set(next.id, next);
-    }
-
-    records = nextRecords;
-    total = Number(payload.total) || incoming.length;
-    truncated = Boolean(payload.truncated);
-
-    if (selectedId && !records.has(selectedId)) {
-        selectedId = null;
-        handlers.onSelect(null);
-    } else if (selectedId) {
-        handlers.onSelect(records.get(selectedId));
-    }
-
-    if (trackingId && !records.has(trackingId)) {
-        trackingMissing++;
-        if (trackingMissing >= 2) {
-            stopTracking(true);
-        }
-    } else if (trackingId) {
-        trackingMissing = 0;
-        const record = records.get(trackingId);
-        handlers.onTracking(record);
-        if (followRecord(record)) {
-            ensureAnimation();
-            markState();
-            return;
-        }
-    }
-
-    ensureAnimation();
-    handlers.redraw();
-    markState();
-}
-
-function estimateVelocity(previousPoints, nextPoints, elapsedMs, speed) {
-    const limit = Math.max(0, speed) * 20 / 1000 * 1.25;
-    if (!(limit > 0)) {
-        return [];
-    }
-    return nextPoints.map((point, index) => {
-        const before = previousPoints[index] || point;
-        let x = (point.x - before.x) / elapsedMs;
-        let z = (point.z - before.z) / elapsedMs;
-        const length = Math.hypot(x, z);
-        if (length > limit) {
-            const scale = limit / length;
-            x *= scale;
-            z *= scale;
-        }
-        return Number.isFinite(x) && Number.isFinite(z) ? { x, z } : { x: 0, z: 0 };
-    });
-}
-
-function currentCenters(record, now) {
-    const elapsed = now - record.start;
-    if (elapsed >= record.duration) {
-        const extra = Math.min(elapsed - record.duration, PREDICT_LIMIT_MS);
-        if (extra <= 0 || !record.centerVelocity || record.centerVelocity.length !== record.toCenters.length) {
-            return record.toCenters;
-        }
-        return record.toCenters.map((point, index) => {
-            const velocity = record.centerVelocity[index];
-            return {
-                x: point.x + velocity.x * extra,
-                z: point.z + velocity.z * extra
-            };
-        });
-    }
-    const t = Math.max(0, elapsed / record.duration);
-    const points = new Array(record.toCenters.length);
-    for (let i = 0; i < record.toCenters.length; i++) {
-        const from = record.fromCenters[i] || record.toCenters[i];
-        points[i] = {
-            x: from.x + (record.toCenters[i].x - from.x) * t,
-            z: from.z + (record.toCenters[i].z - from.z) * t
-        };
-    }
-    return points;
-}
-
-function centerOf(record, points) {
-    if (settings.consist === 'block' && points.length > 0) {
-        return points[Math.min(points.length - 1, Math.floor(points.length / 2))];
-    }
-    let x = 0;
-    let z = 0;
-    for (const point of points) {
-        x += point.x;
-        z += point.z;
-    }
-    return points.length ? { x: x / points.length, z: z / points.length } : { x: 0, z: 0 };
-}
-
-function followRecord(record) {
-    if (!record || !handlers.follow || !mapView) {
-        return false;
-    }
-    const center = centerOf(record, currentCenters(record, performance.now()));
-    if (handlers.onTrackingMove) {
-        const screen = worldToScreen(mapView, center.x, center.z);
-        handlers.onTrackingMove(screen.x, screen.y);
-    }
-    return Boolean(handlers.follow(center.x, center.z));
+function ensureBuffers(size) {
+	if (screenX.length < size) {
+		screenX = new Float64Array(size);
+		screenY = new Float64Array(size);
+	}
 }
 
 function ensureAnimation() {
-    if (frame != null || !initialized || !viewActive || !settings.enabled || records.size === 0) {
-        return;
-    }
-    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
-        return;
-    }
-    const step = now => {
-        frame = null;
-        const interval = trackingId != null
-            ? TRACKING_FRAME_MS
-            : (records.size > 64 ? 33 : NORMAL_FRAME_MS);
-        if (now - lastFrameAt >= interval) {
-            lastFrameAt = now;
-            let followed = false;
-            if (trackingId) {
-                const record = records.get(trackingId);
-                if (record) {
-                    followed = followRecord(record);
-                }
-            }
-            if (!followed) {
-                handlers.redraw();
-            }
-        }
-        if (initialized && settings.enabled && records.size > 0
-            && (typeof document === 'undefined' || document.visibilityState !== 'hidden')) {
-            frame = requestAnimationFrame(step);
-        }
-    };
-    frame = requestAnimationFrame(step);
+	if (frame != null || !initialized || !settings.enabled || records.size === 0) {
+		return;
+	}
+	if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+		return;
+	}
+	if (trackingId == null && performance.now() > animUntil) {
+		return;
+	}
+	frame = requestAnimationFrame(step);
+}
+
+function step(now) {
+	frame = null;
+	// Tracking redraws every display frame: gating the camera at a fixed 16 ms made it advance in
+	// irregular steps on 120/144 Hz displays, which reads as judder. Normal interpolation keeps the
+	// 60 Hz cap because it repaints the whole map for every train.
+	if (trackingId != null || now - lastFrameAt >= FRAME_INTERVAL_MS) {
+		lastFrameAt = now;
+		let followed = false;
+		if (trackingId != null) {
+			const record = records.get(trackingId);
+			if (record) {
+				followed = followRecord(record);
+			}
+		}
+		if (!followed) {
+			drawTrains();
+		}
+	}
+	const hidden = typeof document !== 'undefined' && document.visibilityState === 'hidden';
+	if (initialized && settings.enabled && records.size > 0 && !hidden
+		&& (trackingId != null || performance.now() <= animUntil)) {
+		frame = requestAnimationFrame(step);
+	}
 }
 
 function stopAnimation() {
-    if (frame != null) {
-        cancelAnimationFrame(frame);
-        frame = null;
-    }
+	if (frame != null) {
+		cancelAnimationFrame(frame);
+		frame = null;
+	}
 }
 
 export function draw(context, view, mapTheme) {
-    if (!context || !view || !records.size || !settings.enabled || !available || view.scale < settings.minScale || !isShowingTracks()) {
-        return;
-    }
-    const now = performance.now();
-    const selected = selectedId;
-    context.save();
-    context.globalAlpha = 1;
-    context.lineCap = 'round';
-    context.lineJoin = 'round';
+	if (!context || !view || records.size === 0 || !settings.enabled || !available
+		|| view.scale < settings.minScale || !isShowingTracks()) {
+		return;
+	}
+	const now = performance.now();
+	const selected = selectedId;
+	const tracking = trackingId;
+	const scale = view.scale;
+	const centerX = view.centerX;
+	const centerZ = view.centerZ;
+	const halfWidth = view.width / 2;
+	const halfHeight = view.height / 2;
+	visibleCount = 0;
 
-    for (const record of records.values()) {
-        const centers = currentCenters(record, now);
-        if (isVisible(centers, view)) {
-            drawRecord(context, view, mapTheme, record, centers, record.id === selected || record.id === trackingId);
-        }
-    }
-    context.restore();
+	context.save();
+	context.globalAlpha = 1;
+	context.lineCap = 'round';
+	context.lineJoin = 'round';
+
+	for (const record of records.values()) {
+		const centers = currentCenters(record, now);
+		const count = centers.length / 2;
+		if (count === 0) {
+			continue;
+		}
+		ensureBuffers(count);
+		let minX = Infinity;
+		let minY = Infinity;
+		let maxX = -Infinity;
+		let maxY = -Infinity;
+		for (let i = 0; i < count; i++) {
+			const x = (centers[i * 2] - centerX) * scale + halfWidth;
+			const y = (centers[i * 2 + 1] - centerZ) * scale + halfHeight;
+			screenX[i] = x;
+			screenY[i] = y;
+			if (x < minX) minX = x;
+			if (y < minY) minY = y;
+			if (x > maxX) maxX = x;
+			if (y > maxY) maxY = y;
+		}
+		const margin = Math.max(6, record.spacing * scale * 0.5) + VISIBLE_MARGIN_PX;
+		if (maxX < -margin || minX > view.width + margin || maxY < -margin || minY > view.height + margin) {
+			continue;
+		}
+		visibleCount++;
+		drawRecord(context, view, mapTheme, record, screenX, screenY, count,
+			record.id === selected || record.id === tracking);
+	}
+	context.restore();
+
+	if (visibleCount === 0 && trackingId == null) {
+		animUntil = 0;
+	}
 }
 
-function isVisible(points, view) {
-    const margin = 120;
-    for (const point of points) {
-        const screen = worldToScreen(view, point.x, point.z);
-        if (screen.x >= -margin && screen.x <= view.width + margin && screen.y >= -margin && screen.y <= view.height + margin) {
-            return true;
-        }
-    }
-    return false;
+function drawRecord(context, view, theme, record, xs, ys, count, highlighted) {
+	const argb = record.color >>> 0;
+	const opaque = (argb >>> 24) === 0 ? (argb | 0xFF000000) : argb;
+	const color = record.color !== 0 ? argbToRgba(opaque) : (theme.accent || 'rgba(255, 255, 255, 0.9)');
+	const outline = theme.light ? 'rgba(24, 27, 31, 0.9)' : 'rgba(255, 255, 255, 0.55)';
+	// World-space dimensions: the car body is (spacing - 1) blocks long and `width` blocks wide,
+	// independent of the screen distance to its neighbour. That distance shrinks on curves, which is
+	// what used to make cars look like they were shrinking, and it must never drive the width.
+	const carLength = Math.max(0.5, (record.spacing - 1) * view.scale);
+	const carWidth = Math.max(0.5, record.width * view.scale);
+
+	if (settings.consist === 'block') {
+		const centerX = average(xs, count);
+		const centerY = average(ys, count);
+		const angle = carAngle(record, xs, ys, count, Math.min(count - 1, Math.floor(count / 2)));
+		const length = Math.max(1, (record.spacing * record.cars - 1) * view.scale);
+		drawCar(context, centerX, centerY, angle, length, Math.max(0.5, carWidth), color, outline, highlighted);
+		return;
+	}
+
+	for (let i = 0; i < count; i++) {
+		const angle = carAngle(record, xs, ys, count, i);
+		drawCar(context, xs[i], ys[i], angle, carLength, carWidth, color, outline, highlighted);
+	}
 }
 
-function drawRecord(context, view, theme, record, points, highlighted) {
-    // Route colours are stored both as RGB and ARGB by different MTR versions; an RGB value has a
-    // zero alpha byte and would otherwise draw a fully transparent train.
-    const argb = record.color >>> 0;
-    const opaque = (argb >>> 24) === 0 ? (argb | 0xFF000000) : argb;
-    const color = record.color !== 0 ? argbToRgba(opaque) : (theme.accent || 'rgba(255, 255, 255, 0.9)');
-    if (settings.consist === 'block') {
-        drawBlock(context, view, record, points, color, highlighted, theme);
-        return;
-    }
-    const outline = theme.light ? 'rgba(24, 27, 31, 0.9)' : 'rgba(255, 255, 255, 0.55)';
-    const spacingPx = Math.max(1, record.spacing * view.scale);
-    if (record.cars > 1 && spacingPx < 6) {
-        const center = centerOf(record, points);
-        const screen = worldToScreen(view, center.x, center.z);
-        const angle = carAngle(record, points, 0, view);
-        const length = Math.max(3, spacingPx * record.cars * 0.82);
-        drawCar(context, screen.x, screen.y, angle, length, Math.max(2, length * CAR_WIDTH_RATIO), color, outline, highlighted);
-        return;
-    }
-    const gap = Math.min(3, Math.max(1, spacingPx * CAR_GAP_RATIO));
-    const screens = points.map(point => worldToScreen(view, point.x, point.z));
-    let lastX = NaN;
-    let lastY = NaN;
-    for (let i = 0; i < points.length; i++) {
-        if (Math.abs(screens[i].x - lastX) < 1 && Math.abs(screens[i].y - lastY) < 1) {
-            continue;
-        }
-        lastX = screens[i].x;
-        lastY = screens[i].y;
-        const previous = screens[i - 1];
-        const next = screens[i + 1];
-        let neighbor = spacingPx;
-        if (previous || next) {
-            neighbor = Math.min(
-                previous ? Math.hypot(screens[i].x - previous.x, screens[i].y - previous.y) : Infinity,
-                next ? Math.hypot(next.x - screens[i].x, next.y - screens[i].y) : Infinity
-            );
-        }
-        const carLength = Math.max(2.5, Math.min(spacingPx, neighbor) - gap);
-        const carWidth = Math.max(2, carLength * CAR_WIDTH_RATIO);
-        const angle = carAngle(record, points, i, view);
-        drawCar(context, screens[i].x, screens[i].y, angle, carLength, carWidth, color, outline, highlighted);
-    }
+function average(values, count) {
+	let sum = 0;
+	for (let i = 0; i < count; i++) {
+		sum += values[i];
+	}
+	return count > 0 ? sum / count : 0;
 }
 
-function carAngle(record, centers, index, view) {
-    let first;
-    let second;
-    if (centers.length > 1) {
-        first = centers[Math.max(0, index - 1)];
-        second = centers[Math.min(centers.length - 1, index + 1)];
-        if (index === 0) {
-            first = centers[0];
-            second = centers[1];
-        } else if (index === centers.length - 1) {
-            first = centers[centers.length - 2];
-            second = centers[centers.length - 1];
-        }
-    } else {
-        first = record.points[0] || centers[0];
-        second = record.points[1] || centers[0];
-    }
-    const a = worldToScreen(view, first.x, first.z);
-    const b = worldToScreen(view, second.x, second.z);
-    return Math.atan2(b.y - a.y, b.x - a.x);
+function carAngle(record, xs, ys, count, index) {
+	if (count <= 1) {
+		return record.heading;
+	}
+	let first = Math.max(0, index - 1);
+	let second = Math.min(count - 1, index + 1);
+	if (first === second) {
+		return record.heading;
+	}
+	return Math.atan2(ys[second] - ys[first], xs[second] - xs[first]);
 }
 
 function drawCar(context, centerX, centerY, angle, length, width, color, outline, highlighted) {
-    const radius = Math.max(1, width * 0.2);
+	const radius = Math.max(0.5, Math.min(length, width) * 0.2);
 
-    context.save();
-    context.translate(centerX, centerY);
-    context.rotate(angle);
-    if (highlighted) {
-        context.beginPath();
-        context.roundRect(-length / 2 - 3, -width / 2 - 3, length + 6, width + 6, radius + 2);
-        context.fillStyle = 'rgba(255, 255, 255, 0.12)';
-        context.fill();
-        context.lineWidth = 1;
-        context.strokeStyle = 'rgba(255, 255, 255, 0.8)';
-        context.stroke();
-    }
-    context.beginPath();
-    context.roundRect(-length / 2, -width / 2, length, width, radius);
-    context.fillStyle = color;
-    context.fill();
-    context.lineWidth = 1;
-    context.strokeStyle = highlighted ? 'rgba(255, 255, 255, 0.95)' : outline;
-    context.stroke();
-    context.restore();
+	context.save();
+	context.translate(centerX, centerY);
+	context.rotate(angle);
+	if (highlighted) {
+		context.beginPath();
+		context.roundRect(-length / 2 - 3, -width / 2 - 3, length + 6, width + 6, radius + 2);
+		context.fillStyle = 'rgba(255, 255, 255, 0.12)';
+		context.fill();
+		context.lineWidth = 1;
+		context.strokeStyle = 'rgba(255, 255, 255, 0.8)';
+		context.stroke();
+	}
+	context.beginPath();
+	context.roundRect(-length / 2, -width / 2, length, width, radius);
+	context.fillStyle = color;
+	context.fill();
+	context.lineWidth = 1;
+	context.strokeStyle = highlighted ? 'rgba(255, 255, 255, 0.95)' : outline;
+	context.stroke();
+	context.restore();
 }
 
-function drawBlock(context, view, record, points, color, highlighted, theme) {
-    const center = centerOf(record, points);
-    const screen = worldToScreen(view, center.x, center.z);
-    const index = Math.min(record.cars - 1, Math.floor(record.cars / 2));
-    const angle = carAngle(record, points, index, view);
-    const length = Math.max(4, record.spacing * record.cars * view.scale * 0.82);
-    const width = Math.max(2, length * CAR_WIDTH_RATIO);
+function followRecord(record) {
+	if (!record || !handlers.follow || !mapView) {
+		return false;
+	}
+	const center = centerOf(record, currentCenters(record, performance.now()));
+	const followed = Boolean(handlers.follow(center.x, center.z));
+	// follow() redraws the map, which refreshes mapView through onViewChange. Project the toast
+	// position *after* that, otherwise it trails the camera by one frame and visibly jitters.
+	if (handlers.onTrackingMove && mapView) {
+		const screen = project(mapView, center.x, center.z);
+		handlers.onTrackingMove(screen.x, screen.y);
+	}
+	return followed;
+}
 
-    context.save();
-    context.translate(screen.x, screen.y);
-    context.rotate(angle);
-    context.beginPath();
-    context.roundRect(-length / 2, -width / 2, length, width, 2.5);
-    context.fillStyle = color;
-    context.fill();
-    context.lineWidth = highlighted ? 2.5 : 1.2;
-    context.strokeStyle = highlighted ? 'rgba(255, 255, 255, 0.95)' : (theme.light ? 'rgba(24, 27, 31, 0.9)' : 'rgba(255, 255, 255, 0.85)');
-    context.stroke();
-    context.restore();
+function project(view, worldX, worldZ) {
+	return {
+		x: (worldX - view.centerX) * view.scale + view.width / 2,
+		y: (worldZ - view.centerZ) * view.scale + view.height / 2
+	};
 }
 
 export function trySelect(detail) {
-    if (!detail || !mapView || !records.size || !canRun()) {
-        return false;
-    }
-    const now = performance.now();
-    let best = null;
-    let bestDistance = Infinity;
-    for (const record of records.values()) {
-        const centers = currentCenters(record, now);
-        const threshold = settings.consist === 'block'
-            ? Math.max(10, record.spacing * record.cars * mapView.scale * 0.42)
-            : Math.max(6, record.spacing * mapView.scale * 0.58);
-        for (const center of centers) {
-            const screen = worldToScreen(mapView, center.x, center.z);
-            const distance = Math.hypot(detail.x - screen.x, detail.y - screen.y);
-            if (distance <= threshold && distance < bestDistance) {
-                bestDistance = distance;
-                best = record;
-            }
-        }
-    }
-    if (!best) {
-        return false;
-    }
-    const switchTracking = trackingId != null && trackingId !== best.id;
-    selectTrain(best.id);
-    if (switchTracking) {
-        track(best.id);
-    }
-    return true;
+	if (!detail || !mapView || !records.size || !canRun()) {
+		return false;
+	}
+	const now = performance.now();
+	let best = null;
+	let bestDistance = Infinity;
+	for (const record of records.values()) {
+		const centers = currentCenters(record, now);
+		const threshold = settings.consist === 'block'
+			? Math.max(10, record.spacing * record.cars * mapView.scale * 0.42)
+			: Math.max(6, record.spacing * mapView.scale * 0.58);
+		for (let i = 0; i < centers.length; i += 2) {
+			const screen = project(mapView, centers[i], centers[i + 1]);
+			const distance = Math.hypot(detail.x - screen.x, detail.y - screen.y);
+			if (distance <= threshold && distance < bestDistance) {
+				bestDistance = distance;
+				best = record;
+			}
+		}
+	}
+	if (!best) {
+		return false;
+	}
+	const switchTracking = trackingId != null && trackingId !== best.id;
+	selectTrain(best.id);
+	if (switchTracking) {
+		track(best.id);
+	}
+	return true;
 }
 
 export function selectTrain(id) {
-    const record = records.get(String(id));
-    if (!record) {
-        return null;
-    }
-    selectedId = record.id;
-    handlers.onSelect(record);
-    handlers.redraw();
-    markState();
-    return record;
-}
-
-export function getSelected() {
-    return selectedId ? records.get(selectedId) || null : null;
+	const record = records.get(String(id));
+	if (!record) {
+		return null;
+	}
+	selectedId = record.id;
+	handlers.onSelect(record);
+	handlers.redraw();
+	markState();
+	return record;
 }
 
 export function clearSelection() {
-    if (!selectedId) {
-        return false;
-    }
-    selectedId = null;
-    handlers.redraw();
-    markState();
-    return true;
+	if (!selectedId) {
+		return false;
+	}
+	selectedId = null;
+	handlers.redraw();
+	markState();
+	return true;
 }
 
 export function track(id) {
-    const record = records.get(String(id));
-    if (!record) {
-        return false;
-    }
-    trackingId = record.id;
-    selectedId = record.id;
-    trackingMissing = 0;
-    handlers.onSelect(record);
-    handlers.onTracking(record);
-    if (handlers.focus) {
-        const center = centerOf(record, currentCenters(record, performance.now()));
-        handlers.focus(center.x, center.z, Math.max(TRACKING_SCALE, mapView ? mapView.scale : TRACKING_SCALE), FLY_MS);
-    }
-    ensureAnimation();
-    markState();
-    handlers.redraw();
-    return true;
+	const record = records.get(String(id));
+	if (!record) {
+		return false;
+	}
+	trackingId = record.id;
+	selectedId = record.id;
+	trackingMissing = 0;
+	handlers.onSelect(record);
+	handlers.onTracking(record);
+	if (handlers.focus) {
+		const center = centerOf(record, currentCenters(record, performance.now()));
+		handlers.focus(center.x, center.z, Math.max(TRACKING_SCALE, mapView ? mapView.scale : TRACKING_SCALE), FLY_MS);
+	}
+	animUntil = performance.now() + 1000;
+	ensureAnimation();
+	markState();
+	handlers.redraw();
+	return true;
 }
 
 export function stopTracking(notify) {
-    const wasTracking = trackingId != null;
-    trackingId = null;
-    trackingMissing = 0;
-    if (wasTracking) {
-        markState();
-        handlers.redraw();
-        if (notify) {
-            selectedId = null;
-            handlers.onSelect(null);
-            handlers.onTrackingLost();
-        }
-    }
+	const wasTracking = trackingId != null;
+	trackingId = null;
+	trackingMissing = 0;
+	if (wasTracking) {
+		markState();
+		handlers.redraw();
+		if (notify) {
+			selectedId = null;
+			handlers.onSelect(null);
+			handlers.onTrackingLost();
+		}
+	}
 }
 
 export function isTracking() {
-    return trackingId != null;
-}
-
-export function isTrackingId(id) {
-    return trackingId != null && trackingId === String(id);
+	return trackingId != null;
 }
 
 export function invalidate() {
-    stopPolling();
-    schedulePoll(0);
+	stopPolling();
+	closeStream();
+	lastPayloadAt = 0;
+	if (streamWanted()) {
+		connectStream();
+	}
+	schedulePoll(0);
 }
 
 export function getDebugState() {
-    return {
-        enabled: settings.enabled,
-        available,
-        world: world ? world.dimension : null,
-        total,
-        truncated,
-        rendered: records.size,
-        tracking: trackingId,
-        selected: selectedId,
-        inFlight,
-        settings: { ...settings }
-    };
-}
-
-function clamp(value, min, max) {
-    return Math.min(max, Math.max(min, value));
+	return {
+		enabled: settings.enabled,
+		available,
+		world: world ? world.dimension : null,
+		mode: streamMode ? 'stream' : 'poll',
+		streamSupported,
+		streamFailed,
+		streamError,
+		stream: stream ? stream.getState() : null,
+		total,
+		truncated,
+		rendered: records.size,
+		visible: visibleCount,
+		tracking: trackingId,
+		selected: selectedId,
+		animating: frame != null,
+		inFlight,
+		lastBuildMs,
+		settings: { ...settings }
+	};
 }

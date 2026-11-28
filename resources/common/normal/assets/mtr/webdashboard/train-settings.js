@@ -7,14 +7,14 @@ export const TRAIN_EVENT = 'mtr-trainchange';
 export const TRAIN_DEFAULTS = Object.freeze({
     enabled: false,
     consist: 'consist',
-    interval: 1,
+    rateHz: 5,
     max: 16,
     minScale: 0.6,
     route: 'all',
     depot: 'all'
 });
-export const TRAIN_INTERVAL_MIN = 0.5;
-export const TRAIN_INTERVAL_MAX = 10;
+export const TRAIN_RATE_MIN = 1;
+export const TRAIN_RATE_MAX = 10;
 export const TRAIN_MAX_MIN = 1;
 export const TRAIN_MAX_MAX = 256;
 export const TRAIN_MIN_SCALE_MIN = 0.1;
@@ -51,14 +51,26 @@ function parseId(value) {
     return text === 'all' || text === '0' || text === '' ? 'all' : text;
 }
 
+/**
+ * Older builds stored the polling interval in seconds. Map it onto the new push rate so an existing
+ * preference keeps roughly the same cadence (1 s was the old default, which the rate-based UI shows
+ * as the default 5 Hz).
+ */
+function rateFromLegacyInterval(value) {
+    const interval = Number(value);
+    return Number.isFinite(interval) && interval > 0 ? 5 / interval : TRAIN_DEFAULTS.rateHz;
+}
+
 function sanitize(raw) {
-    const interval = Number(raw.interval);
+    const requestedRate = raw.rateHz != null ? Number(raw.rateHz) : rateFromLegacyInterval(raw.interval);
     const max = Math.round(Number(raw.max));
     const minScale = Number(raw.minScale);
     return {
         enabled: typeof raw.enabled === 'boolean' ? raw.enabled : TRAIN_DEFAULTS.enabled,
         consist: raw.consist === 'block' ? 'block' : 'consist',
-        interval: Number.isFinite(interval) ? clamp(interval, TRAIN_INTERVAL_MIN, TRAIN_INTERVAL_MAX) : TRAIN_DEFAULTS.interval,
+        rateHz: Number.isFinite(requestedRate)
+            ? clamp(Math.round(requestedRate), TRAIN_RATE_MIN, TRAIN_RATE_MAX)
+            : TRAIN_DEFAULTS.rateHz,
         max: Number.isFinite(max) ? clamp(max, TRAIN_MAX_MIN, TRAIN_MAX_MAX) : TRAIN_DEFAULTS.max,
         minScale: Number.isFinite(minScale) ? clamp(minScale, TRAIN_MIN_SCALE_MIN, TRAIN_MIN_SCALE_MAX) : TRAIN_DEFAULTS.minScale,
         route: parseId(raw.route),

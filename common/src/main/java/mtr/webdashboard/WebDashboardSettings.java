@@ -22,12 +22,21 @@ public final class WebDashboardSettings {
 	public static final boolean DEFAULT_ALLOW_LAN_ACCESS = false;
 	public static final int DEFAULT_LOGIN_TOKEN_TTL_SECONDS = 120;
 	public static final int DEFAULT_SESSION_TTL_HOURS = 0;
+	/**
+	 * On by default. The stream is the primary transport; if it cannot be established the page falls
+	 * back to polling {@code /api/trains} on its own, so a server owner never has to touch this unless
+	 * they want to force polling-only.
+	 */
+	public static final boolean DEFAULT_TRAINS_STREAM_ENABLED = true;
+	public static final int DEFAULT_TRAINS_PUSH_HZ = 5;
 
 	private static final String FILE_NAME = "mtr_web_dashboard.json";
 	private static final String KEY_PORT = "port";
 	private static final String KEY_ALLOW_LAN_ACCESS = "allowLanAccess";
 	private static final String KEY_LOGIN_TOKEN_TTL_SECONDS = "loginTokenTtlSeconds";
 	private static final String KEY_SESSION_TTL_HOURS = "sessionTtlHours";
+	private static final String KEY_TRAINS_STREAM_ENABLED = "trainsStreamEnabled";
+	private static final String KEY_TRAINS_PUSH_HZ = "trainsPushHz";
 	private static final String KEY_PERMISSIONS = "permissions";
 	private static final String KEY_GRANTED = "granted";
 	private static final String KEY_NAME = "name";
@@ -41,6 +50,8 @@ public final class WebDashboardSettings {
 	private boolean allowLanAccess = DEFAULT_ALLOW_LAN_ACCESS;
 	private int loginTokenTtlSeconds = DEFAULT_LOGIN_TOKEN_TTL_SECONDS;
 	private int sessionTtlHours = DEFAULT_SESSION_TTL_HOURS;
+	private boolean trainsStreamEnabled = DEFAULT_TRAINS_STREAM_ENABLED;
+	private int trainsPushHz = DEFAULT_TRAINS_PUSH_HZ;
 
 	private final Map<UUID, PermissionEntry> permissions = new LinkedHashMap<>();
 
@@ -83,6 +94,7 @@ public final class WebDashboardSettings {
 		instance = loaded;
 		System.out.println("[MTR-WebDashboard] Settings loaded: port=" + loaded.port + ", allowLanAccess=" + loaded.allowLanAccess
 				+ ", loginTokenTtlSeconds=" + loaded.loginTokenTtlSeconds + ", sessionTtlHours=" + loaded.sessionTtlHours
+				+ ", trainsStreamEnabled=" + loaded.trainsStreamEnabled + ", trainsPushHz=" + loaded.trainsPushHz
 				+ ", permissionEntries=" + loaded.permissions.size());
 		return loaded;
 	}
@@ -149,6 +161,27 @@ public final class WebDashboardSettings {
 		return sessionTtlHours;
 	}
 
+	public synchronized void setTrainsStreamEnabled(boolean enabled) {
+		trainsStreamEnabled = enabled;
+	}
+
+	public synchronized boolean isTrainsStreamEnabled() {
+		return trainsStreamEnabled;
+	}
+
+	public synchronized void setTrainsPushHz(int hz) {
+		if (hz < 1 || hz > 10) {
+			System.out.println("[MTR-WebDashboard] trainsPushHz " + hz + " is out of range, using " + DEFAULT_TRAINS_PUSH_HZ);
+			trainsPushHz = DEFAULT_TRAINS_PUSH_HZ;
+		} else {
+			trainsPushHz = hz;
+		}
+	}
+
+	public synchronized int getTrainsPushHz() {
+		return trainsPushHz;
+	}
+
 	public synchronized boolean hasPermissionEntry(UUID uuid) {
 		return uuid != null && permissions.containsKey(uuid);
 	}
@@ -213,6 +246,12 @@ public final class WebDashboardSettings {
 		if (isNumber(object, KEY_SESSION_TTL_HOURS)) {
 			setSessionTtlHours(object.get(KEY_SESSION_TTL_HOURS).getAsInt());
 		}
+		if (isBoolean(object, KEY_TRAINS_STREAM_ENABLED)) {
+			trainsStreamEnabled = object.get(KEY_TRAINS_STREAM_ENABLED).getAsBoolean();
+		}
+		if (isNumber(object, KEY_TRAINS_PUSH_HZ)) {
+			setTrainsPushHz(object.get(KEY_TRAINS_PUSH_HZ).getAsInt());
+		}
 		readPermissions(object);
 	}
 
@@ -261,6 +300,8 @@ public final class WebDashboardSettings {
 			object.addProperty(KEY_ALLOW_LAN_ACCESS, allowLanAccess);
 			object.addProperty(KEY_LOGIN_TOKEN_TTL_SECONDS, loginTokenTtlSeconds);
 			object.addProperty(KEY_SESSION_TTL_HOURS, sessionTtlHours);
+			object.addProperty(KEY_TRAINS_STREAM_ENABLED, trainsStreamEnabled);
+			object.addProperty(KEY_TRAINS_PUSH_HZ, trainsPushHz);
 			object.add(KEY_PERMISSIONS, permissionObject);
 
 			Files.write(path, RailwayData.prettyPrint(object).getBytes(StandardCharsets.UTF_8));

@@ -190,6 +190,8 @@
 	"gui.mtr.delayed_acceleration": "延後加速",
 	"gui.mtr.delete_confirmation": "確定要刪除%s嗎？",
 	"gui.mtr.depot_color": "車廠顔色",
+	"gui.mtr.max_vehicle_speed": "車輛限速",
+	"gui.mtr.max_vehicle_speed_hint": "0=無限速",
 	"gui.mtr.depot_name": "車廠名稱",
 	"gui.mtr.depots": "車廠",
 	"gui.mtr.disable_next_station_announcements": "停用下一站廣播",

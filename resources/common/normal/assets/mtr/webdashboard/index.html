@@ -6,9 +6,9 @@
 	<meta name="color-scheme" content="light dark">
 	<meta name="robots" content="noindex">
 	<title>MTR Web Dashboard</title>
-	<link rel="stylesheet" href="index.css?v=64">
-	<link rel="stylesheet" href="welcome.css?v=64">
-	<script type="module" src="app.js?v=64"></script>
+	<link rel="stylesheet" href="index.css?v=65">
+	<link rel="stylesheet" href="welcome.css?v=65">
+	<script type="module" src="app.js?v=65"></script>
 </head>
 <body data-view="checking" data-theme="dark">
 <script>
@@ -112,6 +112,7 @@
 
 		<section class="map-area" id="map-area" data-i18n-aria-label="mapLabel" aria-label="Map">
 			<canvas id="map"></canvas>
+			<canvas id="map-trains" aria-hidden="true"></canvas>
 
 			<div class="map-controls">
 				<button class="icon-button" id="map-zoom-in" type="button" data-i18n-title="mapZoomIn" data-i18n-aria-label="mapZoomIn" aria-label="Zoom in">
@@ -146,6 +147,7 @@
 			</div>
 
 			<div class="map-readout" id="map-readout"></div>
+			<div class="map-trains-status" id="map-trains-status" role="status" hidden></div>
 		</section>
 	</div>
 </div>
@@ -316,12 +318,12 @@
 
 				<div class="settings__row settings__row--stack">
 					<div class="settings__label">
-						<span id="train-interval-label" data-i18n="trainInterval">Update interval</span>
-						<span class="settings__hint" data-i18n="trainIntervalHint">Positions are interpolated between updates.</span>
+						<span id="train-rate-label" data-i18n="trainRate">Push rate</span>
+						<span class="settings__hint" data-i18n="trainRateHint">How often positions are pushed; motion is interpolated between frames.</span>
 					</div>
 					<div class="settings__range-row">
-						<input class="settings__range" id="train-interval" type="range" min="0.5" max="10" step="0.5" aria-labelledby="train-interval-label">
-						<output class="settings__range-value" id="train-interval-value">1s</output>
+						<input class="settings__range" id="train-rate" type="range" min="1" max="10" step="1" aria-labelledby="train-rate-label">
+						<output class="settings__range-value" id="train-rate-value">5 Hz</output>
 					</div>
 				</div>
 
@@ -388,26 +390,43 @@
 		<h3 class="overlay-toast__title" id="overlay-toast-title" data-i18n="overlayTitle">Map overlays</h3>
 		<button class="overlay-toast__close" id="overlay-toast-close" type="button" aria-label="Close" data-i18n-aria-label="editClose">×</button>
 	</header>
-	<div class="overlay-toast__row">
-		<span class="overlay-toast__label" id="overlay-toast-enabled-label" data-i18n="trackOverlayShow">Show track overlay</span>
-		<label class="switch">
-			<input class="switch__input" id="overlay-toast-enabled" type="checkbox" aria-labelledby="overlay-toast-enabled-label">
-			<span class="switch__track" aria-hidden="true"><span class="switch__thumb"></span></span>
-		</label>
+	<div class="overlay-toast__section">
+		<h4 class="overlay-toast__section-title" data-i18n="overlaySectionTracks">Tracks</h4>
+		<div class="overlay-options">
+			<button class="overlay-option" id="overlay-toast-enabled" type="button" aria-pressed="false">
+				<span class="overlay-option__icon" aria-hidden="true">
+					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+						<path d="M7 3 4 21M17 3l3 18M4 8h16M3.2 14h17.6"/>
+					</svg>
+				</span>
+				<span class="overlay-option__label" data-i18n="trackOverlayShort">Track layer</span>
+			</button>
+			<button class="overlay-option" id="overlay-toast-colors" type="button" aria-pressed="false">
+				<span class="overlay-option__icon" aria-hidden="true">
+					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+						<path d="M12 3a9 9 0 1 0 0 18h1.4a2.6 2.6 0 0 0 0-5.2H12a2 2 0 0 1 0-4h4.6A4.4 4.4 0 0 0 21 7.4 4.4 4.4 0 0 0 16.6 3H12Z"/>
+						<circle cx="7.5" cy="9" r="1"/><circle cx="10" cy="6.5" r="1"/><circle cx="7" cy="13" r="1"/>
+					</svg>
+				</span>
+				<span class="overlay-option__label" data-i18n="trackColorsShort">Colours</span>
+			</button>
+		</div>
 	</div>
-	<div class="overlay-toast__row" id="overlay-toast-trains-row" hidden>
-		<span class="overlay-toast__label" id="overlay-toast-trains-label" data-i18n="trainOverlayShow">Show trains</span>
-		<label class="switch">
-			<input class="switch__input" id="overlay-toast-trains" type="checkbox" aria-labelledby="overlay-toast-trains-label">
-			<span class="switch__track" aria-hidden="true"><span class="switch__thumb"></span></span>
-		</label>
-	</div>
-	<div class="overlay-toast__row">
-		<span class="overlay-toast__label" id="overlay-toast-colors-label" data-i18n="trackShowColors">Show track colours</span>
-		<label class="switch">
-			<input class="switch__input" id="overlay-toast-colors" type="checkbox" aria-labelledby="overlay-toast-colors-label">
-			<span class="switch__track" aria-hidden="true"><span class="switch__thumb"></span></span>
-		</label>
+	<div class="overlay-toast__section" id="overlay-toast-trains-section" hidden>
+		<h4 class="overlay-toast__section-title" data-i18n="overlaySectionTrains">Trains</h4>
+		<div class="overlay-options">
+			<button class="overlay-option" id="overlay-toast-trains" type="button" aria-pressed="false">
+				<span class="overlay-option__icon" aria-hidden="true">
+					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+						<rect x="5" y="3" width="14" height="14" rx="3"/>
+						<path d="M8 7h8M7 17l-2 4M17 17l2 4M9 21h6"/>
+						<circle cx="9" cy="12" r="1" fill="currentColor" stroke="none"/>
+						<circle cx="15" cy="12" r="1" fill="currentColor" stroke="none"/>
+					</svg>
+				</span>
+				<span class="overlay-option__label" data-i18n="trainOverlayShort">Train layer</span>
+			</button>
+		</div>
 	</div>
 	<button class="overlay-toast__more" id="overlay-toast-settings" type="button" data-i18n="trackMoreSettings">More settings</button>
 </div>

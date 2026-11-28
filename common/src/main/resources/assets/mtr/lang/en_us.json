@@ -390,6 +390,8 @@
 	"gui.mtr.platform_or_siding_exists": "Each rail node can only be connected to one platform or siding",
 	"gui.mtr.predictive_braking": "Predictive Braking",
 	"gui.mtr.delayed_acceleration": "Delayed Acceleration",
+	"gui.mtr.max_vehicle_speed": "Vehicle Speed Limit",
+	"gui.mtr.max_vehicle_speed_hint": "0=No Limit",
 	"gui.mtr.moving_block": "Moving Block Signaling",
 	"gui.mtr.moving_block_stop_distance": "Minimum Stop Distance",
 	"gui.mtr.press_to_select_floor": "Press %s to select floor",

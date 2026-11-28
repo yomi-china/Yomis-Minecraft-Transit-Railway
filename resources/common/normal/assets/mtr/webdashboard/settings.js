@@ -1,7 +1,7 @@
-import { t } from './i18n.js?v=64';
-import { ACCENTS, THEME_EVENT, getTheme, setAccent, setMode } from './theme.js?v=64';
-import { getOverlaySettings, setOverlaySetting, OVERLAY_EVENT } from './overlay-settings.js?v=64';
-import { getTrainSettings, setTrainSetting, TRAIN_EVENT } from './train-settings.js?v=64';
+import { t } from './i18n.js?v=65';
+import { ACCENTS, THEME_EVENT, getTheme, setAccent, setMode } from './theme.js?v=65';
+import { getOverlaySettings, setOverlaySetting, OVERLAY_EVENT } from './overlay-settings.js?v=65';
+import { getTrainSettings, setTrainSetting, TRAIN_EVENT } from './train-settings.js?v=65';
 
 let backdrop = null;
 let dialog = null;
@@ -18,8 +18,8 @@ let trackThicknessValue = null;
 let trackColors = null;
 let trainEnabled = null;
 let trainConsistGroup = null;
-let trainInterval = null;
-let trainIntervalValue = null;
+let trainRate = null;
+let trainRateValue = null;
 let trainMax = null;
 let trainMaxValue = null;
 let trainMinScale = null;
@@ -79,11 +79,11 @@ function syncTrainControls() {
 			button.setAttribute('aria-checked', String(button.dataset.consist === settings.consist));
 		}
 	}
-	if (trainInterval) {
-		trainInterval.value = String(settings.interval);
+	if (trainRate) {
+		trainRate.value = String(settings.rateHz);
 	}
-	if (trainIntervalValue) {
-		trainIntervalValue.textContent = settings.interval + 's';
+	if (trainRateValue) {
+		trainRateValue.textContent = settings.rateHz + ' Hz';
 	}
 	if (trainMax) {
 		trainMax.value = String(settings.max);
@@ -251,8 +251,8 @@ export function initSettings() {
 	trackColors = document.getElementById('track-colors');
 	trainEnabled = document.getElementById('train-enabled');
 	trainConsistGroup = document.getElementById('train-consist');
-	trainInterval = document.getElementById('train-interval');
-	trainIntervalValue = document.getElementById('train-interval-value');
+	trainRate = document.getElementById('train-rate');
+	trainRateValue = document.getElementById('train-rate-value');
 	trainMax = document.getElementById('train-max');
 	trainMaxValue = document.getElementById('train-max-value');
 	trainMinScale = document.getElementById('train-min-scale');
@@ -312,9 +312,9 @@ export function initSettings() {
 			});
 		}
 	}
-	if (trainInterval) {
-		trainInterval.addEventListener('input', () => {
-			setTrainSetting('interval', Number(trainInterval.value));
+	if (trainRate) {
+		trainRate.addEventListener('input', () => {
+			setTrainSetting('rateHz', Number(trainRate.value));
 			syncTrainControls();
 		});
 	}

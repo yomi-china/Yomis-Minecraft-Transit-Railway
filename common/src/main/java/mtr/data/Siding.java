@@ -30,6 +30,14 @@ public class Siding extends SavedRailBase implements IPacket, IReducedSaveData {
 	private int maxManualSpeed;
 	private boolean enablePredictiveBraking;
 	private boolean enableDelayedAcceleration;
+	/**
+	 * The highest speed the vehicles on this siding may run at, in km/h, or {@code 0} for "no limit of its own".
+	 * <p>
+	 * The rail under the train keeps deciding its own limit; the speed a train actually runs at is the lower of
+	 * the two. The value is pushed into every train on the next tick (see {@link #simulateTrain}) instead of
+	 * only into newly spawned ones, so an edit applies to the trains that are already running.
+	 */
+	private int maxVehicleSpeed;
 	private int repeatIndex1;
 	private int repeatIndex2;
 	private float accelerationConstant;
@@ -70,6 +78,7 @@ public class Siding extends SavedRailBase implements IPacket, IReducedSaveData {
 	private static final String KEY_DECELERATION_CONSTANT = "deceleration_constant";
 	private static final String KEY_ENABLE_PREDICTIVE_BRAKING = "enable_predictive_braking";
 	private static final String KEY_ENABLE_DELAYED_ACCELERATION = "enable_delayed_acceleration";
+	private static final String KEY_MAX_VEHICLE_SPEED = "max_vehicle_speed";
 	private static final String KEY_ADC_TIME = "adc_time";
 
 	public Siding(long id, TransportMode transportMode, BlockPos pos1, BlockPos pos2, float railLength) {
@@ -105,6 +114,9 @@ public class Siding extends SavedRailBase implements IPacket, IReducedSaveData {
 		maxManualSpeed = messagePackHelper.getInt(KEY_MAX_MANUAL_SPEED);
 		enablePredictiveBraking = messagePackHelper.getBoolean(KEY_ENABLE_PREDICTIVE_BRAKING);
 		enableDelayedAcceleration = messagePackHelper.getBoolean(KEY_ENABLE_DELAYED_ACCELERATION);
+		// Worlds saved before the vehicle limit existed have no such key; reading it as 0 means "unlimited",
+		// which is exactly what they were running with.
+		maxVehicleSpeed = clampMaxVehicleSpeed(messagePackHelper.getInt(KEY_MAX_VEHICLE_SPEED, 0));
 		repeatIndex1 = messagePackHelper.getInt(KEY_REPEAT_INDEX_1);
 		repeatIndex2 = messagePackHelper.getInt(KEY_REPEAT_INDEX_2);
 		final float tempAccelerationConstant = RailwayData.round(messagePackHelper.getFloat(KEY_ACCELERATION_CONSTANT, Train.ACCELERATION_DEFAULT), Train.ACCELERATION_DECIMAL_PLACES);
@@ -123,6 +135,7 @@ public class Siding extends SavedRailBase implements IPacket, IReducedSaveData {
 		for (final TrainServer train : trains) {
 			train.enablePredictiveBraking = enablePredictiveBraking;
 			train.enableDelayedAcceleration = enableDelayedAcceleration;
+			train.maxVehicleSpeed = maxVehicleSpeed;
 		}
 		generateDistances();
 	}
@@ -139,6 +152,7 @@ public class Siding extends SavedRailBase implements IPacket, IReducedSaveData {
 		maxManualSpeed = compoundTag.getInt(KEY_MAX_MANUAL_SPEED);
 		enablePredictiveBraking = compoundTag.getBoolean(KEY_ENABLE_PREDICTIVE_BRAKING);
 		enableDelayedAcceleration = compoundTag.getBoolean(KEY_ENABLE_DELAYED_ACCELERATION);
+		maxVehicleSpeed = clampMaxVehicleSpeed(compoundTag.getInt(KEY_MAX_VEHICLE_SPEED));
 		repeatIndex1 = compoundTag.getInt(KEY_REPEAT_INDEX_1);
 		repeatIndex2 = compoundTag.getInt(KEY_REPEAT_INDEX_2);
 		accelerationConstant = transportMode.continuousMovement ? Train.MAX_ACCELERATION : Train.ACCELERATION_DEFAULT;
@@ -157,6 +171,7 @@ public class Siding extends SavedRailBase implements IPacket, IReducedSaveData {
 		for (final TrainServer train : trains) {
 			train.enablePredictiveBraking = enablePredictiveBraking;
 			train.enableDelayedAcceleration = enableDelayedAcceleration;
+			train.maxVehicleSpeed = maxVehicleSpeed;
 		}
 		generateDistances();
 	}
@@ -175,6 +190,7 @@ public class Siding extends SavedRailBase implements IPacket, IReducedSaveData {
 		final float tempDecelerationConstant = RailwayData.round(packet.readFloat(), Train.ACCELERATION_DECIMAL_PLACES);
 		decelerationConstant = transportMode.continuousMovement ? Train.MAX_ACCELERATION : tempDecelerationConstant < Train.MIN_ACCELERATION ? accelerationConstant : tempDecelerationConstant;
 		enableDelayedAcceleration = packet.readBoolean();
+		maxVehicleSpeed = clampMaxVehicleSpeed(packet.readInt());
 	}
 
 	@Override
@@ -200,14 +216,15 @@ public class Siding extends SavedRailBase implements IPacket, IReducedSaveData {
 		messagePacker.packString(KEY_REPEAT_INDEX_2).packInt(repeatIndex2);
 		messagePacker.packString(KEY_ACCELERATION_CONSTANT).packFloat(accelerationConstant);
 		messagePacker.packString(KEY_DECELERATION_CONSTANT).packFloat(decelerationConstant);
+		messagePacker.packString(KEY_MAX_VEHICLE_SPEED).packInt(maxVehicleSpeed);
 		RailwayData.writeMessagePackDataset(messagePacker, path, KEY_PATH);
 	}
 
 	@Override
 	public int messagePackLength() {
-		// One more map entry than before: the deceleration key. The count has to be exact, because it becomes
+		// One more map entry than before: the vehicle speed limit. The count has to be exact, because it becomes
 		// the map header of the save file and of the reduced hash.
-		return super.messagePackLength() + 15;
+		return super.messagePackLength() + 16;
 	}
 
 	@Override
@@ -229,6 +246,7 @@ public class Siding extends SavedRailBase implements IPacket, IReducedSaveData {
 		packet.writeFloat(accelerationConstant);
 		packet.writeFloat(decelerationConstant);
 		packet.writeBoolean(enableDelayedAcceleration);
+		packet.writeInt(maxVehicleSpeed);
 	}
 
 	@Override
@@ -276,6 +294,11 @@ public class Siding extends SavedRailBase implements IPacket, IReducedSaveData {
 			case KEY_ADC_TIME:
 				adcTime = packet.readInt();
 				adcTime = transportMode.continuousMovement ? 0 : adcTime;
+				break;
+			case KEY_MAX_VEHICLE_SPEED:
+				// Its own key, and its own payload, so that code written against the older setUnlimitedTrains
+				// overloads (which knows nothing about a vehicle limit) keeps those values instead of wiping it.
+				applyMaxVehicleSpeed(clampMaxVehicleSpeed(packet.readInt()));
 				break;
 			default:
 				super.update(key, packet);
@@ -533,11 +556,26 @@ public class Siding extends SavedRailBase implements IPacket, IReducedSaveData {
 
 		final Set<Long> railProgressSet = new HashSet<>();
 		final Set<TrainServer> trainsToRemove = new HashSet<>();
-		boolean delayedAccelerationChanged = false;
+		boolean drivingSettingsChanged = false;
 		for (final TrainServer train : trains) {
 			if (train.enableDelayedAcceleration != enableDelayedAcceleration) {
 				train.enableDelayedAcceleration = enableDelayedAcceleration;
-				delayedAccelerationChanged = true;
+				drivingSettingsChanged = true;
+			}
+
+			// Predictive braking was only handed to a train when it spawned, so turning it on for a siding left
+			// the trains that were already running braking late. Copied here for the same reason as the two
+			// settings below: an edit has to reach every train on the siding, not just the next one.
+			if (train.enablePredictiveBraking != enablePredictiveBraking) {
+				train.enablePredictiveBraking = enablePredictiveBraking;
+				drivingSettingsChanged = true;
+			}
+
+			// Copied before the train simulates, so an edit applies on this very tick instead of on the next one,
+			// and to trains that are already running instead of only to the next one to spawn.
+			if (train.maxVehicleSpeed != maxVehicleSpeed) {
+				train.maxVehicleSpeed = maxVehicleSpeed;
+				drivingSettingsChanged = true;
 			}
 
 			if (train.isCurrentlyManual() && railwayDataDriveTrainModule.drive(train)) {
@@ -574,6 +612,7 @@ public class Siding extends SavedRailBase implements IPacket, IReducedSaveData {
 			final TrainServer train = new TrainServer(unlimitedTrains || maxTrains > 0 ? new Random().nextLong() : id, id, railLength, trainId, baseTrainType, trainCars, path, distances, repeatIndex1, repeatIndex2, accelerationConstant, decelerationConstant, timeSegments, isManual, maxManualSpeed, dwellTime);
 			train.enablePredictiveBraking = enablePredictiveBraking;
 			train.enableDelayedAcceleration = enableDelayedAcceleration;
+			train.maxVehicleSpeed = maxVehicleSpeed;
 			trains.add(train);
 		}
 
@@ -581,7 +620,7 @@ public class Siding extends SavedRailBase implements IPacket, IReducedSaveData {
 			trainsToRemove.forEach(trains::remove);
 		}
 
-		if (delayedAccelerationChanged) {
+		if (drivingSettingsChanged) {
 			trainsToSync.addAll(trains);
 		}
 	}
@@ -622,6 +661,63 @@ public class Siding extends SavedRailBase implements IPacket, IReducedSaveData {
 			this.enableDelayedAcceleration = enableDelayedAcceleration;
 			timeSegmentsDirty = true;
 		}
+	}
+
+	/**
+	 * @return the highest speed vehicles on this siding may run at, in km/h, or {@code 0} for no limit of their own
+	 */
+	public int getMaxVehicleSpeed() {
+		return maxVehicleSpeed;
+	}
+
+	/**
+	 * Sets the highest speed vehicles on this siding may run at, and ships the new value to everyone.
+	 * <p>
+	 * The rail keeps its own limit; the train runs at the lower of the two. Changing this does not discard the
+	 * trains that are already on the siding (their position and schedule are untouched), because the value is
+	 * copied into them on the next tick, but it does rebuild the predicted arrival times, which depend on the
+	 * top speed the train will reach.
+	 *
+	 * @param maxVehicleSpeed the new limit in km/h, {@code 0} to remove the limit, clamped to 0..{@link Train#MAX_VEHICLE_SPEED}
+	 * @param sendPacket      the packet sender of the caller
+	 */
+	public void setMaxVehicleSpeed(int maxVehicleSpeed, Consumer<FriendlyByteBuf> sendPacket) {
+		final int tempMaxVehicleSpeed = clampMaxVehicleSpeed(maxVehicleSpeed);
+		final FriendlyByteBuf packet = new FriendlyByteBuf(Unpooled.buffer());
+		packet.writeLong(id);
+		packet.writeUtf(transportMode.toString());
+		packet.writeUtf(KEY_MAX_VEHICLE_SPEED);
+		packet.writeInt(tempMaxVehicleSpeed);
+		if (sendPacket != null) {
+			sendPacket.accept(packet);
+		}
+		applyMaxVehicleSpeed(tempMaxVehicleSpeed);
+	}
+
+	private void applyMaxVehicleSpeed(int maxVehicleSpeed) {
+		if (this.maxVehicleSpeed != maxVehicleSpeed) {
+			this.maxVehicleSpeed = maxVehicleSpeed;
+			// Every predicted arrival time was computed with the old top speed, so the pre-simulated segments
+			// have to be rebuilt; otherwise the countdowns would keep assuming the train goes faster than it can.
+			timeSegmentsDirty = true;
+		}
+	}
+
+	private static int clampMaxVehicleSpeed(int maxVehicleSpeed) {
+		return Math.max(0, Math.min(Train.MAX_VEHICLE_SPEED, maxVehicleSpeed));
+	}
+
+	/** The vehicle speed limit in the blocks-per-tick unit the simulation works in, or {@code 0} for none. */
+	private float getMaxVehicleSpeedBlocksPerTick() {
+		return maxVehicleSpeed > 0 ? Train.convertToBlocksPerTick(maxVehicleSpeed) : 0;
+	}
+
+	/**
+	 * Applies this siding's vehicle speed limit to a speed limit the rails allow: the lower of the two wins, and
+	 * a limit of {@code 0} leaves the rail value untouched.
+	 */
+	private static float limitRailSpeedToVehicle(float railSpeed, float vehicleSpeedLimit) {
+		return vehicleSpeedLimit > 0 && vehicleSpeedLimit < railSpeed ? vehicleSpeedLimit : railSpeed;
 	}
 
 	public boolean getUnlimitedTrains() {
@@ -676,6 +772,7 @@ public class Siding extends SavedRailBase implements IPacket, IReducedSaveData {
 		final TrainServer defaultTrain = new TrainServer(id, id, railLength, trainId, baseTrainType, trainCars, path, distances, repeatIndex1, repeatIndex2, accelerationConstant, decelerationConstant, timeSegments, isManual, maxManualSpeed, dwellTime);
 		defaultTrain.enablePredictiveBraking = enablePredictiveBraking;
 		defaultTrain.enableDelayedAcceleration = enableDelayedAcceleration;
+		defaultTrain.maxVehicleSpeed = maxVehicleSpeed;
 		trains.add(defaultTrain);
 	}
 
@@ -735,6 +832,9 @@ public class Siding extends SavedRailBase implements IPacket, IReducedSaveData {
 		float timeOld = 0;
 		long savedRailBaseIdOld = 0;
 		double distanceSum2 = 0;
+		// The predicted arrival times have to be generated with the same ceiling the live simulation drives with,
+		// or every countdown would assume the train reaches a speed the vehicle cannot. 0 means "no limit".
+		final float vehicleSpeedLimit = getMaxVehicleSpeedBlocksPerTick();
 		for (int i = 0; i < path.size(); i++) {
 			if (railProgress >= nextStoppingDistance) {
 				if (stoppingDistances.isEmpty()) {
@@ -746,14 +846,15 @@ public class Siding extends SavedRailBase implements IPacket, IReducedSaveData {
 
 			final PathData pathData = path.get(i);
 			final float currentRailSpeed = pathData.rail.railType.canAccelerate ? pathData.rail.railType.maxBlocksPerTick : Math.max(speed, RailType.getDefaultMaxBlocksPerTick(transportMode));
+			final float currentSpeedLimit = limitRailSpeedToVehicle(currentRailSpeed, vehicleSpeedLimit);
 			distanceSum2 += pathData.rail.getLength();
 
 			while (railProgress < distanceSum2) {
 				float railSpeed;
 				if (enablePredictiveBraking && !transportMode.continuousMovement) {
-					railSpeed = getPredictiveBrakingSpeedInPreSim(path, i, railProgress, distanceSum2, speed, currentRailSpeed, decelerationConstant);
+					railSpeed = getPredictiveBrakingSpeedInPreSim(path, i, railProgress, distanceSum2, speed, currentSpeedLimit, decelerationConstant, vehicleSpeedLimit);
 				} else {
-					railSpeed = currentRailSpeed;
+					railSpeed = currentSpeedLimit;
 				}
 				if (enableDelayedAcceleration && !transportMode.continuousMovement) {
 					final float tailRailSpeed = getDelayedAccelerationSpeedInPreSim(path, segmentEnds, railProgress - (double) trainCars * spacing, i);
@@ -761,6 +862,8 @@ public class Siding extends SavedRailBase implements IPacket, IReducedSaveData {
 						railSpeed = tailRailSpeed;
 					}
 				}
+				// Applied last, exactly like the live simulation, so the lower of the two limits always wins.
+				railSpeed = limitRailSpeedToVehicle(railSpeed, vehicleSpeedLimit);
 				// The stopping-distance check is a *braking* question, so it is asked of the braking rate. With
 				// a deceleration below the acceleration, the train has to start slowing down further out, and
 				// this is the only place the predicted arrival times learn that.
@@ -822,10 +925,18 @@ public class Siding extends SavedRailBase implements IPacket, IReducedSaveData {
 		}
 	}
 
-	private static float getPredictiveBrakingSpeedInPreSim(List<PathData> path, int currentIndex, double railProgress, double currentSegmentEnd, float currentSpeed, float currentRailSpeed, float decelerationConstant) {
+	/**
+	 * The highest speed this tick of the pre-simulation may run at, taking the slower limits ahead into account.
+	 *
+	 * @param currentRailSpeed    the limit of the rail under the train, already capped by the vehicle limit
+	 * @param vehicleSpeedLimit   the siding's vehicle speed limit in blocks per tick, or {@code 0} for none
+	 */
+	private static float getPredictiveBrakingSpeedInPreSim(List<PathData> path, int currentIndex, double railProgress, double currentSegmentEnd, float currentSpeed, float currentRailSpeed, float decelerationConstant, float vehicleSpeedLimit) {
 		double cumulativeDistance = currentSegmentEnd - railProgress;
 
 		float effectiveSpeed = currentRailSpeed;
+		// The lookahead distance is the distance needed to brake from the limit the train may actually run at,
+		// which is the vehicle-capped one; using the raw rail limit would look further ahead than necessary.
 		final float maxLookahead = 0.5F * currentRailSpeed * currentRailSpeed / decelerationConstant + 10;
 
 		for (int i = currentIndex + 1; i < path.size(); i++) {
@@ -833,7 +944,7 @@ public class Siding extends SavedRailBase implements IPacket, IReducedSaveData {
 			final RailType rt = pd.rail.railType;
 
 			if (rt.canAccelerate) {
-				final float segSpeed = rt.maxBlocksPerTick;
+				final float segSpeed = limitRailSpeedToVehicle(rt.maxBlocksPerTick, vehicleSpeedLimit);
 				if (segSpeed < currentSpeed) {
 					// Exact braking distance: decelerate from current speed to target segment speed
 					final double requiredBrakingDist = 0.5 * (currentSpeed * currentSpeed - segSpeed * segSpeed) / decelerationConstant;

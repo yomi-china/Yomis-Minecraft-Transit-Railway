@@ -1,8 +1,8 @@
-import { buildPayload, createForm, getDescriptor } from './editor.js?v=64';
-import { describeFailure, mountFields } from './formview.js?v=64';
-import { mount as mountChildren } from './children.js?v=64';
-import { placePopover } from './focus.js?v=64';
-import { t } from './i18n.js?v=64';
+import { buildPayload, createForm, getDescriptor } from './editor.js?v=65';
+import { describeFailure, mountFields } from './formview.js?v=65';
+import { mount as mountChildren } from './children.js?v=65';
+import { placePopover } from './focus.js?v=65';
+import { t } from './i18n.js?v=65';
 
 const BODY_PADDING = 20;
 const ARROW_SIZE = 20;

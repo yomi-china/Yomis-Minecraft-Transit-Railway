@@ -4,9 +4,9 @@ import {
 	contextFor,
 	createForm,
 	summarizeSavedRail
-} from './editor.js?v=64';
-import { describeFailure, mountFields } from './formview.js?v=64';
-import { t } from './i18n.js?v=64';
+} from './editor.js?v=65';
+import { describeFailure, mountFields } from './formview.js?v=65';
+import { t } from './i18n.js?v=65';
 
 /**
  * Mounts the child rows of a parent card (platforms under a station, sidings under a depot).

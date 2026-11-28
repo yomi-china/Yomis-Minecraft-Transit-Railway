@@ -12,24 +12,34 @@ import javax.servlet.AsyncListener;
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Read-only live train snapshot for the map overlay.
  *
  * <p>One build at a time keeps the game-thread cost bounded; concurrent pollers get a retry hint
- * instead of a queue of builds.
+ * instead of a queue of builds. Successful responses are shared for {@link #CACHE_TTL_MILLIS} so a
+ * second tab polling the same filter does not rebuild the snapshot.
  */
 public class TrainsServletHandler extends HttpServlet {
 
     public static final String PATH = "/api/trains";
 
     private static final long ASYNC_TIMEOUT_MILLIS = 5000L;
+    private static final long CACHE_TTL_MILLIS = 250L;
+    private static final int MAX_CACHE_ENTRIES = 64;
     private static final String DEFAULT_DIMENSION = "minecraft:overworld";
     private static final AtomicBoolean BUILD_IN_PROGRESS = new AtomicBoolean(false);
+    private static final Map<String, CachedResult> CACHE = new ConcurrentHashMap<>();
 
     public static void reset() {
         BUILD_IN_PROGRESS.set(false);
+        CACHE.clear();
+    }
+
+    private record CachedResult(long createdAtMillis, WebDashboardTrainService.Result result) {
     }
 
     @Override
@@ -98,7 +108,8 @@ public class TrainsServletHandler extends HttpServlet {
         try {
             server.execute(() -> {
                 try {
-                    final WebDashboardTrainService.Result result = WebDashboardTrainService.build(server, query, cancelled::get);
+                    final String cacheKey = cacheKey(query);
+                    final WebDashboardTrainService.Result result = cachedOrBuild(server, query, cacheKey, cancelled::get);
                     try {
                         asyncContext.start(() -> WebDashboardServletHandler.completeWith(asyncContext, result.status(), result.body()));
                     } catch (Exception e) {
@@ -118,7 +129,27 @@ public class TrainsServletHandler extends HttpServlet {
         }
     }
 
-    private static WebDashboardTrainService.Query parseQuery(HttpServletRequest request, HttpServletResponse response) {
+    private static WebDashboardTrainService.Result cachedOrBuild(MinecraftServer server, WebDashboardTrainService.Query query, String cacheKey, java.util.function.BooleanSupplier cancelled) {
+        final CachedResult cached = CACHE.get(cacheKey);
+        if (cached != null && System.currentTimeMillis() - cached.createdAtMillis() <= CACHE_TTL_MILLIS) {
+            return cached.result();
+        }
+
+        final WebDashboardTrainService.Result result = WebDashboardTrainService.build(server, query, cancelled);
+        if (result.status() == HttpServletResponse.SC_OK) {
+            if (CACHE.size() >= MAX_CACHE_ENTRIES) {
+                CACHE.clear();
+            }
+            CACHE.put(cacheKey, new CachedResult(System.currentTimeMillis(), result));
+        }
+        return result;
+    }
+
+    private static String cacheKey(WebDashboardTrainService.Query query) {
+        return query.dimension() + '|' + query.limit() + '|' + query.routeId() + '|' + query.depotId();
+    }
+
+    static WebDashboardTrainService.Query parseQuery(HttpServletRequest request, HttpServletResponse response) {
         final String rawWorld = request.getParameter("world");
         final String dimension;
         if (rawWorld == null || rawWorld.trim().isEmpty()) {

@@ -321,6 +321,9 @@ public final class WebDashboardDataService {
 		object.addProperty("maxManualSpeed", siding.getMaxManualSpeed());
 		object.addProperty("enablePredictiveBraking", siding.getEnablePredictiveBraking());
 		object.addProperty("enableDelayedAcceleration", siding.getEnableDelayedAcceleration());
+		// The vehicle's own speed limit in km/h, 0 for "no limit". Read-only here: the in-game siding screen
+		// owns it, and a dashboard edit that does not mention it must never reset it.
+		object.addProperty("maxVehicleSpeed", siding.getMaxVehicleSpeed());
 		object.addProperty("accelerationConstant", siding.getAccelerationConstant());
 		object.addProperty("decelerationConstant", siding.getDecelerationConstant());
 		object.addProperty("trainId", siding.getTrainId());

@@ -14,6 +14,7 @@ import mtr.webdashboard.servlet.SessionServletHandler;
 import mtr.webdashboard.servlet.StatusServletHandler;
 import mtr.webdashboard.servlet.TracksServletHandler;
 import mtr.webdashboard.servlet.TrainsServletHandler;
+import mtr.webdashboard.servlet.TrainsStreamServletHandler;
 import mtr.webdashboard.servlet.WebDashboardAsyncServlet;
 import mtr.webdashboard.servlet.WebDashboardWriteServlet;
 import org.eclipse.jetty.server.Connector;
@@ -93,6 +94,7 @@ public final class WebDashboardServer {
 		context.addServlet(new ServletHolder(new WebDashboardAsyncServlet(serverObject -> WebDashboardDataService.buildData(serverObject).toString())), "/api/data");
 		context.addServlet(new ServletHolder(new TracksServletHandler()), TracksServletHandler.PATH);
 		context.addServlet(new ServletHolder(new TrainsServletHandler()), TrainsServletHandler.PATH);
+		context.addServlet(new ServletHolder(new TrainsStreamServletHandler()), TrainsStreamServletHandler.PATH);
 
 		context.addServlet(new ServletHolder(new WebDashboardWriteServlet("station", IPacket.PACKET_UPDATE_STATION)), "/api/station/*");
 		context.addServlet(new ServletHolder(new WebDashboardWriteServlet("route", IPacket.PACKET_UPDATE_ROUTE)), "/api/route/*");
@@ -109,6 +111,9 @@ public final class WebDashboardServer {
 		final GzipHandler gzipHandler = new GzipHandler();
 		gzipHandler.setMinGzipSize(1024);
 		gzipHandler.setIncludedMimeTypes("application/json");
+		// text/event-stream is not in the included types, so it is not compressed today; excluding it
+		// explicitly keeps a future change to that list from buffering the stream.
+		gzipHandler.addExcludedPaths(TrainsStreamServletHandler.PATH);
 		gzipHandler.setHandler(context);
 		newServer.setHandler(gzipHandler);
 
@@ -116,6 +121,7 @@ public final class WebDashboardServer {
 				+ StatusServletHandler.PATH + ", " + HealthServletHandler.PATH + ", " + SessionServletHandler.PATH
 				+ ", " + LoginServletHandler.PATH + ", " + LogoutServletHandler.PATH
 				+ ", /api/meta, /api/data, " + TracksServletHandler.PATH + ", " + TrainsServletHandler.PATH
+				+ ", " + TrainsStreamServletHandler.PATH
 				+ "; writing: PATCH /api/station/<id>, /api/route/<id>, /api/depot/<id>, /api/platform/<id>, /api/siding/<id>"
 				+ "; everything else is served as a static file.");
 
@@ -134,10 +140,17 @@ public final class WebDashboardServer {
 		server = newServer;
 		serverConnector = newConnector;
 		WebDashboardRuntime.set(settings.getPort());
-		System.out.println("[MTR-WebDashboard] Listening on " + getUrl());
+		if (settings.isTrainsStreamEnabled()) {
+			WebDashboardTrainStreams.start();
+			WebDashboardTrainTracker.start();
+		}
+		System.out.println("[MTR-WebDashboard] Listening on " + getUrl()
+				+ (settings.isTrainsStreamEnabled() ? " (train stream enabled at " + settings.getTrainsPushHz() + " Hz)" : " (train stream disabled)"));
 	}
 
 	public static synchronized void stop() {
+		WebDashboardTrainStreams.stop();
+		WebDashboardTrainTracker.stop();
 		TracksServletHandler.reset();
 		TrainsServletHandler.reset();
 		if (server != null) {

@@ -1,8 +1,8 @@
 // Controller for the statistics dialog. Every figure is aggregated from the world the dashboard has
 // already loaded, so opening the dialog never asks the server to scan anything.
 
-import { f, t } from './i18n.js?v=64';
-import { MODES, formatName } from './lists.js?v=64';
+import { f, t } from './i18n.js?v=65';
+import { MODES, formatName } from './lists.js?v=65';
 
 const countFormatter = new Intl.NumberFormat();
 

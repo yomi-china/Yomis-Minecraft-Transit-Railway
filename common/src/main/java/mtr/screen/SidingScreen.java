@@ -49,6 +49,7 @@ public class SidingScreen extends SavedRailScreenBase<Siding> implements Icons {
 	private final WidgetBetterTextField textFieldMaxTrains;
 	private final WidgetBetterTextField textFieldAcceleration;
 	private final WidgetBetterTextField textFieldDeceleration;
+	private final WidgetBetterTextField textFieldMaxVehicleSpeed;
 	private final WidgetBetterCheckbox buttonIsManual;
 	private final WidgetBetterCheckbox buttonPredictiveBraking;
 	private final WidgetBetterCheckbox buttonDelayedAcceleration;
@@ -61,10 +62,14 @@ public class SidingScreen extends SavedRailScreenBase<Siding> implements Icons {
 	private static final Component MANUAL_TO_AUTOMATIC_TIME = Text.translatable("gui.mtr.manual_to_automatic_time");
 	private static final Component PREDICTIVE_BRAKING_TEXT = Text.translatable("gui.mtr.predictive_braking");
 	private static final Component MAX_MANUAL_SPEED = Text.translatable("gui.mtr.max_manual_speed");
+	private static final Component MAX_VEHICLE_SPEED_TEXT = Text.translatable("gui.mtr.max_vehicle_speed");
+	private static final Component MAX_VEHICLE_SPEED_HINT = Text.translatable("gui.mtr.max_vehicle_speed_hint");
 	private static final int MAX_TRAINS_TEXT_LENGTH = 3;
 	private static final int MAX_TRAINS_WIDTH = 80;
 	private static final int DESCRIPTION_WIDTH = 160;
 	private static final int SLIDER_SCALE = 1000;
+	private static final int MAX_VEHICLE_SPEED_TEXT_LENGTH = 4;
+	private static final int MAX_VEHICLE_SPEED_FIELD_WIDTH = 60;
 	private static final float ACCELERATION_UNIT_CONVERSION_1 = 20 * 20; // m/tick^2 to m/s^2
 	private static final float ACCELERATION_UNIT_CONVERSION_2 = ACCELERATION_UNIT_CONVERSION_1 * 3.6F; // m/tick^2 to km/h/s
 	/** Room for the two labels above the acceleration/deceleration row, taken from the rows below it. */
@@ -85,6 +90,9 @@ public class SidingScreen extends SavedRailScreenBase<Siding> implements Icons {
 				Text.translatable("gui.mtr.acceleration").getString(), 8);
 		textFieldDeceleration = new WidgetBetterTextField(WidgetBetterTextField.TextFieldFilter.POSITIVE_FLOAT,
 				Text.translatable("gui.mtr.deceleration").getString(), 8);
+		// An empty field means "no limit", which is what the hint inside the box says.
+		textFieldMaxVehicleSpeed = new WidgetBetterTextField(WidgetBetterTextField.TextFieldFilter.POSITIVE_INTEGER,
+				MAX_VEHICLE_SPEED_HINT.getString(), MAX_VEHICLE_SPEED_TEXT_LENGTH);
 		buttonIsManual = new WidgetBetterCheckbox(0, 0, 0, SQUARE_SIZE, Text.translatable("gui.mtr.is_manual"), checked -> {
 			if (checked && !textFieldMaxTrains.getValue().equals("1")) {
 				textFieldMaxTrains.setValue("1");
@@ -149,13 +157,22 @@ public class SidingScreen extends SavedRailScreenBase<Siding> implements Icons {
 		textFieldDeceleration.setValue(formatAcceleration(savedRailBase.getDecelerationConstant()));
 		textFieldDeceleration.setResponder(text -> setIsSelectingTrain(false));
 
-		final int checkboxY = SQUARE_SIZE * 5 + TEXT_FIELD_PADDING * 2 + ACCELERATION_BLOCK_EXTRA_HEIGHT;
+		final int checkboxY = checkboxRowY();
 		final int predictiveBrakingRight = SQUARE_SIZE + 24 + font.width(PREDICTIVE_BRAKING_TEXT) + TEXT_PADDING;
 		IDrawing.setPositionAndWidth(buttonPredictiveBraking, SQUARE_SIZE, checkboxY, predictiveBrakingRight - SQUARE_SIZE);
 		buttonPredictiveBraking.setChecked(savedRailBase.getEnablePredictiveBraking());
 
-		IDrawing.setPositionAndWidth(buttonDelayedAcceleration, predictiveBrakingRight, checkboxY, width - predictiveBrakingRight - SQUARE_SIZE);
+		// The vehicle speed limit takes the right end of the same row: its label, then its field. The delayed
+		// acceleration checkbox keeps everything in between.
+		final int delayedAccelerationRight = vehicleSpeedLabelX() - TEXT_PADDING;
+		IDrawing.setPositionAndWidth(buttonDelayedAcceleration, predictiveBrakingRight, checkboxY, Math.max(60, delayedAccelerationRight - predictiveBrakingRight));
 		buttonDelayedAcceleration.setChecked(savedRailBase.getEnableDelayedAcceleration());
+
+		IDrawing.setPositionAndWidth(textFieldMaxVehicleSpeed, vehicleSpeedFieldX(), checkboxY, MAX_VEHICLE_SPEED_FIELD_WIDTH);
+		final int maxVehicleSpeed = savedRailBase.getMaxVehicleSpeed();
+		// An empty value is the "no limit" state; setting it also makes the widget show its hint when empty.
+		textFieldMaxVehicleSpeed.setValue(maxVehicleSpeed > 0 ? String.valueOf(maxVehicleSpeed) : "");
+		textFieldMaxVehicleSpeed.setResponder(text -> setIsSelectingTrain(false));
 
 		IDrawing.setPositionAndWidth(buttonIsManual, SQUARE_SIZE, SQUARE_SIZE * 6 + TEXT_FIELD_PADDING * 2 + 2 + ACCELERATION_BLOCK_EXTRA_HEIGHT, width - textWidth - SQUARE_SIZE * 2);
 
@@ -176,6 +193,7 @@ public class SidingScreen extends SavedRailScreenBase<Siding> implements Icons {
 			addDrawableChild(textFieldDeceleration);
 			addDrawableChild(buttonPredictiveBraking);
 			addDrawableChild(buttonDelayedAcceleration);
+			addDrawableChild(textFieldMaxVehicleSpeed);
 			addDrawableChild(buttonIsManual);
 			addDrawableChild(sliderMaxManualSpeed);
 		}
@@ -188,6 +206,7 @@ public class SidingScreen extends SavedRailScreenBase<Siding> implements Icons {
 		textFieldMaxTrains.tick();
 		textFieldAcceleration.tick();
 		textFieldDeceleration.tick();
+		textFieldMaxVehicleSpeed.tick();
 	}
 
 	@Override
@@ -201,6 +220,8 @@ public class SidingScreen extends SavedRailScreenBase<Siding> implements Icons {
 				// the single left-hand label the other rows use.
 				guiGraphics.drawString(font, ACCELERATION_CONSTANT_TEXT, accelerationFieldX(), accelerationLabelY(), ARGB_WHITE);
 				guiGraphics.drawString(font, DECELERATION_CONSTANT_TEXT, decelerationFieldX(), accelerationLabelY(), ARGB_WHITE);
+				// The label of the vehicle speed limit sits outside its field, on the left of it.
+				guiGraphics.drawString(font, MAX_VEHICLE_SPEED_TEXT, vehicleSpeedLabelX(), checkboxRowY() + (SQUARE_SIZE - TEXT_HEIGHT) / 2, ARGB_WHITE);
 				if (buttonIsManual.selected()) {
 					guiGraphics.drawString(font, MAX_MANUAL_SPEED, SQUARE_SIZE, SQUARE_SIZE * 7 + TEXT_FIELD_PADDING * 2 + TEXT_PADDING + 2 + ACCELERATION_BLOCK_EXTRA_HEIGHT, ARGB_WHITE);
 					guiGraphics.drawString(font, MANUAL_TO_AUTOMATIC_TIME, SQUARE_SIZE, SQUARE_SIZE * 8 + TEXT_FIELD_PADDING * 2 + TEXT_PADDING + 2 + ACCELERATION_BLOCK_EXTRA_HEIGHT, ARGB_WHITE);
@@ -257,6 +278,14 @@ public class SidingScreen extends SavedRailScreenBase<Siding> implements Icons {
 		final boolean enablePredictiveBraking = buttonPredictiveBraking.selected();
 		final boolean enableDelayedAcceleration = buttonDelayedAcceleration.selected();
 		final int maxManualSpeed = sliderMaxManualSpeed.getIntValue();
+		// An empty box, or one holding something unparseable, means "no vehicle limit"; the value is clamped to
+		// the range the model accepts here as well, so an unchanged setting is recognised as unchanged below.
+		int maxVehicleSpeed;
+		try {
+			maxVehicleSpeed = Math.min(Train.MAX_VEHICLE_SPEED, Math.max(0, Integer.parseInt(textFieldMaxVehicleSpeed.getValue().trim())));
+		} catch (Exception ignored) {
+			maxVehicleSpeed = 0;
+		}
 		final int minutes = sliderDwellTimeMin.getIntValue();
 		final float second = sliderDwellTimeSec.getIntValue() / 2F;
 		final int dwellTime = (int) ((second + minutes * SECONDS_PER_MINUTE) * 2);
@@ -269,6 +298,12 @@ public class SidingScreen extends SavedRailScreenBase<Siding> implements Icons {
 			savedRailBase.setUnlimitedTrains(buttonUnlimitedTrains.selected(), maxTrains, isManual, maxManualSpeed, accelerationConstant, dwellTime, false, packet -> PacketTrainDataGuiClient.sendUpdate(getPacketIdentifier(), packet));
 		}
 		savedRailBase.setUnlimitedTrains(buttonUnlimitedTrains.selected(), maxTrains, isManual, maxManualSpeed, enablePredictiveBraking, accelerationConstant, decelerationConstant, dwellTime, oldAcceleration != accelerationConstant || oldDeceleration != decelerationConstant || oldIsManual != isManual || oldMaxManualSpeed != maxManualSpeed || oldDwellTime != dwellTime, packet -> PacketTrainDataGuiClient.sendUpdate(getPacketIdentifier(), packet));
+		// Its own update key, so the two setUnlimitedTrains call shapes above keep their old payloads intact and
+		// an addon that writes them can never clear the vehicle limit this screen just set. Only sent when it
+		// actually changed, so simply opening and closing the screen changes nothing and logs nothing.
+		if (maxVehicleSpeed != savedRailBase.getMaxVehicleSpeed()) {
+			savedRailBase.setMaxVehicleSpeed(maxVehicleSpeed, packet -> PacketTrainDataGuiClient.sendUpdate(getPacketIdentifier(), packet));
+		}
 		super.onClose();
 	}
 
@@ -318,6 +353,21 @@ public class SidingScreen extends SavedRailScreenBase<Siding> implements Icons {
 	/** Top of the two rate fields; the label line occupies the space above them. */
 	private static int accelerationFieldY() {
 		return accelerationLabelY() + TEXT_HEIGHT;
+	}
+
+	/** Top of the row that holds the two braking checkboxes and the vehicle speed limit. */
+	private static int checkboxRowY() {
+		return SQUARE_SIZE * 5 + TEXT_FIELD_PADDING * 2 + ACCELERATION_BLOCK_EXTRA_HEIGHT;
+	}
+
+	/** Left edge of the vehicle speed limit field, which is anchored to the right end of its row. */
+	private int vehicleSpeedFieldX() {
+		return width - SQUARE_SIZE - MAX_VEHICLE_SPEED_FIELD_WIDTH;
+	}
+
+	/** Left edge of the "vehicle speed limit" label, which sits outside the field on its left. */
+	private int vehicleSpeedLabelX() {
+		return vehicleSpeedFieldX() - TEXT_PADDING - font.width(MAX_VEHICLE_SPEED_TEXT);
 	}
 
 	@Override
@@ -375,6 +425,7 @@ public class SidingScreen extends SavedRailScreenBase<Siding> implements Icons {
 		buttonIsManual.visible = !isSelectingTrain;
 		buttonPredictiveBraking.visible = !isSelectingTrain;
 		buttonDelayedAcceleration.visible = !isSelectingTrain;
+		textFieldMaxVehicleSpeed.visible = !isSelectingTrain;
 		sliderMaxManualSpeed.visible = !isSelectingTrain && buttonIsManual.selected();
 		sliderDwellTimeMin.visible = !isSelectingTrain && buttonIsManual.selected();
 		sliderDwellTimeSec.visible = !isSelectingTrain && buttonIsManual.selected();

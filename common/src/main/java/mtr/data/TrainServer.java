@@ -284,14 +284,21 @@ public class TrainServer extends Train {
 	}
 
 	/**
-	 * The platform the train is heading to, for read-only dashboard displays.
+	 * The next place the train will stop, for read-only dashboard displays. The id may belong to a
+	 * platform or to a siding (when the train is heading back to a depot); callers that need to tell
+	 * them apart should use {@link #isNextStopPlatform(DataCache)}.
 	 */
-	public long getNextStopPlatformId() {
+	public long getNextStopId() {
 		if (path == null || nextStoppingIndex < 0 || nextStoppingIndex >= path.size()) {
 			return 0;
 		}
 		final PathData pathData = path.get(nextStoppingIndex);
 		return pathData == null ? 0 : pathData.savedRailBaseId;
+	}
+
+	public boolean isNextStopPlatform(DataCache dataCache) {
+		final long id = getNextStopId();
+		return id != 0 && dataCache != null && dataCache.platformIdMap.containsKey(id);
 	}
 
 	public boolean simulateTrain(Level world, float ticksElapsed, Depot depot, DataCache dataCache, List<Map<UUID, Long>> trainPositions, Map<Player, Set<TrainServer>> trainsInPlayerRange, Map<Long, List<ScheduleEntry>> schedulesForPlatform, Map<Long, Map<BlockPos, TrainDelay>> trainDelays) {

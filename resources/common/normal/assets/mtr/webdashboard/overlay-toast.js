@@ -1,14 +1,14 @@
-import { getOverlaySettings, setOverlaySetting, OVERLAY_EVENT } from './overlay-settings.js?v=64';
-import { getTrainSettings, setTrainSetting, TRAIN_EVENT } from './train-settings.js?v=64';
-import { openSettings } from './settings.js?v=64';
+import { getOverlaySettings, setOverlaySetting, OVERLAY_EVENT } from './overlay-settings.js?v=65';
+import { getTrainSettings, setTrainSetting, TRAIN_EVENT } from './train-settings.js?v=65';
+import { openSettings } from './settings.js?v=65';
 
 let button = null;
 let toast = null;
 let closeButton = null;
-let enabledInput = null;
-let colorsInput = null;
-let trainsRow = null;
-let trainsInput = null;
+let enabledButton = null;
+let colorsButton = null;
+let trainsSection = null;
+let trainsButton = null;
 let settingsButton = null;
 let lastFocus = null;
 let isOpen = false;
@@ -16,23 +16,26 @@ let closeTimer = 0;
 
 function sync() {
 	const settings = getOverlaySettings();
-	if (enabledInput) {
-		enabledInput.checked = settings.enabled;
+	if (enabledButton) {
+		enabledButton.setAttribute('aria-pressed', String(settings.enabled));
 	}
-	if (colorsInput) {
-		colorsInput.checked = settings.colors;
+	if (colorsButton) {
+		colorsButton.setAttribute('aria-pressed', String(settings.colors));
 	}
-	if (trainsInput) {
-		trainsInput.checked = getTrainSettings().enabled;
+	if (trainsButton) {
+		trainsButton.setAttribute('aria-pressed', String(getTrainSettings().enabled));
 	}
 }
 
 export function setTrainsAvailable(available) {
-	if (!trainsRow || !trainsInput) {
+	if (!trainsSection || !trainsButton) {
 		return;
 	}
-	trainsRow.hidden = !available;
-	trainsInput.disabled = !available;
+	trainsSection.hidden = !available;
+	trainsButton.disabled = !available;
+	if (isOpen) {
+		position();
+	}
 }
 
 function position() {
@@ -41,7 +44,7 @@ function position() {
 	}
 	const rect = button.getBoundingClientRect();
 	const width = toast.offsetWidth || 300;
-	const height = toast.offsetHeight || 160;
+	const height = toast.offsetHeight || 220;
 	let left = rect.right + 12;
 	if (left + width > window.innerWidth - 12) {
 		left = rect.left - width - 12;
@@ -76,8 +79,8 @@ function open() {
 		}
 		toast.classList.add('is-open');
 		position();
-		if (enabledInput) {
-			enabledInput.focus({ preventScroll: true });
+		if (enabledButton) {
+			enabledButton.focus({ preventScroll: true });
 		}
 	};
 	if (typeof requestAnimationFrame === 'function') {
@@ -110,12 +113,12 @@ export function initOverlayToast() {
 	button = document.getElementById('map-tracks');
 	toast = document.getElementById('overlay-toast');
 	closeButton = document.getElementById('overlay-toast-close');
-	enabledInput = document.getElementById('overlay-toast-enabled');
-	colorsInput = document.getElementById('overlay-toast-colors');
-	trainsRow = document.getElementById('overlay-toast-trains-row');
-	trainsInput = document.getElementById('overlay-toast-trains');
+	enabledButton = document.getElementById('overlay-toast-enabled');
+	colorsButton = document.getElementById('overlay-toast-colors');
+	trainsSection = document.getElementById('overlay-toast-trains-section');
+	trainsButton = document.getElementById('overlay-toast-trains');
 	settingsButton = document.getElementById('overlay-toast-settings');
-	if (!button || !toast || !closeButton || !enabledInput || !colorsInput || !trainsRow || !trainsInput || !settingsButton) {
+	if (!button || !toast || !closeButton || !enabledButton || !colorsButton || !trainsSection || !trainsButton || !settingsButton) {
 		return;
 	}
 
@@ -132,16 +135,16 @@ export function initOverlayToast() {
 		}
 	});
 	closeButton.addEventListener('click', () => close());
-	enabledInput.addEventListener('change', () => {
-		setOverlaySetting('enabled', enabledInput.checked);
+	enabledButton.addEventListener('click', () => {
+		setOverlaySetting('enabled', !getOverlaySettings().enabled);
 		sync();
 	});
-	colorsInput.addEventListener('change', () => {
-		setOverlaySetting('colors', colorsInput.checked);
+	colorsButton.addEventListener('click', () => {
+		setOverlaySetting('colors', !getOverlaySettings().colors);
 		sync();
 	});
-	trainsInput.addEventListener('change', () => {
-		setTrainSetting('enabled', trainsInput.checked);
+	trainsButton.addEventListener('click', () => {
+		setTrainSetting('enabled', !getTrainSettings().enabled);
 		sync();
 	});
 	settingsButton.addEventListener('click', () => {

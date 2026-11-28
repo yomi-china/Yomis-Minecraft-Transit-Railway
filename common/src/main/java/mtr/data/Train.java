@@ -73,6 +73,16 @@ public abstract class Train extends NameColorDataBase implements IPacket {
 	public final boolean isManualAllowed;
 	public boolean enablePredictiveBraking;
 	public boolean enableDelayedAcceleration;
+	/**
+	 * The highest speed this vehicle itself may run at, in km/h, or {@code 0} for "no limit of its own".
+	 * <p>
+	 * In MTR the speed of a train is decided by the rail it stands on. This field is the other half of that
+	 * rule: the speed a train actually runs at is {@code min(vehicle limit, rail limit)}, so a slow train stays
+	 * slow on a fast line, and even a fast train still obeys a slow bridge. The value belongs to the siding,
+	 * and it is copied into the train every tick, exactly like {@link #enableDelayedAcceleration}, so changing
+	 * it takes effect on trains that are already running instead of only on the next one to spawn.
+	 */
+	public int maxVehicleSpeed;
 	public final int maxManualSpeed;
 	public final int manualToAutomaticTime;
 	public final List<PathData> path;
@@ -156,6 +166,40 @@ public abstract class Train extends NameColorDataBase implements IPacket {
 	/** The rate this train slows down at, in blocks per tick squared. */
 	public final float getDecelerationConstant() {
 		return decelerationConstant;
+	}
+
+	/**
+	 * The largest value a vehicle speed limit may be set to, in km/h. The same conversion {@link RailType}
+	 * uses, so a vehicle limit and a rail limit written as the same number of km/h are the same speed.
+	 */
+	public static final int MAX_VEHICLE_SPEED = 1000;
+
+	/** Converts a km/h speed limit into the blocks-per-tick unit the simulation works in. */
+	public static float convertToBlocksPerTick(int speedKmh) {
+		return speedKmh / 3.6F / 20;
+	}
+
+	/** The vehicle's own speed limit in blocks per tick, or {@code 0} when it has none. */
+	public final float getMaxVehicleSpeedBlocksPerTick() {
+		return maxVehicleSpeed > 0 ? convertToBlocksPerTick(maxVehicleSpeed) : 0;
+	}
+
+	/**
+	 * Applies this vehicle's own limit to a speed the track would otherwise allow: the lower of the two wins.
+	 * A vehicle limit of {@code 0} means "unlimited", so the track value is returned untouched, which is what
+	 * keeps every world (and every addon) that never set one behaving exactly as it did before.
+	 *
+	 * @param railSpeed the speed limit the rail allows, in blocks per tick
+	 * @return the speed the train is actually allowed to run at, in blocks per tick
+	 */
+	public final float limitToVehicleSpeed(float railSpeed) {
+		final float vehicleSpeed = getMaxVehicleSpeedBlocksPerTick();
+		return vehicleSpeed > 0 && vehicleSpeed < railSpeed ? vehicleSpeed : railSpeed;
+	}
+
+	/** The vehicle's own speed limit in km/h, or {@code 0} when it has none. */
+	public final int getMaxVehicleSpeed() {
+		return maxVehicleSpeed;
 	}
 
 	/**
@@ -401,6 +445,11 @@ public abstract class Train extends NameColorDataBase implements IPacket {
 			ridingEntities.add(packet.readUUID());
 		}
 
+		// Appended after everything the previous build wrote. It has to be read here, at the end of the body,
+		// because addons append their own fields at the tail of this constructor and of writePacket; keeping
+		// ours strictly before theirs keeps both walks in step.
+		maxVehicleSpeed = packet.readInt();
+
 		inventory = null;
 	}
 
@@ -492,6 +541,7 @@ public abstract class Train extends NameColorDataBase implements IPacket {
 		packet.writeInt(reversalTargetIndex);
 		packet.writeInt(ridingEntities.size());
 		ridingEntities.forEach(packet::writeUUID);
+		packet.writeInt(maxVehicleSpeed);
 	}
 
 	@Override
@@ -590,6 +640,15 @@ public abstract class Train extends NameColorDataBase implements IPacket {
 		return path.size() - 1;
 	}
 
+	/**
+	 * Cumulative rail distance at a path index, for callers that need the local offset inside a rail.
+	 * A negative index means "before the first rail" and returns 0, so {@code getDistance(index - 1)}
+	 * can be used without a branch. The list is maintained by the simulation and must not be modified.
+	 */
+	public final double getDistance(int index) {
+		return index < 0 ? 0 : distances.get(index);
+	}
+
 	public final float getRailSpeed(int railIndex) {
 		final RailType thisRail = path.get(railIndex).rail.railType;
 		final float railSpeed;
@@ -599,7 +658,10 @@ public abstract class Train extends NameColorDataBase implements IPacket {
 			final RailType lastRail = railIndex > 0 ? path.get(railIndex - 1).rail.railType : thisRail;
 			railSpeed = Math.max(lastRail.canAccelerate ? lastRail.maxBlocksPerTick : RailType.getDefaultMaxBlocksPerTick(transportMode), speed);
 		}
-		return railSpeed;
+		// The rail is only half of the rule: the train's own limit caps it from above. Passing the result back
+		// through the same call site the autopilot uses also means addons reading this method see the speed the
+		// train will really run at, not just what the track would allow.
+		return limitToVehicleSpeed(railSpeed);
 	}
 
 	public final boolean isPlayerRiding(Player player) {
@@ -782,9 +844,8 @@ public abstract class Train extends NameColorDataBase implements IPacket {
 								}
 								wasDecelerating = false;
 								if (manualNotch >= EB) {
-									final RailType railType = convertMaxManualSpeed(maxManualSpeed);
 									speed = Mth.clamp(speed + getManualNotchSpeedChange(manualNotch, ticksElapsed),
-											0, railType == null ? RailType.IRON.maxBlocksPerTick : railType.maxBlocksPerTick);
+											0, getManualSpeedLimit());
 								}
 							}
 						} else {
@@ -795,9 +856,8 @@ public abstract class Train extends NameColorDataBase implements IPacket {
 							wasDecelerating = false;
 							if (isCurrentlyManual) {
 								if (manualNotch >= EB && !isManualBrakingToReversal) {
-									final RailType railType = convertMaxManualSpeed(maxManualSpeed);
 									speed = Mth.clamp(speed + getManualNotchSpeedChange(manualNotch, ticksElapsed),
-											0, railType == null ? RailType.IRON.maxBlocksPerTick : railType.maxBlocksPerTick);
+											0, getManualSpeedLimit());
 								}
 							} else {
 								float railSpeed;
@@ -809,6 +869,9 @@ public abstract class Train extends NameColorDataBase implements IPacket {
 								if (enableDelayedAcceleration && !transportMode.continuousMovement) {
 									railSpeed = Math.min(railSpeed, getDelayedAccelerationSpeed());
 								}
+								// The vehicle's own limit is applied last, so it wins whenever it is the lower of the
+								// two - whichever of the branches above produced the rail speed.
+								railSpeed = limitToVehicleSpeed(railSpeed);
 								if (speed < railSpeed) {
 									speed = Math.min(speed + newAcceleration, railSpeed);
 									manualNotch = P5;
@@ -1030,6 +1093,16 @@ public abstract class Train extends NameColorDataBase implements IPacket {
 
 	private boolean isOppositeRail() {
 		return path.size() > nextStoppingIndex + 1 && railProgress == distances.get(nextStoppingIndex) && path.get(nextStoppingIndex).isOppositeRail(path.get(nextStoppingIndex + 1));
+	}
+
+	/**
+	 * The ceiling for manual driving: the manual speed setting of the train, but never above the vehicle's own
+	 * limit. Going through {@link #convertMaxManualSpeed(int)} keeps the addons that change what that setting
+	 * means (MTR-34 raises it to its own rail types) working, and the vehicle limit still caps the result.
+	 */
+	private float getManualSpeedLimit() {
+		final RailType railType = convertMaxManualSpeed(maxManualSpeed);
+		return limitToVehicleSpeed(railType == null ? RailType.IRON.maxBlocksPerTick : railType.maxBlocksPerTick);
 	}
 
 	private float getPredictiveBrakingSpeed() {

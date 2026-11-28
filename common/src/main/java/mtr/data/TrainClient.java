@@ -562,7 +562,12 @@ public class TrainClient extends Train implements IGui {
 		reversed = train.reversed;
 		isOnRoute = train.isOnRoute;
 		isCurrentlyManual = train.isCurrentlyManual;
+		enablePredictiveBraking = train.enablePredictiveBraking;
 		enableDelayedAcceleration = train.enableDelayedAcceleration;
+		// The client re-simulates the train locally between server updates, so it has to know the same vehicle
+		// speed limit the server uses; otherwise its dead reckoning reaches a different top speed and the train
+		// visibly stutters every time a position update arrives.
+		maxVehicleSpeed = train.maxVehicleSpeed;
 		manualNotch = train.manualNotch;
 		useLegacyManualNotch = train.useLegacyManualNotch;
 		isManualBrakingToReversal = train.isManualBrakingToReversal;

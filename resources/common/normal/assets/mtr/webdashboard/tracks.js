@@ -1,6 +1,6 @@
-import { DataErrorKind, DataFailure, fetchTracks } from './api.js?v=64';
-import { argbToRgba, visibleWorldBounds } from './mapview.js?v=64';
-import { getOverlaySettings, setOverlaySetting, OVERLAY_EVENT, OVERLAY_DEFAULTS } from './overlay-settings.js?v=64';
+import { DataErrorKind, DataFailure, fetchTracks } from './api.js?v=65';
+import { argbToRgba, visibleWorldBounds } from './mapview.js?v=65';
+import { getOverlaySettings, setOverlaySetting, OVERLAY_EVENT, OVERLAY_DEFAULTS } from './overlay-settings.js?v=65';
 
 /**
  * Track overlay: viewport-scoped rail geometry.

@@ -1,6 +1,6 @@
-import { f, t } from './i18n.js?v=64';
-import { MODE_ALL, MODES, countForMode } from './lists.js?v=64';
-import { getTrainSettings } from './train-settings.js?v=64';
+import { f, t } from './i18n.js?v=65';
+import { MODE_ALL, MODES, countForMode } from './lists.js?v=65';
+import { getTrainSettings } from './train-settings.js?v=65';
 
 const el = {
 	body: document.body,

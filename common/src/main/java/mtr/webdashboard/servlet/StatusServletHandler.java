@@ -25,6 +25,8 @@ public class StatusServletHandler extends HttpServlet {
 		features.addProperty("editing", canEdit);
 		features.addProperty("tracks", true);
 		features.addProperty("trains", true);
+		features.addProperty("trainStream", WebDashboardSettings.get().isTrainsStreamEnabled());
+		features.addProperty("trainStreamVersion", 1);
 
 		final JsonObject body = new JsonObject();
 		body.addProperty("version", Keys.MOD_VERSION);

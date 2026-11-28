@@ -1,4 +1,4 @@
-import { f, t } from './i18n.js?v=64';
+import { f, t } from './i18n.js?v=65';
 
 let elements = null;
 let handlers = {};
@@ -6,8 +6,11 @@ let index = { routeById: new Map(), depotById: new Map(), sidingById: new Map(),
 let currentTrain = null;
 let tracked = false;
 let lastStatusKey = null;
-let lastNextPlatformId = null;
+let lastNextStopId = null;
 let bannerTimer = null;
+let toastSize = null;
+let lastLeft = null;
+let lastTop = null;
 
 function el() {
     if (elements) {
@@ -116,16 +119,26 @@ function routeTermini(train) {
     return train.reversed ? { origin: last, destination: first } : { origin: first, destination: last };
 }
 
+function nextStopId(train) {
+	return train.nextStopId != null ? train.nextStopId : (train.nextPlatformId == null ? null : String(train.nextPlatformId));
+}
+
 function nextStopName(train) {
-    if (!train.nextPlatformId) {
-        return t('trainNoStop');
-    }
-    const platform = index.platformById.get(train.nextPlatformId);
-    if (!platform) {
-        return t('trainNoStop');
-    }
-    const station = platform.stationId ? index.stationById.get(platform.stationId) : null;
-    return cleanName(station && station.name) || cleanName(platform.name) || t('trainNoStop');
+	const id = nextStopId(train);
+	if (!id) {
+		return t('trainNoStop');
+	}
+	if (train.nextStopKind === 'siding') {
+		const siding = index.sidingById.get(String(id));
+		const name = siding ? cleanName(siding.name) : '';
+		return f('trainDepotStop', name || t('trainNoDepot'));
+	}
+	const platform = index.platformById.get(String(id));
+	if (!platform) {
+		return t('trainNoStop');
+	}
+	const station = platform.stationId ? index.stationById.get(platform.stationId) : null;
+	return cleanName(station && station.name) || cleanName(platform.name) || t('trainNoStop');
 }
 
 function statusKey(train) {
@@ -198,7 +211,10 @@ export function show(train, anchor) {
     currentTrain = train;
     tracked = false;
     lastStatusKey = statusKey(train);
-    lastNextPlatformId = train.nextPlatformId;
+    lastNextStopId = nextStopId(train);
+    toastSize = null;
+    lastLeft = null;
+    lastTop = null;
     updateContents(train);
     nodes.toast.hidden = false;
     nodes.toast.classList.add('is-open');
@@ -212,11 +228,11 @@ export function update(train) {
     currentTrain = train;
     updateContents(train);
     const next = statusKey(train);
-    if (tracked && (next !== lastStatusKey || train.nextPlatformId !== lastNextPlatformId)) {
+    if (tracked && (next !== lastStatusKey || nextStopId(train) !== lastNextStopId)) {
         flash(train);
     }
     lastStatusKey = next;
-    lastNextPlatformId = train.nextPlatformId;
+    lastNextStopId = nextStopId(train);
 }
 
 export function setTracked(nextTracked) {
@@ -259,7 +275,7 @@ export function flash(train) {
         return;
     }
     const next = statusKey(train);
-    const message = train.nextPlatformId && train.nextPlatformId !== lastNextPlatformId
+    const message = nextStopId(train) && nextStopId(train) !== lastNextStopId
         ? f('trainBannerNext', nextStopName(train))
         : f('trainBannerStatus', statusText(train), speedText(train));
     nodes.banner.textContent = message;
@@ -275,7 +291,7 @@ export function flash(train) {
         }, 220);
     }, 2400);
     lastStatusKey = next;
-    lastNextPlatformId = train.nextPlatformId;
+    lastNextStopId = nextStopId(train);
 }
 
 export function moveTo(anchor) {
@@ -293,12 +309,18 @@ function position(anchor) {
     if (!anchor) {
         toast.style.left = '';
         toast.style.top = '';
+        lastLeft = null;
+        lastTop = null;
         return;
     }
     const margin = 12;
     const minTop = 72;
-    const width = toast.offsetWidth || 300;
-    const height = toast.offsetHeight || 220;
+    // Measure once per open: reading offsetWidth/offsetHeight on every tracked frame forces a layout.
+    if (!toastSize) {
+        toastSize = { width: toast.offsetWidth || 300, height: toast.offsetHeight || 220 };
+    }
+    const width = toastSize.width;
+    const height = toastSize.height;
     let left = anchor.clientX + 18;
     let top = anchor.clientY + 16;
     if (left + width > window.innerWidth - margin) {
@@ -307,6 +329,14 @@ function position(anchor) {
     if (top + height > window.innerHeight - margin) {
         top = anchor.clientY - height - 16;
     }
-    toast.style.left = Math.max(margin, left) + 'px';
-    toast.style.top = Math.max(minTop, top) + 'px';
+    const nextLeft = Math.max(margin, left);
+    const nextTop = Math.max(minTop, top);
+    if (nextLeft !== lastLeft) {
+        toast.style.left = nextLeft + 'px';
+        lastLeft = nextLeft;
+    }
+    if (nextTop !== lastTop) {
+        toast.style.top = nextTop + 'px';
+        lastTop = nextTop;
+    }
 }
